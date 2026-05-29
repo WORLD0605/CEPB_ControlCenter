@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Qt App (CodeLLDB - 推荐)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PATH": "D:/Programs/QT/6.8.3/llvm-mingw_64/bin;D:/Programs/QT/Tools/llvm-mingw1706_64/bin;${env:PATH}"
+      },
+      "preLaunchTask": "CMake: build"
+    },
+    {
+      "name": "Debug Qt App (C/C++ 扩展备用)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "PATH",
+          "value": "D:/Programs/QT/6.8.3/llvm-mingw_64/bin;D:/Programs/QT/Tools/llvm-mingw1706_64/bin;${env:PATH}"
+        }
+      ],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "miDebuggerPath": "D:/Programs/QT/Tools/llvm-mingw1706_64/bin/lldb-mi.exe",
+      "preLaunchTask": "CMake: build",
+      "visualizerFile": "c:\\Users\\WORLD\\AppData\\Roaming\\Code\\User\\workspaceStorage\\f9921ddcafb077484b6784f7df2b2798\\tonka3000.qtvsctools\\qt.natvis.xml"
+    }
+  ]
+}

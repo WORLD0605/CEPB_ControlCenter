@@ -1,0 +1,12 @@
+{
+  "cmake.configureOnOpen": true,
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.defaultKit": "Qt 6.8.3 llvm-mingw",
+  "cmake.generator": "Ninja",
+  "cmake.buildType": "Debug",
+  "C_Cpp.default.cppStandard": "c++17",
+  "files.associations": {
+    "*.cpp": "cpp",
+    "*.h": "cpp"
+  }
+}
