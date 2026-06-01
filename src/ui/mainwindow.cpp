@@ -26,7 +26,7 @@ MainWindow::MainWindow(QWidget *parent)
     // === 顶部连接配置 ===
     auto *topLayout = new QHBoxLayout();
     topLayout->addWidget(new QLabel("IP地址:"));
-    m_ipEdit = new QLineEdit("192.168.2.10");
+    m_ipEdit = new QLineEdit("192.168.7.10");
     m_ipEdit->setMinimumWidth(140);
     topLayout->addWidget(m_ipEdit);
 
