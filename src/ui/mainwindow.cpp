@@ -15,14 +15,16 @@
 #include <QMessageBox>
 #include <QDateTime>
 #include <QRegularExpression>
+#include <QSignalBlocker>
+#include <QSet>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_client(new DebugConsoleClient(this))
 {
     m_appConfigs = {
-        {"cepiec104", 6666, "cepiec104>", AppViewMode::Terminal},
-        {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable}
+        {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
+        {"cepiec104", 6666, "cepiec104>", AppViewMode::Terminal}
     };
 
     setWindowTitle("CEPB Control Center");
@@ -108,6 +110,28 @@ MainWindow::MainWindow(QWidget *parent)
     dataLayout->setSpacing(10);
 
     auto *dataToolbar = new QHBoxLayout();
+    dataToolbar->addWidget(new QLabel("DeviceId:"));
+    m_deviceFilterCombo = new QComboBox();
+    m_deviceFilterCombo->addItem("all", QString());
+    m_deviceFilterCombo->setMinimumContentsLength(18);
+    m_deviceFilterCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_deviceFilterCombo->setMinimumWidth(220);
+    m_deviceFilterCombo->setEnabled(false);
+    dataToolbar->addWidget(m_deviceFilterCombo);
+    dataToolbar->addWidget(new QLabel("DataRef:"));
+    m_dataRefFilterEdit = new QLineEdit();
+    m_dataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
+    m_dataRefFilterEdit->setClearButtonEnabled(true);
+    m_dataRefFilterEdit->setMinimumWidth(260);
+    m_dataRefFilterEdit->setEnabled(false);
+    dataToolbar->addWidget(m_dataRefFilterEdit);
+    dataToolbar->addWidget(new QLabel("Description:"));
+    m_descriptionFilterEdit = new QLineEdit();
+    m_descriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
+    m_descriptionFilterEdit->setClearButtonEnabled(true);
+    m_descriptionFilterEdit->setMinimumWidth(240);
+    m_descriptionFilterEdit->setEnabled(false);
+    dataToolbar->addWidget(m_descriptionFilterEdit);
     dataToolbar->addStretch();
     m_refreshDataBtn = new QPushButton("刷新数据");
     m_refreshDataBtn->setEnabled(false);
@@ -153,6 +177,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_refreshDataBtn, &QPushButton::clicked,
             this, [this]() { requestServiceChannelData(); });
+    connect(m_deviceFilterCombo, &QComboBox::currentIndexChanged,
+            this, &MainWindow::onDeviceFilterChanged);
+    connect(m_dataRefFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onDataRefFilterTextChanged);
+        connect(m_descriptionFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onDescriptionFilterTextChanged);
 
     connect(m_client, &DebugConsoleClient::connected,
             this, &MainWindow::onConnected);
@@ -225,6 +255,9 @@ void MainWindow::onConnected()
     m_statusLabel->setText("已连接 | " + m_ipEdit->text() + ":" + QString::number(appConfig.port));
 
     if (appConfig.viewMode == AppViewMode::DataTable) {
+        m_deviceFilterCombo->setEnabled(true);
+        m_dataRefFilterEdit->setEnabled(true);
+        m_descriptionFilterEdit->setEnabled(true);
         requestServiceChannelData();
     }
 }
@@ -236,7 +269,14 @@ void MainWindow::onDisconnected()
     m_statusLabel->setText("未连接");
 
     if (currentAppConfig().viewMode == AppViewMode::DataTable) {
+        m_serviceChannelItems.clear();
+        refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
+        m_deviceFilterCombo->setEnabled(false);
+        m_dataRefFilterEdit->clear();
+        m_dataRefFilterEdit->setEnabled(false);
+        m_descriptionFilterEdit->clear();
+        m_descriptionFilterEdit->setEnabled(false);
     }
 }
 
@@ -261,7 +301,9 @@ void MainWindow::onCommandReply(const QString &reply)
             return;
         }
 
-        populateServiceChannelTable(items);
+        m_serviceChannelItems = items;
+        refreshDeviceFilterOptions();
+        applyServiceChannelFilter();
         appendSystem(QString("ServiceChannel 数据已加载，共 %1 条").arg(items.size()), "#87ceeb");
         return;
     }
@@ -310,6 +352,9 @@ void MainWindow::updateUIState(bool connected)
     m_appCombo->setEnabled(!connected);
     m_cmdEdit->setEnabled(connected && terminalMode);
     m_refreshDataBtn->setEnabled(connected && !terminalMode);
+    m_deviceFilterCombo->setEnabled(connected && !terminalMode);
+    m_dataRefFilterEdit->setEnabled(connected && !terminalMode);
+    m_descriptionFilterEdit->setEnabled(connected && !terminalMode);
 
     for (auto *btn : findChildren<QPushButton*>()) {
         if (btn->property("command").isValid()) {
@@ -354,6 +399,21 @@ void MainWindow::requestServiceChannelData()
 
     appendSystem("=> dataread all", "#aaaaaa");
     m_client->sendCommand("dataread all");
+}
+
+void MainWindow::onDeviceFilterChanged(int /*index*/)
+{
+    applyServiceChannelFilter();
+}
+
+void MainWindow::onDataRefFilterTextChanged(const QString & /*text*/)
+{
+    applyServiceChannelFilter();
+}
+
+void MainWindow::onDescriptionFilterTextChanged(const QString & /*text*/)
+{
+    applyServiceChannelFilter();
 }
 
 QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QString &reply) const
@@ -406,4 +466,64 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
     }
 
     m_dataTable->resizeRowsToContents();
+}
+
+void MainWindow::refreshDeviceFilterOptions()
+{
+    QSignalBlocker blocker(m_deviceFilterCombo);
+
+    const QString currentFilter = m_deviceFilterCombo->currentData().toString();
+    QSet<QString> seenDeviceIds;
+    QStringList deviceIds;
+
+    for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
+        if (item.deviceId.isEmpty() || seenDeviceIds.contains(item.deviceId)) {
+            continue;
+        }
+
+        seenDeviceIds.insert(item.deviceId);
+        deviceIds.append(item.deviceId);
+    }
+
+    std::sort(deviceIds.begin(), deviceIds.end(), [](const QString &left, const QString &right) {
+        const bool leftIsNumber = !left.isEmpty() && std::all_of(left.cbegin(), left.cend(), [](QChar ch) { return ch.isDigit(); });
+        const bool rightIsNumber = !right.isEmpty() && std::all_of(right.cbegin(), right.cend(), [](QChar ch) { return ch.isDigit(); });
+
+        if (leftIsNumber && rightIsNumber) {
+            return left.toInt() < right.toInt();
+        }
+
+        return QString::compare(left, right, Qt::CaseInsensitive) < 0;
+    });
+
+    m_deviceFilterCombo->clear();
+    m_deviceFilterCombo->addItem("all", QString());
+    for (const QString &deviceId : deviceIds) {
+        m_deviceFilterCombo->addItem(deviceId, deviceId);
+    }
+
+    const int restoredIndex = m_deviceFilterCombo->findData(currentFilter);
+    m_deviceFilterCombo->setCurrentIndex(restoredIndex >= 0 ? restoredIndex : 0);
+}
+
+void MainWindow::applyServiceChannelFilter()
+{
+    const QString selectedDeviceId = m_deviceFilterCombo->currentData().toString();
+    const QString dataRefKeyword = m_dataRefFilterEdit->text().trimmed();
+    const QString descriptionKeyword = m_descriptionFilterEdit->text().trimmed();
+    QList<ServiceChannelDataItem> filteredItems;
+
+    for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
+        const bool matchesDeviceId = selectedDeviceId.isEmpty() || item.deviceId == selectedDeviceId;
+        const bool matchesDataRef = dataRefKeyword.isEmpty() ||
+                                    item.dataRef.contains(dataRefKeyword, Qt::CaseInsensitive);
+        const bool matchesDescription = descriptionKeyword.isEmpty() ||
+                                        item.description.contains(descriptionKeyword, Qt::CaseInsensitive);
+
+        if (matchesDeviceId && matchesDataRef && matchesDescription) {
+            filteredItems.append(item);
+        }
+    }
+
+    populateServiceChannelTable(filteredItems);
 }

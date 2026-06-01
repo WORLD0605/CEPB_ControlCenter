@@ -46,6 +46,9 @@ private slots:
     void onSendClicked();
     void onQuickCommandClicked();
     void onAppSelectionChanged(int index);
+    void onDeviceFilterChanged(int index);
+    void onDataRefFilterTextChanged(const QString &text);
+    void onDescriptionFilterTextChanged(const QString &text);
 
     void onConnected();
     void onDisconnected();
@@ -63,9 +66,12 @@ private:
     void requestServiceChannelData();
     QList<ServiceChannelDataItem> parseServiceChannelDataReply(const QString &reply) const;
     void populateServiceChannelTable(const QList<ServiceChannelDataItem> &items);
+    void refreshDeviceFilterOptions();
+    void applyServiceChannelFilter();
 
     DebugConsoleClient *m_client = nullptr;
     QList<AppConfig> m_appConfigs;
+    QList<ServiceChannelDataItem> m_serviceChannelItems;
 
     QLineEdit *m_ipEdit = nullptr;
     QComboBox *m_appCombo = nullptr;
@@ -75,6 +81,9 @@ private:
     QTextEdit *m_logView = nullptr;
     QLineEdit *m_cmdEdit = nullptr;
     QPushButton *m_sendBtn = nullptr;
+    QComboBox *m_deviceFilterCombo = nullptr;
+    QLineEdit *m_dataRefFilterEdit = nullptr;
+    QLineEdit *m_descriptionFilterEdit = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
     QTableWidget *m_dataTable = nullptr;
     QLabel *m_statusLabel = nullptr;
