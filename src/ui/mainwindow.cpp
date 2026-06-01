@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QApplication>
 #include <QClipboard>
+#include <QColor>
 #include <QMenu>
 #include <QShortcut>
 
@@ -27,7 +28,10 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_client(new DebugConsoleClient(this))
     , m_autoRefreshTimer(new QTimer(this))
+    , m_highlightRefreshTimer(new QTimer(this))
 {
+    m_highlightRefreshTimer->setInterval(500);
+
     m_appConfigs = {
         {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
         {"cepiec104", 6666, "cepiec104>", AppViewMode::Terminal}
@@ -207,6 +211,11 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAutoRefreshIntervalChanged);
         connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
+            connect(m_highlightRefreshTimer, &QTimer::timeout,
+                this, [this]() {
+                applyServiceChannelFilter();
+                updateHighlightRefreshTimer();
+                });
             connect(new QShortcut(QKeySequence::Copy, m_dataTable), &QShortcut::activated,
                 this, [this]() { copySelectedTableCells(); });
             connect(m_dataTable, &QWidget::customContextMenuRequested, this,
@@ -304,12 +313,16 @@ void MainWindow::onConnected()
 void MainWindow::onDisconnected()
 {
     m_autoRefreshTimer->stop();
+    m_highlightRefreshTimer->stop();
     updateUIState(false);
     appendSystem("已断开", "#ff4500");
     m_statusLabel->setText("未连接");
 
     if (currentAppConfig().viewMode == AppViewMode::DataTable) {
         m_serviceChannelItems.clear();
+        m_previousServiceChannelItemMap.clear();
+        m_timeHighlightUntilMap.clear();
+        m_valueHighlightUntilMap.clear();
         refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
         m_deviceFilterCombo->setEnabled(false);
@@ -324,6 +337,7 @@ void MainWindow::onDisconnected()
 void MainWindow::onError(const QString &err)
 {
     m_autoRefreshTimer->stop();
+    m_highlightRefreshTimer->stop();
     appendSystem("错误: " + err, "#ff4444");
     updateUIState(false);
     m_statusLabel->setText("连接错误");
@@ -343,9 +357,29 @@ void MainWindow::onCommandReply(const QString &reply)
             return;
         }
 
+        const QDateTime now = QDateTime::currentDateTime();
+        const QDateTime highlightUntil = now.addSecs(3);
+        for (const ServiceChannelDataItem &item : items) {
+            const QString itemKey = serviceChannelItemKey(item);
+            const ServiceChannelDataItem previousItem = m_previousServiceChannelItemMap.value(itemKey);
+            const bool hasPreviousItem = !previousItem.deviceId.isEmpty() || !previousItem.dataRef.isEmpty();
+
+            if (hasPreviousItem && previousItem.dataTime != item.dataTime) {
+                m_timeHighlightUntilMap.insert(itemKey, highlightUntil);
+            }
+            if (hasPreviousItem && previousItem.value != item.value) {
+                m_valueHighlightUntilMap.insert(itemKey, highlightUntil);
+            }
+        }
+
         m_serviceChannelItems = items;
         refreshDeviceFilterOptions();
         applyServiceChannelFilter();
+        updateHighlightRefreshTimer();
+        m_previousServiceChannelItemMap.clear();
+        for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
+            m_previousServiceChannelItemMap.insert(serviceChannelItemKey(item), item);
+        }
         appendSystem(QString("ServiceChannel 数据已加载，共 %1 条").arg(items.size()), "#87ceeb");
         return;
     }
@@ -417,8 +451,10 @@ void MainWindow::applyCurrentAppView()
     if (!m_client->isConnected()) {
         updateUIState(false);
         m_autoRefreshTimer->stop();
+        m_highlightRefreshTimer->stop();
     } else {
         updateAutoRefreshTimer();
+        updateHighlightRefreshTimer();
     }
 }
 
@@ -511,15 +547,37 @@ QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QSt
 
 void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem> &items)
 {
+    const QColor defaultTextColor("#ffffff");
+    const QColor changedTextColor("#32cd32");
+    const QDateTime now = QDateTime::currentDateTime();
+
     m_dataTable->setRowCount(items.size());
 
     for (int row = 0; row < items.size(); ++row) {
         const ServiceChannelDataItem &item = items.at(row);
-        m_dataTable->setItem(row, 0, new QTableWidgetItem(item.deviceId));
-        m_dataTable->setItem(row, 1, new QTableWidgetItem(item.dataRef));
-        m_dataTable->setItem(row, 2, new QTableWidgetItem(item.description));
-        m_dataTable->setItem(row, 3, new QTableWidgetItem(item.dataTime));
-        m_dataTable->setItem(row, 4, new QTableWidgetItem(item.value));
+        const QString itemKey = serviceChannelItemKey(item);
+        const bool timeChanged = m_timeHighlightUntilMap.value(itemKey).isValid() &&
+                                 m_timeHighlightUntilMap.value(itemKey) > now;
+        const bool valueChanged = m_valueHighlightUntilMap.value(itemKey).isValid() &&
+                                  m_valueHighlightUntilMap.value(itemKey) > now;
+
+        auto *deviceIdItem = new QTableWidgetItem(item.deviceId);
+        auto *dataRefItem = new QTableWidgetItem(item.dataRef);
+        auto *descriptionItem = new QTableWidgetItem(item.description);
+        auto *dataTimeItem = new QTableWidgetItem(item.dataTime);
+        auto *valueItem = new QTableWidgetItem(item.value);
+
+        deviceIdItem->setForeground(defaultTextColor);
+        dataRefItem->setForeground(defaultTextColor);
+        descriptionItem->setForeground(defaultTextColor);
+        dataTimeItem->setForeground(timeChanged ? changedTextColor : defaultTextColor);
+        valueItem->setForeground(valueChanged ? changedTextColor : defaultTextColor);
+
+        m_dataTable->setItem(row, 0, deviceIdItem);
+        m_dataTable->setItem(row, 1, dataRefItem);
+        m_dataTable->setItem(row, 2, descriptionItem);
+        m_dataTable->setItem(row, 3, dataTimeItem);
+        m_dataTable->setItem(row, 4, valueItem);
     }
 
     m_dataTable->resizeRowsToContents();
@@ -601,6 +659,41 @@ void MainWindow::updateAutoRefreshTimer()
     m_autoRefreshTimer->start(intervalMs);
 }
 
+void MainWindow::updateHighlightRefreshTimer()
+{
+    const QDateTime now = QDateTime::currentDateTime();
+
+    for (auto it = m_timeHighlightUntilMap.begin(); it != m_timeHighlightUntilMap.end(); ) {
+        if (!it.value().isValid() || it.value() <= now) {
+            it = m_timeHighlightUntilMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (auto it = m_valueHighlightUntilMap.begin(); it != m_valueHighlightUntilMap.end(); ) {
+        if (!it.value().isValid() || it.value() <= now) {
+            it = m_valueHighlightUntilMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    if (!m_client->isConnected() || currentAppConfig().viewMode != AppViewMode::DataTable) {
+        m_highlightRefreshTimer->stop();
+        return;
+    }
+
+    if (m_timeHighlightUntilMap.isEmpty() && m_valueHighlightUntilMap.isEmpty()) {
+        m_highlightRefreshTimer->stop();
+        return;
+    }
+
+    if (!m_highlightRefreshTimer->isActive()) {
+        m_highlightRefreshTimer->start();
+    }
+}
+
 void MainWindow::copySelectedTableCells()
 {
     if (!m_dataTable->selectionModel()) {
@@ -640,4 +733,9 @@ void MainWindow::copySelectedTableCells()
     }
 
     QApplication::clipboard()->setText(copiedText);
+}
+
+QString MainWindow::serviceChannelItemKey(const ServiceChannelDataItem &item) const
+{
+    return item.deviceId + "#" + item.dataRef;
 }

@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QHash>
 #include <QList>
 #include "network/debug_console_client.h"
 
@@ -71,12 +72,18 @@ private:
     void refreshDeviceFilterOptions();
     void applyServiceChannelFilter();
     void updateAutoRefreshTimer();
+    void updateHighlightRefreshTimer();
     void copySelectedTableCells();
+    QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
 
     DebugConsoleClient *m_client = nullptr;
     QTimer *m_autoRefreshTimer = nullptr;
+    QTimer *m_highlightRefreshTimer = nullptr;
     QList<AppConfig> m_appConfigs;
     QList<ServiceChannelDataItem> m_serviceChannelItems;
+    QHash<QString, ServiceChannelDataItem> m_previousServiceChannelItemMap;
+    QHash<QString, QDateTime> m_timeHighlightUntilMap;
+    QHash<QString, QDateTime> m_valueHighlightUntilMap;
 
     QLineEdit *m_ipEdit = nullptr;
     QComboBox *m_appCombo = nullptr;
