@@ -17,10 +17,12 @@
 #include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QSet>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_client(new DebugConsoleClient(this))
+    , m_autoRefreshTimer(new QTimer(this))
 {
     m_appConfigs = {
         {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
@@ -132,6 +134,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_descriptionFilterEdit->setMinimumWidth(240);
     m_descriptionFilterEdit->setEnabled(false);
     dataToolbar->addWidget(m_descriptionFilterEdit);
+    dataToolbar->addWidget(new QLabel("自动刷新:"));
+    m_autoRefreshCombo = new QComboBox();
+    m_autoRefreshCombo->addItem("关闭", 0);
+    m_autoRefreshCombo->addItem("1 秒", 1000);
+    m_autoRefreshCombo->addItem("2 秒", 2000);
+    m_autoRefreshCombo->addItem("5 秒", 5000);
+    m_autoRefreshCombo->addItem("10 秒", 10000);
+    m_autoRefreshCombo->setCurrentIndex(0);
+    m_autoRefreshCombo->setEnabled(false);
+    dataToolbar->addWidget(m_autoRefreshCombo);
     dataToolbar->addStretch();
     m_refreshDataBtn = new QPushButton("刷新数据");
     m_refreshDataBtn->setEnabled(false);
@@ -145,12 +157,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_dataTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_dataTable->setAlternatingRowColors(true);
     m_dataTable->verticalHeader()->setVisible(false);
+    m_dataTable->horizontalHeader()->setSectionsClickable(true);
+    m_dataTable->horizontalHeader()->setSectionsMovable(false);
     m_dataTable->horizontalHeader()->setStretchLastSection(false);
-    m_dataTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_dataTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_dataTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
-    m_dataTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    m_dataTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    m_dataTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_dataTable->setColumnWidth(0, 140);
+    m_dataTable->setColumnWidth(1, 280);
+    m_dataTable->setColumnWidth(2, 380);
+    m_dataTable->setColumnWidth(3, 170);
+    m_dataTable->setColumnWidth(4, 90);
     dataLayout->addWidget(m_dataTable, 1);
 
     m_contentStack->addWidget(terminalPage);
@@ -183,6 +198,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDataRefFilterTextChanged);
         connect(m_descriptionFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDescriptionFilterTextChanged);
+        connect(m_autoRefreshCombo, &QComboBox::currentIndexChanged,
+            this, &MainWindow::onAutoRefreshIntervalChanged);
+        connect(m_autoRefreshTimer, &QTimer::timeout,
+            this, [this]() { requestServiceChannelData(false); });
 
     connect(m_client, &DebugConsoleClient::connected,
             this, &MainWindow::onConnected);
@@ -258,12 +277,15 @@ void MainWindow::onConnected()
         m_deviceFilterCombo->setEnabled(true);
         m_dataRefFilterEdit->setEnabled(true);
         m_descriptionFilterEdit->setEnabled(true);
-        requestServiceChannelData();
+        m_autoRefreshCombo->setEnabled(true);
+        requestServiceChannelData(false);
+        updateAutoRefreshTimer();
     }
 }
 
 void MainWindow::onDisconnected()
 {
+    m_autoRefreshTimer->stop();
     updateUIState(false);
     appendSystem("已断开", "#ff4500");
     m_statusLabel->setText("未连接");
@@ -277,11 +299,13 @@ void MainWindow::onDisconnected()
         m_dataRefFilterEdit->setEnabled(false);
         m_descriptionFilterEdit->clear();
         m_descriptionFilterEdit->setEnabled(false);
+        m_autoRefreshCombo->setEnabled(false);
     }
 }
 
 void MainWindow::onError(const QString &err)
 {
+    m_autoRefreshTimer->stop();
     appendSystem("错误: " + err, "#ff4444");
     updateUIState(false);
     m_statusLabel->setText("连接错误");
@@ -355,6 +379,7 @@ void MainWindow::updateUIState(bool connected)
     m_deviceFilterCombo->setEnabled(connected && !terminalMode);
     m_dataRefFilterEdit->setEnabled(connected && !terminalMode);
     m_descriptionFilterEdit->setEnabled(connected && !terminalMode);
+    m_autoRefreshCombo->setEnabled(connected && !terminalMode);
 
     for (auto *btn : findChildren<QPushButton*>()) {
         if (btn->property("command").isValid()) {
@@ -373,6 +398,9 @@ void MainWindow::applyCurrentAppView()
 
     if (!m_client->isConnected()) {
         updateUIState(false);
+        m_autoRefreshTimer->stop();
+    } else {
+        updateAutoRefreshTimer();
     }
 }
 
@@ -386,7 +414,7 @@ AppConfig MainWindow::currentAppConfig() const
     return AppConfig{};
 }
 
-void MainWindow::requestServiceChannelData()
+void MainWindow::requestServiceChannelData(bool logRequest)
 {
     if (currentAppConfig().viewMode != AppViewMode::DataTable) {
         return;
@@ -397,7 +425,13 @@ void MainWindow::requestServiceChannelData()
         return;
     }
 
-    appendSystem("=> dataread all", "#aaaaaa");
+    if (m_client->isExecutingCommand()) {
+        return;
+    }
+
+    if (logRequest) {
+        appendSystem("=> dataread all", "#aaaaaa");
+    }
     m_client->sendCommand("dataread all");
 }
 
@@ -414,6 +448,11 @@ void MainWindow::onDataRefFilterTextChanged(const QString & /*text*/)
 void MainWindow::onDescriptionFilterTextChanged(const QString & /*text*/)
 {
     applyServiceChannelFilter();
+}
+
+void MainWindow::onAutoRefreshIntervalChanged(int /*index*/)
+{
+    updateAutoRefreshTimer();
 }
 
 QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QString &reply) const
@@ -526,4 +565,20 @@ void MainWindow::applyServiceChannelFilter()
     }
 
     populateServiceChannelTable(filteredItems);
+}
+
+void MainWindow::updateAutoRefreshTimer()
+{
+    if (!m_client->isConnected() || currentAppConfig().viewMode != AppViewMode::DataTable) {
+        m_autoRefreshTimer->stop();
+        return;
+    }
+
+    const int intervalMs = m_autoRefreshCombo->currentData().toInt();
+    if (intervalMs <= 0) {
+        m_autoRefreshTimer->stop();
+        return;
+    }
+
+    m_autoRefreshTimer->start(intervalMs);
 }

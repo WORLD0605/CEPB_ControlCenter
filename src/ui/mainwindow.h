@@ -12,6 +12,7 @@ class QTextEdit;
 class QLabel;
 class QStackedWidget;
 class QTableWidget;
+class QTimer;
 
 enum class AppViewMode {
     Terminal,
@@ -49,6 +50,7 @@ private slots:
     void onDeviceFilterChanged(int index);
     void onDataRefFilterTextChanged(const QString &text);
     void onDescriptionFilterTextChanged(const QString &text);
+    void onAutoRefreshIntervalChanged(int index);
 
     void onConnected();
     void onDisconnected();
@@ -63,13 +65,15 @@ private:
     void updateUIState(bool connected);
     void applyCurrentAppView();
     AppConfig currentAppConfig() const;
-    void requestServiceChannelData();
+    void requestServiceChannelData(bool logRequest = true);
     QList<ServiceChannelDataItem> parseServiceChannelDataReply(const QString &reply) const;
     void populateServiceChannelTable(const QList<ServiceChannelDataItem> &items);
     void refreshDeviceFilterOptions();
     void applyServiceChannelFilter();
+    void updateAutoRefreshTimer();
 
     DebugConsoleClient *m_client = nullptr;
+    QTimer *m_autoRefreshTimer = nullptr;
     QList<AppConfig> m_appConfigs;
     QList<ServiceChannelDataItem> m_serviceChannelItems;
 
@@ -84,6 +88,7 @@ private:
     QComboBox *m_deviceFilterCombo = nullptr;
     QLineEdit *m_dataRefFilterEdit = nullptr;
     QLineEdit *m_descriptionFilterEdit = nullptr;
+    QComboBox *m_autoRefreshCombo = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
     QTableWidget *m_dataTable = nullptr;
     QLabel *m_statusLabel = nullptr;
