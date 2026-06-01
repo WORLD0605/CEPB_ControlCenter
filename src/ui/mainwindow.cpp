@@ -8,13 +8,23 @@
 #include <QTextEdit>
 #include <QLabel>
 #include <QStatusBar>
+#include <QStackedWidget>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QHeaderView>
 #include <QMessageBox>
 #include <QDateTime>
+#include <QRegularExpression>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_client(new DebugConsoleClient(this))
 {
+    m_appConfigs = {
+        {"cepiec104", 6666, "cepiec104>", AppViewMode::Terminal},
+        {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable}
+    };
+
     setWindowTitle("CEPB Control Center");
     resize(960, 640);
 
@@ -32,8 +42,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     topLayout->addWidget(new QLabel("APP:"));
     m_appCombo = new QComboBox();
-    // 格式：显示名 (端口)，data 存端口号
-    m_appCombo->addItem("cepiec104", 6666);
+    for (int index = 0; index < m_appConfigs.size(); ++index) {
+        m_appCombo->addItem(m_appConfigs.at(index).name, index);
+    }
     topLayout->addWidget(m_appCombo);
 
     m_connectBtn = new QPushButton("连接");
@@ -45,7 +56,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     mainLayout->addLayout(topLayout);
 
-    // === 中部日志显示 ===
+    m_contentStack = new QStackedWidget();
+
+    auto *terminalPage = new QWidget();
+    auto *terminalLayout = new QVBoxLayout(terminalPage);
+    terminalLayout->setContentsMargins(0, 0, 0, 0);
+    terminalLayout->setSpacing(10);
+
     m_logView = new QTextEdit();
     m_logView->setReadOnly(true);
     m_logView->setLineWrapMode(QTextEdit::WidgetWidth);
@@ -57,9 +74,8 @@ MainWindow::MainWindow(QWidget *parent)
         "  color: #d4d4d4;"
         "}"
     );
-    mainLayout->addWidget(m_logView, 1);
+    terminalLayout->addWidget(m_logView, 1);
 
-    // === 底部命令区 ===
     auto *bottomLayout = new QHBoxLayout();
     m_cmdEdit = new QLineEdit();
     m_cmdEdit->setPlaceholderText("输入命令后按回车...");
@@ -68,10 +84,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_sendBtn = new QPushButton("发送");
     m_sendBtn->setEnabled(false);
     bottomLayout->addWidget(m_sendBtn);
+    terminalLayout->addLayout(bottomLayout);
 
-    mainLayout->addLayout(bottomLayout);
-
-    // === 快捷按钮区 ===
     auto *quickLayout = new QHBoxLayout();
     const QStringList quickCmds = {
         "help", "ping", "uptime", "mqtt",
@@ -86,7 +100,38 @@ MainWindow::MainWindow(QWidget *parent)
         quickLayout->addWidget(btn);
     }
     quickLayout->addStretch();
-    mainLayout->addLayout(quickLayout);
+    terminalLayout->addLayout(quickLayout);
+
+    auto *dataPage = new QWidget();
+    auto *dataLayout = new QVBoxLayout(dataPage);
+    dataLayout->setContentsMargins(0, 0, 0, 0);
+    dataLayout->setSpacing(10);
+
+    auto *dataToolbar = new QHBoxLayout();
+    dataToolbar->addStretch();
+    m_refreshDataBtn = new QPushButton("刷新数据");
+    m_refreshDataBtn->setEnabled(false);
+    dataToolbar->addWidget(m_refreshDataBtn);
+    dataLayout->addLayout(dataToolbar);
+
+    m_dataTable = new QTableWidget(0, 5);
+    m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "Description", "DataTime", "Value"});
+    m_dataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_dataTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_dataTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_dataTable->setAlternatingRowColors(true);
+    m_dataTable->verticalHeader()->setVisible(false);
+    m_dataTable->horizontalHeader()->setStretchLastSection(false);
+    m_dataTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_dataTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_dataTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_dataTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_dataTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    dataLayout->addWidget(m_dataTable, 1);
+
+    m_contentStack->addWidget(terminalPage);
+    m_contentStack->addWidget(dataPage);
+    mainLayout->addWidget(m_contentStack, 1);
 
     setCentralWidget(central);
 
@@ -99,10 +144,15 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConnectClicked);
     connect(m_disconnectBtn, &QPushButton::clicked,
             this, &MainWindow::onDisconnectClicked);
+    connect(m_appCombo, &QComboBox::currentIndexChanged,
+            this, &MainWindow::onAppSelectionChanged);
     connect(m_sendBtn, &QPushButton::clicked,
             this, &MainWindow::onSendClicked);
     connect(m_cmdEdit, &QLineEdit::returnPressed,
             this, &MainWindow::onSendClicked);
+
+    connect(m_refreshDataBtn, &QPushButton::clicked,
+            this, [this]() { requestServiceChannelData(); });
 
     connect(m_client, &DebugConsoleClient::connected,
             this, &MainWindow::onConnected);
@@ -114,6 +164,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onLogLine);
     connect(m_client, &DebugConsoleClient::commandReplyReceived,
             this, &MainWindow::onCommandReply);
+
+    applyCurrentAppView();
 }
 
 MainWindow::~MainWindow() = default;
@@ -121,15 +173,14 @@ MainWindow::~MainWindow() = default;
 void MainWindow::onConnectClicked()
 {
     QString host = m_ipEdit->text().trimmed();
-    quint16 port = static_cast<quint16>(m_appCombo->currentData().toInt());
+    const AppConfig appConfig = currentAppConfig();
+    quint16 port = appConfig.port;
     if (host.isEmpty()) {
         QMessageBox::warning(this, "警告", "IP地址不能为空");
         return;
     }
 
-    // 根据 APP 名称推导 prompt，如 cepiec104>
-    QString appName = m_appCombo->currentText();
-    m_client->setPromptPattern(appName + ">");
+    m_client->setPromptPattern(appConfig.prompt);
 
     appendSystem("正在连接 " + host + ":" + QString::number(port) + " ...");
     m_client->connectToHost(host, port);
@@ -161,11 +212,21 @@ void MainWindow::onQuickCommandClicked()
     m_client->sendCommand(cmd);
 }
 
+void MainWindow::onAppSelectionChanged(int /*index*/)
+{
+    applyCurrentAppView();
+}
+
 void MainWindow::onConnected()
 {
+    const AppConfig appConfig = currentAppConfig();
     updateUIState(true);
     appendSystem("已连接", "#32cd32");
-    m_statusLabel->setText("已连接 | " + m_ipEdit->text() + ":" + m_appCombo->currentData().toString());
+    m_statusLabel->setText("已连接 | " + m_ipEdit->text() + ":" + QString::number(appConfig.port));
+
+    if (appConfig.viewMode == AppViewMode::DataTable) {
+        requestServiceChannelData();
+    }
 }
 
 void MainWindow::onDisconnected()
@@ -173,6 +234,10 @@ void MainWindow::onDisconnected()
     updateUIState(false);
     appendSystem("已断开", "#ff4500");
     m_statusLabel->setText("未连接");
+
+    if (currentAppConfig().viewMode == AppViewMode::DataTable) {
+        m_dataTable->setRowCount(0);
+    }
 }
 
 void MainWindow::onError(const QString &err)
@@ -189,6 +254,18 @@ void MainWindow::onLogLine(const QString &line)
 
 void MainWindow::onCommandReply(const QString &reply)
 {
+    if (currentAppConfig().viewMode == AppViewMode::DataTable) {
+        const QList<ServiceChannelDataItem> items = parseServiceChannelDataReply(reply);
+        if (items.isEmpty()) {
+            appendSystem("未解析到 ServiceChannel 数据: " + reply, "#ffcc66");
+            return;
+        }
+
+        populateServiceChannelTable(items);
+        appendSystem(QString("ServiceChannel 数据已加载，共 %1 条").arg(items.size()), "#87ceeb");
+        return;
+    }
+
     appendReply(reply);
 }
 
@@ -223,15 +300,110 @@ void MainWindow::appendReply(const QString &text)
 
 void MainWindow::updateUIState(bool connected)
 {
+    const AppConfig appConfig = currentAppConfig();
+    const bool terminalMode = appConfig.viewMode == AppViewMode::Terminal;
+
     m_connectBtn->setEnabled(!connected);
     m_disconnectBtn->setEnabled(connected);
-    m_sendBtn->setEnabled(connected);
+    m_sendBtn->setEnabled(connected && terminalMode);
     m_ipEdit->setEnabled(!connected);
     m_appCombo->setEnabled(!connected);
+    m_cmdEdit->setEnabled(connected && terminalMode);
+    m_refreshDataBtn->setEnabled(connected && !terminalMode);
 
     for (auto *btn : findChildren<QPushButton*>()) {
         if (btn->property("command").isValid()) {
-            btn->setEnabled(connected);
+            btn->setEnabled(connected && terminalMode);
         }
     }
+}
+
+void MainWindow::applyCurrentAppView()
+{
+    const AppConfig appConfig = currentAppConfig();
+    const bool terminalMode = appConfig.viewMode == AppViewMode::Terminal;
+
+    m_contentStack->setCurrentIndex(terminalMode ? 0 : 1);
+    m_cmdEdit->setPlaceholderText(terminalMode ? "输入命令后按回车..." : "当前 APP 使用数据展示视图");
+
+    if (!m_client->isConnected()) {
+        updateUIState(false);
+    }
+}
+
+AppConfig MainWindow::currentAppConfig() const
+{
+    const int configIndex = m_appCombo->currentData().toInt();
+    if (configIndex >= 0 && configIndex < m_appConfigs.size()) {
+        return m_appConfigs.at(configIndex);
+    }
+
+    return AppConfig{};
+}
+
+void MainWindow::requestServiceChannelData()
+{
+    if (currentAppConfig().viewMode != AppViewMode::DataTable) {
+        return;
+    }
+
+    if (!m_client->isConnected()) {
+        appendSystem("未连接 ServiceChannel，无法刷新数据", "#ffcc66");
+        return;
+    }
+
+    appendSystem("=> dataread all", "#aaaaaa");
+    m_client->sendCommand("dataread all");
+}
+
+QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QString &reply) const
+{
+    static const QRegularExpression linePattern(
+        R"(^([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s+([^\s]+)$)"
+    );
+
+    QList<ServiceChannelDataItem> items;
+    for (const QString &rawLine : reply.split('\n')) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+
+        const QRegularExpressionMatch match = linePattern.match(line);
+        if (!match.hasMatch()) {
+            continue;
+        }
+
+        const QString key = match.captured(1).trimmed();
+        const int keySeparator = key.indexOf('#');
+        if (keySeparator <= 0 || keySeparator >= key.size() - 1) {
+            continue;
+        }
+
+        ServiceChannelDataItem item;
+        item.deviceId = key.left(keySeparator);
+        item.dataRef = key.mid(keySeparator + 1);
+        item.description = match.captured(2).trimmed();
+        item.dataTime = match.captured(3).trimmed();
+        item.value = match.captured(4).trimmed();
+        items.append(item);
+    }
+
+    return items;
+}
+
+void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem> &items)
+{
+    m_dataTable->setRowCount(items.size());
+
+    for (int row = 0; row < items.size(); ++row) {
+        const ServiceChannelDataItem &item = items.at(row);
+        m_dataTable->setItem(row, 0, new QTableWidgetItem(item.deviceId));
+        m_dataTable->setItem(row, 1, new QTableWidgetItem(item.dataRef));
+        m_dataTable->setItem(row, 2, new QTableWidgetItem(item.description));
+        m_dataTable->setItem(row, 3, new QTableWidgetItem(item.dataTime));
+        m_dataTable->setItem(row, 4, new QTableWidgetItem(item.value));
+    }
+
+    m_dataTable->resizeRowsToContents();
 }
