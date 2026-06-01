@@ -71,6 +71,7 @@ private:
     void refreshDeviceFilterOptions();
     void applyServiceChannelFilter();
     void updateAutoRefreshTimer();
+    void copySelectedTableCells();
 
     DebugConsoleClient *m_client = nullptr;
     QTimer *m_autoRefreshTimer = nullptr;

@@ -18,6 +18,10 @@
 #include <QSignalBlocker>
 #include <QSet>
 #include <QTimer>
+#include <QApplication>
+#include <QClipboard>
+#include <QMenu>
+#include <QShortcut>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -153,9 +157,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_dataTable = new QTableWidget(0, 5);
     m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "Description", "DataTime", "Value"});
     m_dataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_dataTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_dataTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_dataTable->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_dataTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_dataTable->setAlternatingRowColors(true);
+    m_dataTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_dataTable->verticalHeader()->setVisible(false);
     m_dataTable->horizontalHeader()->setSectionsClickable(true);
     m_dataTable->horizontalHeader()->setSectionsMovable(false);
@@ -202,6 +207,19 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAutoRefreshIntervalChanged);
         connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
+            connect(new QShortcut(QKeySequence::Copy, m_dataTable), &QShortcut::activated,
+                this, [this]() { copySelectedTableCells(); });
+            connect(m_dataTable, &QWidget::customContextMenuRequested, this,
+                [this](const QPoint &position) {
+                QMenu menu(this);
+                QAction *copyAction = menu.addAction("复制");
+                        copyAction->setEnabled(m_dataTable->selectionModel() &&
+                                               !m_dataTable->selectionModel()->selectedIndexes().isEmpty());
+                QAction *selectedAction = menu.exec(m_dataTable->viewport()->mapToGlobal(position));
+                if (selectedAction == copyAction) {
+                    copySelectedTableCells();
+                }
+                });
 
     connect(m_client, &DebugConsoleClient::connected,
             this, &MainWindow::onConnected);
@@ -581,4 +599,45 @@ void MainWindow::updateAutoRefreshTimer()
     }
 
     m_autoRefreshTimer->start(intervalMs);
+}
+
+void MainWindow::copySelectedTableCells()
+{
+    if (!m_dataTable->selectionModel()) {
+        return;
+    }
+
+    const QModelIndexList indexes = m_dataTable->selectionModel()->selectedIndexes();
+    if (indexes.isEmpty()) {
+        return;
+    }
+
+    QModelIndexList sortedIndexes = indexes;
+    std::sort(sortedIndexes.begin(), sortedIndexes.end(), [](const QModelIndex &left, const QModelIndex &right) {
+        if (left.row() != right.row()) {
+            return left.row() < right.row();
+        }
+        return left.column() < right.column();
+    });
+
+    QString copiedText;
+    int currentRow = sortedIndexes.first().row();
+    bool firstCellInRow = true;
+
+    for (const QModelIndex &index : sortedIndexes) {
+        if (index.row() != currentRow) {
+            copiedText += '\n';
+            currentRow = index.row();
+            firstCellInRow = true;
+        }
+
+        if (!firstCellInRow) {
+            copiedText += '\t';
+        }
+
+        copiedText += index.data().toString();
+        firstCellInRow = false;
+    }
+
+    QApplication::clipboard()->setText(copiedText);
 }
