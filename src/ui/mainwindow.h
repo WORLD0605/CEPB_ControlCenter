@@ -12,10 +12,12 @@ class QComboBox;
 class QPushButton;
 class QTextEdit;
 class QLabel;
+class QGroupBox;
 class QStackedWidget;
 class QTableWidget;
 class QTabWidget;
 class QTimer;
+class QSplitter;
 
 enum class AppViewMode {
     Terminal,
@@ -56,6 +58,10 @@ private slots:
     void onAutoRefreshIntervalChanged(int index);
     void onBrowseConfigImportDirClicked();
     void onImportIec104ConfigClicked();
+    void onConfigModelSelectionChanged();
+    void onConfigDeviceSelectionChanged();
+    void onNewModelClicked();
+    void onModelFieldEdited();
 
     void onConnected();
     void onDisconnected();
@@ -80,6 +86,11 @@ private:
     void copySelectedTableCells();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     void refreshConfigImportSummary(const configtool::ImportReport &report);
+    void refreshConfigObjectViews();
+    void refreshModelDetail(int modelIndex);
+    void refreshDeviceDetail(int deviceIndex);
+    int currentConfigModelIndex() const;
+    int currentConfigDeviceIndex() const;
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -98,6 +109,7 @@ private:
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_importIec104ConfigBtn = nullptr;
+    QPushButton *m_newModelBtn = nullptr;
     QStackedWidget *m_contentStack = nullptr;
     QTextEdit *m_logView = nullptr;
     QTextEdit *m_configImportReportView = nullptr;
@@ -109,12 +121,29 @@ private:
     QComboBox *m_autoRefreshCombo = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
     QTableWidget *m_dataTable = nullptr;
+    QTableWidget *m_configModelTable = nullptr;
+    QTableWidget *m_configDeviceTable = nullptr;
+    QTableWidget *m_modelPointsTable = nullptr;
     QTabWidget *m_mainTabWidget = nullptr;
+    QTabWidget *m_configDetailTabWidget = nullptr;
     QLabel *m_configProjectNameValueLabel = nullptr;
     QLabel *m_configSourceRootValueLabel = nullptr;
     QLabel *m_configModelCountValueLabel = nullptr;
     QLabel *m_configDeviceCountValueLabel = nullptr;
     QLabel *m_configIssueCountValueLabel = nullptr;
+    QLabel *m_deviceDetailTitleLabel = nullptr;
+    QLabel *m_deviceDetailModelLabel = nullptr;
+    QLabel *m_deviceDetailAddressLabel = nullptr;
+    QLabel *m_deviceDetailIpLabel = nullptr;
+    QLabel *m_deviceDetailPortLabel = nullptr;
+    QLabel *m_deviceDetailBindingCountLabel = nullptr;
+    QLineEdit *m_modelIdEdit = nullptr;
+    QLineEdit *m_modelDisplayNameEdit = nullptr;
+    QLineEdit *m_modelDeviceTypeEdit = nullptr;
+    QLineEdit *m_modelVersionEdit = nullptr;
+    QLineEdit *m_modelManufacturerIdEdit = nullptr;
+    QLineEdit *m_modelManufacturerDescEdit = nullptr;
+    QLineEdit *m_modelSchemaEdit = nullptr;
     QLabel *m_statusLabel = nullptr;
 };
 

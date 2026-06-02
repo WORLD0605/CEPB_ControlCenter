@@ -9,6 +9,8 @@
 #include <QLabel>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QSplitter>
+#include <QGroupBox>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -227,6 +229,113 @@ MainWindow::MainWindow(QWidget *parent)
     summaryLayout->addRow("导入问题数:", m_configIssueCountValueLabel);
     configLayout->addWidget(summaryFrame);
 
+    auto *configWorkspaceSplitter = new QSplitter(Qt::Horizontal, this);
+
+    auto *objectPanel = new QWidget(this);
+    auto *objectPanelLayout = new QVBoxLayout(objectPanel);
+    objectPanelLayout->setContentsMargins(0, 0, 0, 0);
+    objectPanelLayout->setSpacing(10);
+
+    auto *modelGroup = new QGroupBox("模型列表", this);
+    auto *modelGroupLayout = new QVBoxLayout(modelGroup);
+    auto *modelToolbar = new QHBoxLayout();
+    m_newModelBtn = new QPushButton("新建模型");
+    modelToolbar->addWidget(m_newModelBtn);
+    modelToolbar->addStretch();
+    modelGroupLayout->addLayout(modelToolbar);
+    m_configModelTable = new QTableWidget(0, 4, this);
+    m_configModelTable->setHorizontalHeaderLabels({"模型", "展示名", "设备类型", "点位数"});
+    m_configModelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_configModelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_configModelTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_configModelTable->verticalHeader()->setVisible(false);
+    m_configModelTable->horizontalHeader()->setStretchLastSection(true);
+    m_configModelTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    modelGroupLayout->addWidget(m_configModelTable, 1);
+    objectPanelLayout->addWidget(modelGroup, 1);
+
+    auto *deviceGroup = new QGroupBox("设备列表", this);
+    auto *deviceGroupLayout = new QVBoxLayout(deviceGroup);
+    m_configDeviceTable = new QTableWidget(0, 5, this);
+    m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "站地址", "点位数"});
+    m_configDeviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_configDeviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_configDeviceTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_configDeviceTable->verticalHeader()->setVisible(false);
+    m_configDeviceTable->horizontalHeader()->setStretchLastSection(true);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    deviceGroupLayout->addWidget(m_configDeviceTable, 1);
+    objectPanelLayout->addWidget(deviceGroup, 1);
+
+    configWorkspaceSplitter->addWidget(objectPanel);
+
+    auto *detailPanel = new QWidget(this);
+    auto *detailPanelLayout = new QVBoxLayout(detailPanel);
+    detailPanelLayout->setContentsMargins(0, 0, 0, 0);
+    detailPanelLayout->setSpacing(10);
+    m_configDetailTabWidget = new QTabWidget(this);
+
+    auto *modelDetailPage = new QWidget(this);
+    auto *modelDetailLayout = new QVBoxLayout(modelDetailPage);
+    modelDetailLayout->setContentsMargins(0, 0, 0, 0);
+    modelDetailLayout->setSpacing(10);
+    auto *modelFormFrame = new QFrame(this);
+    modelFormFrame->setFrameShape(QFrame::StyledPanel);
+    auto *modelFormLayout = new QFormLayout(modelFormFrame);
+    modelFormLayout->setContentsMargins(12, 12, 12, 12);
+    m_modelIdEdit = new QLineEdit(this);
+    m_modelDisplayNameEdit = new QLineEdit(this);
+    m_modelDeviceTypeEdit = new QLineEdit(this);
+    m_modelVersionEdit = new QLineEdit(this);
+    m_modelManufacturerIdEdit = new QLineEdit(this);
+    m_modelManufacturerDescEdit = new QLineEdit(this);
+    m_modelSchemaEdit = new QLineEdit(this);
+    modelFormLayout->addRow("模型ID:", m_modelIdEdit);
+    modelFormLayout->addRow("展示名称:", m_modelDisplayNameEdit);
+    modelFormLayout->addRow("设备类型:", m_modelDeviceTypeEdit);
+    modelFormLayout->addRow("版本:", m_modelVersionEdit);
+    modelFormLayout->addRow("厂家ID:", m_modelManufacturerIdEdit);
+    modelFormLayout->addRow("厂家描述:", m_modelManufacturerDescEdit);
+    modelFormLayout->addRow("Schema:", m_modelSchemaEdit);
+    modelDetailLayout->addWidget(modelFormFrame);
+    modelDetailLayout->addWidget(new QLabel("模型点位:"));
+    m_modelPointsTable = new QTableWidget(0, 6, this);
+    m_modelPointsTable->setHorizontalHeaderLabels({"类别", "DOname", "描述", "DataRef", "数据类型", "单位"});
+    m_modelPointsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_modelPointsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_modelPointsTable->verticalHeader()->setVisible(false);
+    m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
+    m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    modelDetailLayout->addWidget(m_modelPointsTable, 1);
+
+    auto *deviceDetailPage = new QWidget(this);
+    auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
+    deviceDetailLayout->setContentsMargins(12, 12, 12, 12);
+    deviceDetailLayout->setHorizontalSpacing(24);
+    deviceDetailLayout->setVerticalSpacing(10);
+    m_deviceDetailTitleLabel = new QLabel("-");
+    m_deviceDetailModelLabel = new QLabel("-");
+    m_deviceDetailAddressLabel = new QLabel("-");
+    m_deviceDetailIpLabel = new QLabel("-");
+    m_deviceDetailPortLabel = new QLabel("-");
+    m_deviceDetailBindingCountLabel = new QLabel("0");
+    deviceDetailLayout->addRow("设备:", m_deviceDetailTitleLabel);
+    deviceDetailLayout->addRow("模型:", m_deviceDetailModelLabel);
+    deviceDetailLayout->addRow("站地址:", m_deviceDetailAddressLabel);
+    deviceDetailLayout->addRow("IP:", m_deviceDetailIpLabel);
+    deviceDetailLayout->addRow("端口:", m_deviceDetailPortLabel);
+    deviceDetailLayout->addRow("绑定点位数:", m_deviceDetailBindingCountLabel);
+
+    m_configDetailTabWidget->addTab(modelDetailPage, "模型编辑器");
+    m_configDetailTabWidget->addTab(deviceDetailPage, "设备概览");
+    detailPanelLayout->addWidget(m_configDetailTabWidget, 1);
+    configWorkspaceSplitter->addWidget(detailPanel);
+    configWorkspaceSplitter->setStretchFactor(0, 0);
+    configWorkspaceSplitter->setStretchFactor(1, 1);
+    configWorkspaceSplitter->setSizes({340, 640});
+    configLayout->addWidget(configWorkspaceSplitter, 1);
+
     configLayout->addWidget(new QLabel("导入报告:"));
     m_configImportReportView = new QTextEdit();
     m_configImportReportView->setReadOnly(true);
@@ -268,6 +377,26 @@ MainWindow::MainWindow(QWidget *parent)
                 this, &MainWindow::onBrowseConfigImportDirClicked);
             connect(m_importIec104ConfigBtn, &QPushButton::clicked,
                 this, &MainWindow::onImportIec104ConfigClicked);
+                connect(m_newModelBtn, &QPushButton::clicked,
+                    this, &MainWindow::onNewModelClicked);
+                connect(m_configModelTable, &QTableWidget::itemSelectionChanged,
+                    this, &MainWindow::onConfigModelSelectionChanged);
+                connect(m_configDeviceTable, &QTableWidget::itemSelectionChanged,
+                    this, &MainWindow::onConfigDeviceSelectionChanged);
+                connect(m_modelIdEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
+                connect(m_modelDisplayNameEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
+                connect(m_modelDeviceTypeEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
+                connect(m_modelVersionEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
+                connect(m_modelManufacturerIdEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
+                connect(m_modelManufacturerDescEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
+                connect(m_modelSchemaEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onModelFieldEdited);
         connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
             connect(m_highlightRefreshTimer, &QTimer::timeout,
@@ -335,6 +464,75 @@ void MainWindow::onImportIec104ConfigClicked()
     }
 
     statusBar()->showMessage(QStringLiteral("104 配置导入完成"), 5000);
+}
+
+void MainWindow::onConfigModelSelectionChanged()
+{
+    refreshModelDetail(currentConfigModelIndex());
+    if (currentConfigModelIndex() >= 0) {
+        m_configDetailTabWidget->setCurrentIndex(0);
+    }
+}
+
+void MainWindow::onConfigDeviceSelectionChanged()
+{
+    refreshDeviceDetail(currentConfigDeviceIndex());
+    if (currentConfigDeviceIndex() >= 0) {
+        m_configDetailTabWidget->setCurrentIndex(1);
+    }
+}
+
+void MainWindow::onNewModelClicked()
+{
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (project.projectId.isEmpty()) {
+        m_configProjectManager.createEmptyProject(QStringLiteral("本地配置工程"), QString());
+    }
+
+    configtool::ModelTemplate model;
+    model.modelId = QStringLiteral("model_new_%1").arg(project.models.size() + 1);
+    model.name = model.modelId;
+    model.displayName = QStringLiteral("新模型%1").arg(project.models.size() + 1);
+    model.deviceType = QStringLiteral("未定义设备");
+    model.version = QStringLiteral("1.0");
+    model.ensureDefaultServices();
+    project.models.append(model);
+
+    configtool::ImportReport report;
+    refreshConfigImportSummary(report);
+    const int row = m_configModelTable->rowCount() - 1;
+    if (row >= 0) {
+        m_configModelTable->selectRow(row);
+    }
+    statusBar()->showMessage(QStringLiteral("已创建模型骨架"), 4000);
+}
+
+void MainWindow::onModelFieldEdited()
+{
+    const int modelIndex = currentConfigModelIndex();
+    if (modelIndex < 0) {
+        return;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex >= project.models.size()) {
+        return;
+    }
+
+    configtool::ModelTemplate &model = project.models[modelIndex];
+    model.modelId = m_modelIdEdit->text().trimmed();
+    model.name = model.modelId;
+    model.displayName = m_modelDisplayNameEdit->text().trimmed();
+    model.deviceType = m_modelDeviceTypeEdit->text().trimmed();
+    model.version = m_modelVersionEdit->text().trimmed();
+    model.manufacturerId = m_modelManufacturerIdEdit->text().trimmed();
+    model.manufacturerDesc = m_modelManufacturerDescEdit->text().trimmed();
+    model.schema = m_modelSchemaEdit->text().trimmed();
+
+    refreshConfigObjectViews();
+    if (modelIndex < m_configModelTable->rowCount()) {
+        m_configModelTable->selectRow(modelIndex);
+    }
 }
 
 void MainWindow::onConnectClicked()
@@ -862,4 +1060,139 @@ void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &repo
     }
 
     m_configImportReportView->setPlainText(lines.join('\n'));
+    refreshConfigObjectViews();
+}
+
+void MainWindow::refreshConfigObjectViews()
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+
+    const int previousModelIndex = currentConfigModelIndex();
+    const int previousDeviceIndex = currentConfigDeviceIndex();
+
+    m_configModelTable->setRowCount(project.models.size());
+    for (int row = 0; row < project.models.size(); ++row) {
+        const configtool::ModelTemplate &model = project.models.at(row);
+        int pointCount = 0;
+        for (const configtool::ServiceTemplate &service : model.services) {
+            pointCount += service.points.size();
+        }
+
+        m_configModelTable->setItem(row, 0, new QTableWidgetItem(model.modelId));
+        m_configModelTable->setItem(row, 1, new QTableWidgetItem(model.displayName));
+        m_configModelTable->setItem(row, 2, new QTableWidgetItem(model.deviceType));
+        m_configModelTable->setItem(row, 3, new QTableWidgetItem(QString::number(pointCount)));
+    }
+
+    m_configDeviceTable->setRowCount(project.devices.size());
+    for (int row = 0; row < project.devices.size(); ++row) {
+        const configtool::ProtocolDeviceInstance &device = project.devices.at(row);
+        m_configDeviceTable->setItem(row, 0, new QTableWidgetItem(device.deviceId));
+        m_configDeviceTable->setItem(row, 1, new QTableWidgetItem(device.deviceDesc));
+        m_configDeviceTable->setItem(row, 2, new QTableWidgetItem(device.modelId));
+        m_configDeviceTable->setItem(row, 3, new QTableWidgetItem(device.transport.stationAddress));
+        m_configDeviceTable->setItem(row, 4, new QTableWidgetItem(QString::number(device.bindings.size())));
+    }
+
+    if (previousModelIndex >= 0 && previousModelIndex < project.models.size()) {
+        m_configModelTable->selectRow(previousModelIndex);
+    } else if (!project.models.isEmpty()) {
+        m_configModelTable->selectRow(0);
+    } else {
+        refreshModelDetail(-1);
+    }
+
+    if (previousDeviceIndex >= 0 && previousDeviceIndex < project.devices.size()) {
+        m_configDeviceTable->selectRow(previousDeviceIndex);
+    } else if (!project.devices.isEmpty()) {
+        m_configDeviceTable->selectRow(0);
+    } else {
+        refreshDeviceDetail(-1);
+    }
+}
+
+void MainWindow::refreshModelDetail(int modelIndex)
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex < 0 || modelIndex >= project.models.size()) {
+        for (QLineEdit *edit : {m_modelIdEdit, m_modelDisplayNameEdit, m_modelDeviceTypeEdit,
+                                m_modelVersionEdit, m_modelManufacturerIdEdit,
+                                m_modelManufacturerDescEdit, m_modelSchemaEdit}) {
+            edit->clear();
+        }
+        m_modelPointsTable->setRowCount(0);
+        return;
+    }
+
+    const configtool::ModelTemplate &model = project.models.at(modelIndex);
+    for (auto pair : {qMakePair(m_modelIdEdit, model.modelId),
+                      qMakePair(m_modelDisplayNameEdit, model.displayName),
+                      qMakePair(m_modelDeviceTypeEdit, model.deviceType),
+                      qMakePair(m_modelVersionEdit, model.version),
+                      qMakePair(m_modelManufacturerIdEdit, model.manufacturerId),
+                      qMakePair(m_modelManufacturerDescEdit, model.manufacturerDesc),
+                      qMakePair(m_modelSchemaEdit, model.schema)}) {
+        QSignalBlocker blocker(pair.first);
+        pair.first->setText(pair.second);
+    }
+
+    QList<configtool::PointTemplate> points;
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            points.append(point);
+        }
+    }
+
+    m_modelPointsTable->setRowCount(points.size());
+    for (int row = 0; row < points.size(); ++row) {
+        const configtool::PointTemplate &point = points.at(row);
+        m_modelPointsTable->setItem(row, 0, new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category)));
+        m_modelPointsTable->setItem(row, 1, new QTableWidgetItem(point.doName));
+        m_modelPointsTable->setItem(row, 2, new QTableWidgetItem(point.description));
+        m_modelPointsTable->setItem(row, 3, new QTableWidgetItem(point.dataRef()));
+        m_modelPointsTable->setItem(row, 4, new QTableWidgetItem(point.dataType));
+        m_modelPointsTable->setItem(row, 5, new QTableWidgetItem(point.unit));
+    }
+}
+
+void MainWindow::refreshDeviceDetail(int deviceIndex)
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        m_deviceDetailTitleLabel->setText(QStringLiteral("-"));
+        m_deviceDetailModelLabel->setText(QStringLiteral("-"));
+        m_deviceDetailAddressLabel->setText(QStringLiteral("-"));
+        m_deviceDetailIpLabel->setText(QStringLiteral("-"));
+        m_deviceDetailPortLabel->setText(QStringLiteral("-"));
+        m_deviceDetailBindingCountLabel->setText(QStringLiteral("0"));
+        return;
+    }
+
+    const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
+    m_deviceDetailTitleLabel->setText(device.deviceDesc.isEmpty() ? device.deviceId : device.deviceDesc);
+    m_deviceDetailModelLabel->setText(device.modelId);
+    m_deviceDetailAddressLabel->setText(device.transport.stationAddress);
+    m_deviceDetailIpLabel->setText(device.transport.ip);
+    m_deviceDetailPortLabel->setText(device.transport.port);
+    m_deviceDetailBindingCountLabel->setText(QString::number(device.bindings.size()));
+}
+
+int MainWindow::currentConfigModelIndex() const
+{
+    if (!m_configModelTable->selectionModel()) {
+        return -1;
+    }
+
+    const QModelIndexList rows = m_configModelTable->selectionModel()->selectedRows();
+    return rows.isEmpty() ? -1 : rows.first().row();
+}
+
+int MainWindow::currentConfigDeviceIndex() const
+{
+    if (!m_configDeviceTable->selectionModel()) {
+        return -1;
+    }
+
+    const QModelIndexList rows = m_configDeviceTable->selectionModel()->selectedRows();
+    return rows.isEmpty() ? -1 : rows.first().row();
 }
