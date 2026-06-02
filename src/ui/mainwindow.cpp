@@ -8,10 +8,14 @@
 #include <QTextEdit>
 #include <QLabel>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QHeaderView>
+#include <QFileDialog>
+#include <QFormLayout>
+#include <QFrame>
 #include <QMessageBox>
 #include <QDateTime>
 #include <QRegularExpression>
@@ -38,12 +42,20 @@ MainWindow::MainWindow(QWidget *parent)
     };
 
     setWindowTitle("CEPB Control Center");
-    resize(960, 640);
+    resize(1080, 720);
 
     auto *central = new QWidget(this);
     auto *mainLayout = new QVBoxLayout(central);
     mainLayout->setSpacing(10);
     mainLayout->setContentsMargins(12, 12, 12, 12);
+
+    m_mainTabWidget = new QTabWidget(this);
+    mainLayout->addWidget(m_mainTabWidget, 1);
+
+    auto *debugPage = new QWidget(this);
+    auto *debugLayout = new QVBoxLayout(debugPage);
+    debugLayout->setContentsMargins(0, 0, 0, 0);
+    debugLayout->setSpacing(10);
 
     // === 顶部连接配置 ===
     auto *topLayout = new QHBoxLayout();
@@ -66,7 +78,7 @@ MainWindow::MainWindow(QWidget *parent)
     topLayout->addWidget(m_disconnectBtn);
     topLayout->addStretch();
 
-    mainLayout->addLayout(topLayout);
+    debugLayout->addLayout(topLayout);
 
     m_contentStack = new QStackedWidget();
 
@@ -179,7 +191,50 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_contentStack->addWidget(terminalPage);
     m_contentStack->addWidget(dataPage);
-    mainLayout->addWidget(m_contentStack, 1);
+    debugLayout->addWidget(m_contentStack, 1);
+
+    auto *configPage = new QWidget(this);
+    auto *configLayout = new QVBoxLayout(configPage);
+    configLayout->setContentsMargins(0, 0, 0, 0);
+    configLayout->setSpacing(10);
+
+    auto *importRow = new QHBoxLayout();
+    importRow->addWidget(new QLabel("104 APP目录:"));
+    m_configImportDirEdit = new QLineEdit();
+    m_configImportDirEdit->setPlaceholderText("选择 cepiec104 目录，例如 /home/cepgateway/app/cepiec104 的本地镜像路径");
+    importRow->addWidget(m_configImportDirEdit, 1);
+    m_browseConfigImportDirBtn = new QPushButton("浏览...");
+    importRow->addWidget(m_browseConfigImportDirBtn);
+    m_importIec104ConfigBtn = new QPushButton("导入104配置");
+    importRow->addWidget(m_importIec104ConfigBtn);
+    configLayout->addLayout(importRow);
+
+    auto *summaryFrame = new QFrame(this);
+    summaryFrame->setFrameShape(QFrame::StyledPanel);
+    auto *summaryLayout = new QFormLayout(summaryFrame);
+    summaryLayout->setContentsMargins(12, 12, 12, 12);
+    summaryLayout->setHorizontalSpacing(24);
+    summaryLayout->setVerticalSpacing(10);
+    m_configProjectNameValueLabel = new QLabel("-");
+    m_configSourceRootValueLabel = new QLabel("-");
+    m_configModelCountValueLabel = new QLabel("0");
+    m_configDeviceCountValueLabel = new QLabel("0");
+    m_configIssueCountValueLabel = new QLabel("0");
+    summaryLayout->addRow("工程名称:", m_configProjectNameValueLabel);
+    summaryLayout->addRow("来源目录:", m_configSourceRootValueLabel);
+    summaryLayout->addRow("模型数量:", m_configModelCountValueLabel);
+    summaryLayout->addRow("设备数量:", m_configDeviceCountValueLabel);
+    summaryLayout->addRow("导入问题数:", m_configIssueCountValueLabel);
+    configLayout->addWidget(summaryFrame);
+
+    configLayout->addWidget(new QLabel("导入报告:"));
+    m_configImportReportView = new QTextEdit();
+    m_configImportReportView->setReadOnly(true);
+    m_configImportReportView->setPlaceholderText("导入 104 目录后，这里会显示模型/设备统计和错误、警告信息。");
+    configLayout->addWidget(m_configImportReportView, 1);
+
+    m_mainTabWidget->addTab(debugPage, "调试控制");
+    m_mainTabWidget->addTab(configPage, "配置工具");
 
     setCentralWidget(central);
 
@@ -209,6 +264,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDescriptionFilterTextChanged);
         connect(m_autoRefreshCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onAutoRefreshIntervalChanged);
+            connect(m_browseConfigImportDirBtn, &QPushButton::clicked,
+                this, &MainWindow::onBrowseConfigImportDirClicked);
+            connect(m_importIec104ConfigBtn, &QPushButton::clicked,
+                this, &MainWindow::onImportIec104ConfigClicked);
         connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
             connect(m_highlightRefreshTimer, &QTimer::timeout,
@@ -245,6 +304,38 @@ MainWindow::MainWindow(QWidget *parent)
 }
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::onBrowseConfigImportDirClicked()
+{
+    const QString dir = QFileDialog::getExistingDirectory(
+        this,
+        QStringLiteral("选择 104 APP 目录"),
+        m_configImportDirEdit->text().trimmed());
+    if (!dir.isEmpty()) {
+        m_configImportDirEdit->setText(dir);
+    }
+}
+
+void MainWindow::onImportIec104ConfigClicked()
+{
+    const QString appDir = m_configImportDirEdit->text().trimmed();
+    if (appDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择 104 APP 目录"));
+        return;
+    }
+
+    configtool::ImportReport report;
+    m_configProjectManager.createEmptyProject(QStringLiteral("104导入工程"), appDir);
+    const bool ok = m_configProjectManager.importIec104AppDirectory(appDir, report);
+    refreshConfigImportSummary(report);
+
+    if (!ok && report.hasErrors()) {
+        statusBar()->showMessage(QStringLiteral("104 配置导入失败"), 5000);
+        return;
+    }
+
+    statusBar()->showMessage(QStringLiteral("104 配置导入完成"), 5000);
+}
 
 void MainWindow::onConnectClicked()
 {
@@ -738,4 +829,37 @@ void MainWindow::copySelectedTableCells()
 QString MainWindow::serviceChannelItemKey(const ServiceChannelDataItem &item) const
 {
     return item.deviceId + "#" + item.dataRef;
+}
+
+void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &report)
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    m_configProjectNameValueLabel->setText(project.projectName.isEmpty() ? QStringLiteral("-") : project.projectName);
+    m_configSourceRootValueLabel->setText(project.sourceRoot.isEmpty() ? QStringLiteral("-") : project.sourceRoot);
+    m_configModelCountValueLabel->setText(QString::number(project.models.size()));
+    m_configDeviceCountValueLabel->setText(QString::number(project.devices.size()));
+    m_configIssueCountValueLabel->setText(QString::number(report.issues.size()));
+
+    QStringList lines;
+    lines << QStringLiteral("导入结果:")
+          << QStringLiteral("- 模型: %1").arg(report.importedModelCount)
+          << QStringLiteral("- 设备: %1").arg(report.importedDeviceCount);
+
+    if (report.issues.isEmpty()) {
+        lines << QStringLiteral("")
+              << QStringLiteral("未发现错误或警告。");
+    } else {
+        lines << QStringLiteral("")
+              << QStringLiteral("问题列表:");
+
+        for (const configtool::ImportIssue &issue : report.issues) {
+            const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
+                ? QStringLiteral("错误")
+                : QStringLiteral("警告");
+            lines << QStringLiteral("[%1] %2").arg(severity, issue.filePath);
+            lines << QStringLiteral("  %1").arg(issue.message);
+        }
+    }
+
+    m_configImportReportView->setPlainText(lines.join('\n'));
 }

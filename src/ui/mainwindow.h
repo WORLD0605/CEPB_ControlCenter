@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QHash>
 #include <QList>
+#include "config/config_project_manager.h"
 #include "network/debug_console_client.h"
 
 class QLineEdit;
@@ -13,6 +14,7 @@ class QTextEdit;
 class QLabel;
 class QStackedWidget;
 class QTableWidget;
+class QTabWidget;
 class QTimer;
 
 enum class AppViewMode {
@@ -52,6 +54,8 @@ private slots:
     void onDataRefFilterTextChanged(const QString &text);
     void onDescriptionFilterTextChanged(const QString &text);
     void onAutoRefreshIntervalChanged(int index);
+    void onBrowseConfigImportDirClicked();
+    void onImportIec104ConfigClicked();
 
     void onConnected();
     void onDisconnected();
@@ -75,8 +79,10 @@ private:
     void updateHighlightRefreshTimer();
     void copySelectedTableCells();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
+    void refreshConfigImportSummary(const configtool::ImportReport &report);
 
     DebugConsoleClient *m_client = nullptr;
+    configtool::ConfigProjectManager m_configProjectManager;
     QTimer *m_autoRefreshTimer = nullptr;
     QTimer *m_highlightRefreshTimer = nullptr;
     QList<AppConfig> m_appConfigs;
@@ -86,11 +92,15 @@ private:
     QHash<QString, QDateTime> m_valueHighlightUntilMap;
 
     QLineEdit *m_ipEdit = nullptr;
+    QLineEdit *m_configImportDirEdit = nullptr;
     QComboBox *m_appCombo = nullptr;
     QPushButton *m_connectBtn = nullptr;
     QPushButton *m_disconnectBtn = nullptr;
+    QPushButton *m_browseConfigImportDirBtn = nullptr;
+    QPushButton *m_importIec104ConfigBtn = nullptr;
     QStackedWidget *m_contentStack = nullptr;
     QTextEdit *m_logView = nullptr;
+    QTextEdit *m_configImportReportView = nullptr;
     QLineEdit *m_cmdEdit = nullptr;
     QPushButton *m_sendBtn = nullptr;
     QComboBox *m_deviceFilterCombo = nullptr;
@@ -99,6 +109,12 @@ private:
     QComboBox *m_autoRefreshCombo = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
     QTableWidget *m_dataTable = nullptr;
+    QTabWidget *m_mainTabWidget = nullptr;
+    QLabel *m_configProjectNameValueLabel = nullptr;
+    QLabel *m_configSourceRootValueLabel = nullptr;
+    QLabel *m_configModelCountValueLabel = nullptr;
+    QLabel *m_configDeviceCountValueLabel = nullptr;
+    QLabel *m_configIssueCountValueLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
 };
 

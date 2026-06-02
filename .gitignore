@@ -4,6 +4,7 @@
 /cmake-build*
 /.vs
 /.idea
+/配置示例
 
 # Qt
 *.user
