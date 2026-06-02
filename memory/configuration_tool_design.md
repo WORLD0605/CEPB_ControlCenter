@@ -52,6 +52,9 @@ metadata:
 3. LogicCenter 配置基于 DeviceId 和 dataRef 做计算、控制变换和高级功能。
 4. 设备文件中的 Model 字段引用模型 profile.model。
 5. 运行时 dataRef 不是自由文本，而是由模型点位字段组合生成。
+6. 模型文件内的 services 固定为三类：遥测、遥信、控制。
+7. 遥控和遥调都归入控制 service，它们的差异主要体现在数据类型和控制语义上，而不是 service 层级。
+8. cepiec104 的 ipb 已属于历史遗留参数，后续不再作为有效配置项参与建模。
 
 当前已确认的 dataRef 生成规则为：
 
@@ -99,6 +102,9 @@ PROT.SlrInvAlmGGIO.1.Cbr_Pos
 ### 原则二：模型和设备严格分层
 
 模型定义“设备类型有哪些点”，设备定义“这台设备如何通信、每个点在该协议中如何映射”。
+
+对于当前南向模型文件，services 层不做开放式扩展，而是固定为三类业务分组：遥测、遥信、控制。
+其中遥控和遥调统一归入“控制”组，若需要继续区分，应在点级属性中表达，而不是新增 service。
 
 ### 原则三：协议差异下沉到适配层
 
@@ -210,16 +216,19 @@ flowchart TD
 
 ```json
 {
-  "serviceId": "default",
-  "name": "默认服务",
+  "serviceId": "measurement",
+  "name": "遥测",
+  "serviceType": "measurement",
   "points": []
 }
 ```
 
 说明：
 
-1. 当前模型文件中 services 通常只有一个元素，但内部设计不应写死。
-2. 后续如某些 APP 或北向模型需要多 service 分组，可直接复用该层。
+1. 当前南向模型文件中的 services 在工具内固定为三组：measurement、status、control。
+2. 建议固定顺序为：遥测、遥信、控制。
+3. 遥控和遥调都归入 control 组，不再单独拆成第四组。
+4. 若导入的历史文件中缺少某一组，内部模型自动补空组，导出时按固定三组输出。
 
 ### 4. PointTemplate
 
@@ -256,29 +265,27 @@ flowchart TD
 
 字段说明：
 
-1. category 是工具内部标准分类，不完全等同于现场字段。
-2. signalType 用于界面和协议映射层做业务归类，建议值包括 yc、yx、yk、yt、param、virtual。
+1. category 是工具内部标准分类，固定对应三类 service：measurement、status、control。
+2. signalType 用于界面和协议映射层做业务归类，首期建议值收敛为 yc、yx、ctrl；若控制点需要区分遥控或遥调，则通过附加控制语义字段表达。
 3. dataRef 为内部标准主键之一，导入时由四段字段重建，编辑时自动生成，不允许手填。
 
 ### 5. PointCategory 设计
 
-现有模型文件并未显式给出“遥测、遥信、遥控、遥调”分类，首期建议在内部模型中增加标准类别：
+现有模型文件在业务上固定对应三类点：遥测、遥信、控制。首期建议内部 category 与 service 语义保持一致：
 
 | category | signalType | 含义 |
 |----------|------------|------|
 | measurement | yc | 遥测量 |
 | status | yx | 遥信量 |
-| control | yk | 遥控输出 |
-| setpoint | yt | 遥调输出 |
-| parameter | param | 参数点 |
-| derived | virtual | 衍生或虚拟点 |
+| control | ctrl | 控制点，遥控和遥调统一归入控制 |
 
 分类策略：
 
-1. 导入旧模型时先根据 LNtype、DOtype、名称习惯做启发式识别。
-2. 无法识别时默认归类为 measurement 或 status，并标记为“待确认”。
-3. 用户在模型编辑器中可以人工修正 category 和 signalType。
-4. 导出到当前现场模型文件时，不强制写回 category 字段，以保持兼容。
+1. 导入旧模型时，优先按其所在的 service 分组确定 category。
+2. control 组内若需区分遥控和遥调，再根据 DOtype、数据类型和命名习惯补充控制语义。
+3. 无法识别时默认归类为 measurement 或 status，并标记为“待确认”。
+4. 用户在模型编辑器中可以人工修正 category 和控制语义。
+5. 导出到当前现场模型文件时，按固定三组 service 输出，不强制写回额外 category 字段，以保持兼容。
 
 ### 6. ProtocolDeviceInstance
 
@@ -318,7 +325,6 @@ flowchart TD
 ```json
 {
   "primaryAddress": "",
-  "secondaryAddress": "",
   "ip": "",
   "port": "",
   "channel": "",
@@ -334,13 +340,13 @@ flowchart TD
 |----------|----------|
 | stationAddress | addr |
 | ip | ipa |
-| secondaryAddress | ipb |
 | port | port |
 
 说明：
 
-1. transport 不应直接只保留 ipa、ipb、addr 这类历史命名。
-2. 历史命名保留在导入导出适配器中完成转换。
+1. 对 104 而言，ipb 已确认为无效历史参数，不进入内部有效 transport 模型。
+2. transport 不应直接只保留 ipa、addr 这类历史命名。
+3. 若导入历史文件包含 ipb，保留到 source 或 rawExtra 中，仅用于兼容回写或审计，不参与业务逻辑。
 
 ### 8. PointBinding
 
@@ -456,6 +462,12 @@ flowchart TD
   "services": [
     {
       "DOs": []
+    },
+    {
+      "DOs": []
+    },
+    {
+      "DOs": []
     }
   ]
 }
@@ -466,7 +478,8 @@ flowchart TD
 1. ModelTemplate.modelId -> profile.model
 2. ModelTemplate.deviceType -> profile.devType
 3. ModelTemplate.displayName -> profile.modelDesc
-4. PointTemplate 四段字段 -> DOs 单项
+4. services 固定映射为遥测、遥信、控制三组。
+5. PointTemplate 四段字段 -> 对应 service 组下的 DOs 单项
 
 ### 104 设备文件映射
 
@@ -479,11 +492,12 @@ flowchart TD
   "Model": "model_开关",
   "addr": "109",
   "ipa": "192.168.0.16",
-  "ipb": "",
   "meas_points": [],
   "port": "2404"
 }
 ```
+
+说明：历史文件可能仍带有 ipb，但设计上视其为废弃兼容字段。
 
 映射规则：
 
@@ -492,9 +506,14 @@ flowchart TD
 3. modelId -> Model
 4. transport.stationAddress -> addr
 5. transport.ip -> ipa
-6. transport.secondaryAddress -> ipb
-7. transport.port -> port
-8. bindings -> meas_points
+6. transport.port -> port
+7. bindings -> meas_points
+
+兼容规则：
+
+1. 导入时若存在 ipb，则写入 source.rawExtra.ipb。
+2. 导出时默认不再生成 ipb。
+3. 如现场某旧版本仍要求保留该字段，可通过兼容导出开关输出空字符串 ipb。
 
 其中 meas_points 每项映射规则：
 
@@ -558,7 +577,7 @@ flowchart TD
 4. 点位总数
 5. 遥测数
 6. 遥信数
-7. 遥控数
+7. 控制数
 8. 被引用设备数
 9. 来源文件
 
@@ -823,7 +842,8 @@ flowchart TD
 | DataRefer | dataRef |
 | addr | stationAddress |
 | ipa | ip |
-| ipb | secondaryAddress |
+
+其中 ipb 不映射到内部有效字段，只保留到原始兼容信息中。
 
 ### 2. dataRef 重建与比对
 
@@ -841,9 +861,10 @@ flowchart TD
 
 当历史模型没有 category 信息时：
 
-1. 通过 LNtype、DOtype、命名习惯进行自动分类。
-2. 自动分类结果标记为 inferred。
-3. 等待用户在 UI 中确认。
+1. 优先按其所属 service 分组映射为遥测、遥信、控制。
+2. control 组内若需区分遥控和遥调，再根据 DOtype、数据类型和命名习惯补充控制语义。
+3. 自动分类结果标记为 inferred。
+4. 等待用户在 UI 中确认。
 
 ### 5. 设备绑定修复
 
@@ -964,6 +985,7 @@ DO 字段顺序建议固定为：
 2. description 优先使用 descriptionOverride，否则使用模型描述。
 3. selfSignalFlag、initValue 为空时仍可按空字符串输出。
 4. address 缺失的绑定不得导出为有效设备点，除非用户显式选择允许不完整导出。
+5. 默认不导出 ipb；仅在兼容模式下回写空字符串 ipb。
 
 ## LogicCenter 导出规则预留
 
