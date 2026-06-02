@@ -70,6 +70,8 @@ private slots:
     void onDeletePointClicked();
     void onModelPointItemChanged(QTableWidgetItem *item);
     void onCreateDeviceFromModelClicked();
+    void onDeviceFieldEdited();
+    void onDeviceBindingItemChanged(QTableWidgetItem *item);
 
     void onConnected();
     void onDisconnected();
@@ -97,10 +99,12 @@ private:
     void refreshConfigObjectViews();
     void refreshModelDetail(int modelIndex);
     void refreshDeviceDetail(int deviceIndex);
+    void refreshDeviceEditor(int deviceIndex);
     int currentConfigModelIndex() const;
     int currentConfigDeviceIndex() const;
     QPair<int, int> currentModelPointLocation() const;
     QSet<QString> duplicateDataRefsForModel(const configtool::ModelTemplate &model) const;
+    QSet<QString> duplicateBindingAddresses(const configtool::ProtocolDeviceInstance &device) const;
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -112,6 +116,7 @@ private:
     QHash<QString, QDateTime> m_timeHighlightUntilMap;
     QHash<QString, QDateTime> m_valueHighlightUntilMap;
     bool m_updatingModelPointsTable = false;
+    bool m_updatingDeviceBindingsTable = false;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
@@ -139,8 +144,11 @@ private:
     QTableWidget *m_configModelTable = nullptr;
     QTableWidget *m_configDeviceTable = nullptr;
     QTableWidget *m_modelPointsTable = nullptr;
+    QTableWidget *m_deviceBindingsTable = nullptr;
     QTabWidget *m_mainTabWidget = nullptr;
-    QTabWidget *m_configDetailTabWidget = nullptr;
+    QWidget *m_configPage = nullptr;
+    QWidget *m_modelEditorPage = nullptr;
+    QWidget *m_deviceEditorPage = nullptr;
     QLabel *m_configProjectNameValueLabel = nullptr;
     QLabel *m_configSourceRootValueLabel = nullptr;
     QLabel *m_configModelCountValueLabel = nullptr;
@@ -153,6 +161,8 @@ private:
     QLabel *m_deviceDetailPortLabel = nullptr;
     QLabel *m_deviceDetailBindingCountLabel = nullptr;
     QLabel *m_modelValidationLabel = nullptr;
+    QLabel *m_deviceValidationLabel = nullptr;
+    QLabel *m_deviceCompatIpbLabel = nullptr;
     QLineEdit *m_modelIdEdit = nullptr;
     QLineEdit *m_modelDisplayNameEdit = nullptr;
     QLineEdit *m_modelDeviceTypeEdit = nullptr;
@@ -160,6 +170,13 @@ private:
     QLineEdit *m_modelManufacturerIdEdit = nullptr;
     QLineEdit *m_modelManufacturerDescEdit = nullptr;
     QLineEdit *m_modelSchemaEdit = nullptr;
+    QLineEdit *m_deviceIdEdit = nullptr;
+    QLineEdit *m_deviceDescEdit = nullptr;
+    QLineEdit *m_deviceModelEdit = nullptr;
+    QLineEdit *m_deviceStationAddressEdit = nullptr;
+    QLineEdit *m_deviceIpEdit = nullptr;
+    QLineEdit *m_devicePortEdit = nullptr;
+    QLineEdit *m_deviceChannelEdit = nullptr;
     QLabel *m_statusLabel = nullptr;
 };
 

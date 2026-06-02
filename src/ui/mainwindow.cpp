@@ -21,6 +21,7 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QDateTime>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QSet>
@@ -197,10 +198,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_contentStack->addWidget(dataPage);
     debugLayout->addWidget(m_contentStack, 1);
 
-    auto *configPage = new QWidget(this);
-    auto *configLayout = new QVBoxLayout(configPage);
+    m_configPage = new QWidget(this);
+    auto *configLayout = new QVBoxLayout(m_configPage);
     configLayout->setContentsMargins(0, 0, 0, 0);
-    configLayout->setSpacing(10);
+    configLayout->setSpacing(8);
 
     auto *importRow = new QHBoxLayout();
     importRow->addWidget(new QLabel("104 APP目录:"));
@@ -215,10 +216,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *summaryFrame = new QFrame(this);
     summaryFrame->setFrameShape(QFrame::StyledPanel);
+    summaryFrame->setMaximumHeight(88);
     auto *summaryLayout = new QFormLayout(summaryFrame);
-    summaryLayout->setContentsMargins(12, 12, 12, 12);
+    summaryLayout->setContentsMargins(8, 6, 8, 6);
     summaryLayout->setHorizontalSpacing(24);
-    summaryLayout->setVerticalSpacing(10);
+    summaryLayout->setVerticalSpacing(2);
     m_configProjectNameValueLabel = new QLabel("-");
     m_configSourceRootValueLabel = new QLabel("-");
     m_configModelCountValueLabel = new QLabel("0");
@@ -276,17 +278,18 @@ MainWindow::MainWindow(QWidget *parent)
     auto *detailPanel = new QWidget(this);
     auto *detailPanelLayout = new QVBoxLayout(detailPanel);
     detailPanelLayout->setContentsMargins(0, 0, 0, 0);
-    detailPanelLayout->setSpacing(10);
-    m_configDetailTabWidget = new QTabWidget(this);
+    detailPanelLayout->setSpacing(8);
 
-    auto *modelDetailPage = new QWidget(this);
-    auto *modelDetailLayout = new QVBoxLayout(modelDetailPage);
+    m_modelEditorPage = new QWidget(this);
+    auto *modelDetailLayout = new QVBoxLayout(m_modelEditorPage);
     modelDetailLayout->setContentsMargins(0, 0, 0, 0);
-    modelDetailLayout->setSpacing(10);
+    modelDetailLayout->setSpacing(8);
     auto *modelFormFrame = new QFrame(this);
     modelFormFrame->setFrameShape(QFrame::StyledPanel);
+    modelFormFrame->setMaximumHeight(180);
     auto *modelFormLayout = new QFormLayout(modelFormFrame);
-    modelFormLayout->setContentsMargins(12, 12, 12, 12);
+    modelFormLayout->setContentsMargins(10, 8, 10, 8);
+    modelFormLayout->setVerticalSpacing(4);
     m_modelIdEdit = new QLineEdit(this);
     m_modelDisplayNameEdit = new QLineEdit(this);
     m_modelDeviceTypeEdit = new QLineEdit(this);
@@ -324,8 +327,73 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_modelPointsTable->verticalHeader()->setVisible(false);
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
-    m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_modelPointsTable->setColumnWidth(0, 70);
+    m_modelPointsTable->setColumnWidth(1, 130);
+    m_modelPointsTable->setColumnWidth(2, 220);
+    m_modelPointsTable->setColumnWidth(3, 90);
+    m_modelPointsTable->setColumnWidth(4, 120);
+    m_modelPointsTable->setColumnWidth(5, 70);
+    m_modelPointsTable->setColumnWidth(6, 260);
+    m_modelPointsTable->setColumnWidth(7, 90);
+    m_modelPointsTable->setColumnWidth(8, 70);
     modelDetailLayout->addWidget(m_modelPointsTable, 1);
+    modelDetailLayout->setStretch(2, 1);
+    modelDetailLayout->setStretch(3, 8);
+
+    m_deviceEditorPage = new QWidget(this);
+    auto *deviceEditorLayout = new QVBoxLayout(m_deviceEditorPage);
+    deviceEditorLayout->setContentsMargins(0, 0, 0, 0);
+    deviceEditorLayout->setSpacing(8);
+    auto *deviceFormFrame = new QFrame(this);
+    deviceFormFrame->setFrameShape(QFrame::StyledPanel);
+    deviceFormFrame->setMaximumHeight(220);
+    auto *deviceFormLayout = new QFormLayout(deviceFormFrame);
+    deviceFormLayout->setContentsMargins(10, 8, 10, 8);
+    deviceFormLayout->setVerticalSpacing(4);
+    m_deviceIdEdit = new QLineEdit(this);
+    m_deviceDescEdit = new QLineEdit(this);
+    m_deviceModelEdit = new QLineEdit(this);
+    m_deviceModelEdit->setReadOnly(true);
+    m_deviceStationAddressEdit = new QLineEdit(this);
+    m_deviceIpEdit = new QLineEdit(this);
+    m_devicePortEdit = new QLineEdit(this);
+    m_deviceChannelEdit = new QLineEdit(this);
+    m_deviceCompatIpbLabel = new QLabel(QStringLiteral("-"), this);
+    deviceFormLayout->addRow("DeviceId:", m_deviceIdEdit);
+    deviceFormLayout->addRow("设备描述:", m_deviceDescEdit);
+    deviceFormLayout->addRow("模型:", m_deviceModelEdit);
+    deviceFormLayout->addRow("站地址:", m_deviceStationAddressEdit);
+    deviceFormLayout->addRow("IP:", m_deviceIpEdit);
+    deviceFormLayout->addRow("端口:", m_devicePortEdit);
+    deviceFormLayout->addRow("通道:", m_deviceChannelEdit);
+    deviceFormLayout->addRow("兼容 ipb:", m_deviceCompatIpbLabel);
+    deviceEditorLayout->addWidget(deviceFormFrame);
+    m_deviceValidationLabel = new QLabel(this);
+    m_deviceValidationLabel->setWordWrap(true);
+    deviceEditorLayout->addWidget(m_deviceValidationLabel);
+    auto *bindingToolbar = new QHBoxLayout();
+    bindingToolbar->addWidget(new QLabel("104 点位地址绑定:", this));
+    bindingToolbar->addStretch();
+    deviceEditorLayout->addLayout(bindingToolbar);
+    m_deviceBindingsTable = new QTableWidget(0, 7, this);
+    m_deviceBindingsTable->setHorizontalHeaderLabels({"启用", "DataRef", "描述", "地址", "初值", "自发标志", "PointRef"});
+    m_deviceBindingsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
+    m_deviceBindingsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_deviceBindingsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_deviceBindingsTable->verticalHeader()->setVisible(false);
+    m_deviceBindingsTable->horizontalHeader()->setStretchLastSection(true);
+    m_deviceBindingsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_deviceBindingsTable->setColumnWidth(0, 56);
+    m_deviceBindingsTable->setColumnWidth(1, 260);
+    m_deviceBindingsTable->setColumnWidth(2, 220);
+    m_deviceBindingsTable->setColumnWidth(3, 90);
+    m_deviceBindingsTable->setColumnWidth(4, 90);
+    m_deviceBindingsTable->setColumnWidth(5, 90);
+    m_deviceBindingsTable->setColumnWidth(6, 280);
+    deviceEditorLayout->addWidget(m_deviceBindingsTable, 1);
+    deviceEditorLayout->setStretch(2, 1);
+    deviceEditorLayout->setStretch(3, 8);
 
     auto *deviceDetailPage = new QWidget(this);
     auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
@@ -338,30 +406,28 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceDetailIpLabel = new QLabel("-");
     m_deviceDetailPortLabel = new QLabel("-");
     m_deviceDetailBindingCountLabel = new QLabel("0");
+    auto *deviceDetailTitle = new QLabel("设备概览", this);
+    QFont titleFont = deviceDetailTitle->font();
+    titleFont.setBold(true);
+    deviceDetailTitle->setFont(titleFont);
+    detailPanelLayout->addWidget(deviceDetailTitle);
     deviceDetailLayout->addRow("设备:", m_deviceDetailTitleLabel);
     deviceDetailLayout->addRow("模型:", m_deviceDetailModelLabel);
     deviceDetailLayout->addRow("站地址:", m_deviceDetailAddressLabel);
     deviceDetailLayout->addRow("IP:", m_deviceDetailIpLabel);
     deviceDetailLayout->addRow("端口:", m_deviceDetailPortLabel);
     deviceDetailLayout->addRow("绑定点位数:", m_deviceDetailBindingCountLabel);
-
-    m_configDetailTabWidget->addTab(modelDetailPage, "模型编辑器");
-    m_configDetailTabWidget->addTab(deviceDetailPage, "设备概览");
-    detailPanelLayout->addWidget(m_configDetailTabWidget, 1);
+    detailPanelLayout->addWidget(deviceDetailPage, 1);
     configWorkspaceSplitter->addWidget(detailPanel);
     configWorkspaceSplitter->setStretchFactor(0, 0);
     configWorkspaceSplitter->setStretchFactor(1, 1);
-    configWorkspaceSplitter->setSizes({340, 640});
+    configWorkspaceSplitter->setSizes({420, 420});
     configLayout->addWidget(configWorkspaceSplitter, 1);
 
-    configLayout->addWidget(new QLabel("导入报告:"));
-    m_configImportReportView = new QTextEdit();
-    m_configImportReportView->setReadOnly(true);
-    m_configImportReportView->setPlaceholderText("导入 104 目录后，这里会显示模型/设备统计和错误、警告信息。");
-    configLayout->addWidget(m_configImportReportView, 1);
-
     m_mainTabWidget->addTab(debugPage, "调试控制");
-    m_mainTabWidget->addTab(configPage, "配置工具");
+    m_mainTabWidget->addTab(m_configPage, "配置概览");
+    m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
+    m_mainTabWidget->addTab(m_deviceEditorPage, "104设备编辑器");
 
     setCentralWidget(central);
 
@@ -425,6 +491,20 @@ MainWindow::MainWindow(QWidget *parent)
                     this, &MainWindow::onDeletePointClicked);
                 connect(m_modelPointsTable, &QTableWidget::itemChanged,
                     this, &MainWindow::onModelPointItemChanged);
+                connect(m_deviceIdEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onDeviceFieldEdited);
+                connect(m_deviceDescEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onDeviceFieldEdited);
+                connect(m_deviceStationAddressEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onDeviceFieldEdited);
+                connect(m_deviceIpEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onDeviceFieldEdited);
+                connect(m_devicePortEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onDeviceFieldEdited);
+                connect(m_deviceChannelEdit, &QLineEdit::textEdited,
+                    this, &MainWindow::onDeviceFieldEdited);
+                connect(m_deviceBindingsTable, &QTableWidget::itemChanged,
+                    this, &MainWindow::onDeviceBindingItemChanged);
         connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
             connect(m_highlightRefreshTimer, &QTimer::timeout,
@@ -498,7 +578,7 @@ void MainWindow::onConfigModelSelectionChanged()
 {
     refreshModelDetail(currentConfigModelIndex());
     if (currentConfigModelIndex() >= 0) {
-        m_configDetailTabWidget->setCurrentIndex(0);
+        m_mainTabWidget->setCurrentWidget(m_modelEditorPage);
     }
 }
 
@@ -506,7 +586,10 @@ void MainWindow::onConfigDeviceSelectionChanged()
 {
     refreshDeviceDetail(currentConfigDeviceIndex());
     if (currentConfigDeviceIndex() >= 0) {
-        m_configDetailTabWidget->setCurrentIndex(1);
+        refreshDeviceEditor(currentConfigDeviceIndex());
+        m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
+    } else {
+        refreshDeviceEditor(-1);
     }
 }
 
@@ -532,6 +615,7 @@ void MainWindow::onNewModelClicked()
     if (row >= 0) {
         m_configModelTable->selectRow(row);
     }
+    m_mainTabWidget->setCurrentWidget(m_modelEditorPage);
     statusBar()->showMessage(QStringLiteral("已创建模型骨架"), 4000);
 }
 
@@ -733,9 +817,90 @@ void MainWindow::onCreateDeviceFromModelClicked()
     const int row = m_configDeviceTable->rowCount() - 1;
     if (row >= 0) {
         m_configDeviceTable->selectRow(row);
-        m_configDetailTabWidget->setCurrentIndex(1);
     }
+    m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
     statusBar()->showMessage(QStringLiteral("已根据模型生成 104 设备绑定骨架"), 4000);
+}
+
+void MainWindow::onDeviceFieldEdited()
+{
+    const int deviceIndex = currentConfigDeviceIndex();
+    if (deviceIndex < 0) {
+        return;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex >= project.devices.size()) {
+        return;
+    }
+
+    configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+    device.deviceId = m_deviceIdEdit->text().trimmed();
+    device.deviceDesc = m_deviceDescEdit->text().trimmed();
+    device.transport.stationAddress = m_deviceStationAddressEdit->text().trimmed();
+    device.transport.ip = m_deviceIpEdit->text().trimmed();
+    device.transport.port = m_devicePortEdit->text().trimmed();
+    device.transport.channel = m_deviceChannelEdit->text().trimmed();
+
+    refreshConfigObjectViews();
+    refreshDeviceDetail(deviceIndex);
+    refreshDeviceEditor(deviceIndex);
+    if (deviceIndex < m_configDeviceTable->rowCount()) {
+        m_configDeviceTable->selectRow(deviceIndex);
+    }
+}
+
+void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
+{
+    if (!item || m_updatingDeviceBindingsTable) {
+        return;
+    }
+
+    const int deviceIndex = currentConfigDeviceIndex();
+    if (deviceIndex < 0) {
+        return;
+    }
+
+    QTableWidgetItem *enabledItem = m_deviceBindingsTable->item(item->row(), 0);
+    if (!enabledItem) {
+        return;
+    }
+
+    const int bindingIndex = enabledItem->data(Qt::UserRole).toInt();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex >= project.devices.size()) {
+        return;
+    }
+
+    configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+    if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+        return;
+    }
+
+    configtool::PointBinding &binding = device.bindings[bindingIndex];
+    switch (item->column()) {
+    case 0:
+        binding.enabled = item->checkState() == Qt::Checked;
+        break;
+    case 2:
+        binding.descriptionOverride = item->text().trimmed();
+        break;
+    case 3:
+        binding.address = item->text().trimmed();
+        break;
+    case 4:
+        binding.initValue = item->text().trimmed();
+        break;
+    case 5:
+        binding.selfSignalFlag = item->text().trimmed();
+        break;
+    default:
+        break;
+    }
+
+    refreshDeviceDetail(deviceIndex);
+    refreshDeviceEditor(deviceIndex);
+    m_deviceBindingsTable->selectRow(item->row());
 }
 
 void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
@@ -1319,28 +1484,16 @@ void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &repo
     m_configDeviceCountValueLabel->setText(QString::number(project.devices.size()));
     m_configIssueCountValueLabel->setText(QString::number(report.issues.size()));
 
-    QStringList lines;
-    lines << QStringLiteral("导入结果:")
-          << QStringLiteral("- 模型: %1").arg(report.importedModelCount)
-          << QStringLiteral("- 设备: %1").arg(report.importedDeviceCount);
-
+    QString statusMessage = QStringLiteral("导入结果: 模型 %1，设备 %2")
+        .arg(report.importedModelCount)
+        .arg(report.importedDeviceCount);
     if (report.issues.isEmpty()) {
-        lines << QStringLiteral("")
-              << QStringLiteral("未发现错误或警告。");
+        statusMessage += QStringLiteral("，未发现错误或警告。");
     } else {
-        lines << QStringLiteral("")
-              << QStringLiteral("问题列表:");
-
-        for (const configtool::ImportIssue &issue : report.issues) {
-            const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
-                ? QStringLiteral("错误")
-                : QStringLiteral("警告");
-            lines << QStringLiteral("[%1] %2").arg(severity, issue.filePath);
-            lines << QStringLiteral("  %1").arg(issue.message);
-        }
+        statusMessage += QStringLiteral("，问题数 %1。")
+            .arg(report.issues.size());
     }
-
-    m_configImportReportView->setPlainText(lines.join('\n'));
+    statusBar()->showMessage(statusMessage, 8000);
     refreshConfigObjectViews();
 }
 
@@ -1389,6 +1542,7 @@ void MainWindow::refreshConfigObjectViews()
         m_configDeviceTable->selectRow(0);
     } else {
         refreshDeviceDetail(-1);
+        refreshDeviceEditor(-1);
     }
 }
 
@@ -1505,6 +1659,113 @@ void MainWindow::refreshDeviceDetail(int deviceIndex)
     m_deviceDetailBindingCountLabel->setText(QString::number(device.bindings.size()));
 }
 
+void MainWindow::refreshDeviceEditor(int deviceIndex)
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        for (QLineEdit *edit : {m_deviceIdEdit, m_deviceDescEdit, m_deviceModelEdit,
+                                m_deviceStationAddressEdit, m_deviceIpEdit,
+                                m_devicePortEdit, m_deviceChannelEdit}) {
+            if (edit) {
+                edit->clear();
+            }
+        }
+        m_deviceCompatIpbLabel->setText(QStringLiteral("-"));
+        m_deviceValidationLabel->setStyleSheet("QLabel { color: #666666; }");
+        m_deviceValidationLabel->setText(QStringLiteral("请选择一个 104 设备。"));
+        m_deviceBindingsTable->setRowCount(0);
+        return;
+    }
+
+    const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
+    for (auto pair : {qMakePair(m_deviceIdEdit, device.deviceId),
+                      qMakePair(m_deviceDescEdit, device.deviceDesc),
+                      qMakePair(m_deviceModelEdit, device.modelId),
+                      qMakePair(m_deviceStationAddressEdit, device.transport.stationAddress),
+                      qMakePair(m_deviceIpEdit, device.transport.ip),
+                      qMakePair(m_devicePortEdit, device.transport.port),
+                      qMakePair(m_deviceChannelEdit, device.transport.channel)}) {
+        QSignalBlocker blocker(pair.first);
+        pair.first->setText(pair.second);
+    }
+
+    const QJsonValue ipbValue = device.transport.source.rawExtra.value(QStringLiteral("ipb"));
+    if (ipbValue.isUndefined() || ipbValue.isNull()) {
+        m_deviceCompatIpbLabel->setText(QStringLiteral("-"));
+    } else if (ipbValue.isString()) {
+        m_deviceCompatIpbLabel->setText(ipbValue.toString());
+    } else if (ipbValue.isDouble()) {
+        m_deviceCompatIpbLabel->setText(QString::number(ipbValue.toInt()));
+    } else {
+        m_deviceCompatIpbLabel->setText(QString::fromUtf8(QJsonDocument(ipbValue.toObject()).toJson(QJsonDocument::Compact)));
+    }
+
+    const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
+    int emptyAddressCount = 0;
+    for (const configtool::PointBinding &binding : device.bindings) {
+        if (binding.enabled && binding.address.trimmed().isEmpty()) {
+            ++emptyAddressCount;
+        }
+    }
+
+    m_updatingDeviceBindingsTable = true;
+    m_deviceBindingsTable->setRowCount(device.bindings.size());
+    for (int row = 0; row < device.bindings.size(); ++row) {
+        const configtool::PointBinding &binding = device.bindings.at(row);
+        auto *enabledItem = new QTableWidgetItem();
+        enabledItem->setFlags((enabledItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+        enabledItem->setCheckState(binding.enabled ? Qt::Checked : Qt::Unchecked);
+        enabledItem->setData(Qt::UserRole, row);
+        auto *dataRefItem = new QTableWidgetItem(binding.dataRef);
+        auto *descriptionItem = new QTableWidgetItem(binding.descriptionOverride);
+        auto *addressItem = new QTableWidgetItem(binding.address);
+        auto *initValueItem = new QTableWidgetItem(binding.initValue);
+        auto *selfSignalItem = new QTableWidgetItem(binding.selfSignalFlag);
+        auto *pointRefItem = new QTableWidgetItem(binding.pointRef);
+        dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+        pointRefItem->setFlags(pointRefItem->flags() & ~Qt::ItemIsEditable);
+
+        if (binding.enabled && duplicateAddresses.contains(binding.address.trimmed())) {
+            const QColor duplicateColor(QStringLiteral("#c0392b"));
+            enabledItem->setForeground(duplicateColor);
+            dataRefItem->setForeground(duplicateColor);
+            descriptionItem->setForeground(duplicateColor);
+            addressItem->setForeground(duplicateColor);
+            initValueItem->setForeground(duplicateColor);
+            selfSignalItem->setForeground(duplicateColor);
+            pointRefItem->setForeground(duplicateColor);
+        } else if (binding.enabled && binding.address.trimmed().isEmpty()) {
+            const QColor warningColor(QStringLiteral("#b9770e"));
+            dataRefItem->setForeground(warningColor);
+            addressItem->setForeground(warningColor);
+        }
+
+        m_deviceBindingsTable->setItem(row, 0, enabledItem);
+        m_deviceBindingsTable->setItem(row, 1, dataRefItem);
+        m_deviceBindingsTable->setItem(row, 2, descriptionItem);
+        m_deviceBindingsTable->setItem(row, 3, addressItem);
+        m_deviceBindingsTable->setItem(row, 4, initValueItem);
+        m_deviceBindingsTable->setItem(row, 5, selfSignalItem);
+        m_deviceBindingsTable->setItem(row, 6, pointRefItem);
+    }
+    m_updatingDeviceBindingsTable = false;
+
+    if (!duplicateAddresses.isEmpty()) {
+        m_deviceValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
+        m_deviceValidationLabel->setText(
+            QStringLiteral("检测到重复 104 地址：%1。请调整地址列，避免启用点位地址冲突。")
+                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，"))));
+    } else if (emptyAddressCount > 0) {
+        m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
+        m_deviceValidationLabel->setText(
+            QStringLiteral("当前仍有 %1 个启用点位未填写 104 地址，导出前需要补齐。")
+                .arg(emptyAddressCount));
+    } else {
+        m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
+        m_deviceValidationLabel->setText(QStringLiteral("当前设备地址分配未发现重复。"));
+    }
+}
+
 int MainWindow::currentConfigModelIndex() const
 {
     if (!m_configModelTable->selectionModel()) {
@@ -1566,4 +1827,29 @@ QSet<QString> MainWindow::duplicateDataRefsForModel(const configtool::ModelTempl
     }
 
     return duplicateRefs;
+}
+
+QSet<QString> MainWindow::duplicateBindingAddresses(const configtool::ProtocolDeviceInstance &device) const
+{
+    QSet<QString> seenAddresses;
+    QSet<QString> duplicateAddresses;
+
+    for (const configtool::PointBinding &binding : device.bindings) {
+        if (!binding.enabled) {
+            continue;
+        }
+
+        const QString address = binding.address.trimmed();
+        if (address.isEmpty()) {
+            continue;
+        }
+
+        if (seenAddresses.contains(address)) {
+            duplicateAddresses.insert(address);
+        } else {
+            seenAddresses.insert(address);
+        }
+    }
+
+    return duplicateAddresses;
 }
