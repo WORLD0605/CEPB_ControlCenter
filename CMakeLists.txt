@@ -17,6 +17,8 @@ set(SOURCES
     src/config/config_project_manager.cpp
     src/network/debug_console_client.cpp
     src/ui/mainwindow.cpp
+    src/ui/mainwindow_debug.cpp
+    src/ui/mainwindow_config.cpp
 )
 
 set(HEADERS
