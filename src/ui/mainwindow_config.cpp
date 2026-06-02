@@ -806,25 +806,21 @@ void MainWindow::refreshSelectionOverview()
     const int deviceIndex = currentConfigDeviceIndex();
     const configtool::ConfigProject &project = m_configProjectManager.project();
 
-    QString selectionText = QStringLiteral("当前选中: 未选择对象");
     QString modelGroupTitle = QStringLiteral("模型列表");
     QString deviceGroupTitle = QStringLiteral("设备列表");
 
     if (modelIndex >= 0 && modelIndex < project.models.size()) {
         const configtool::ModelTemplate &model = project.models.at(modelIndex);
         const QString displayName = model.displayName.isEmpty() ? model.modelId : model.displayName;
-        selectionText = QStringLiteral("当前选中模型: %1").arg(displayName);
         modelGroupTitle = QStringLiteral("模型列表  [当前: %1]").arg(displayName);
     }
 
     if (deviceIndex >= 0 && deviceIndex < project.devices.size()) {
         const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
         const QString deviceName = device.deviceDesc.isEmpty() ? device.deviceId : device.deviceDesc;
-        selectionText = QStringLiteral("当前选中设备: %1").arg(deviceName);
         deviceGroupTitle = QStringLiteral("设备列表  [当前: %1]").arg(deviceName);
     }
 
-    m_currentSelectionLabel->setText(selectionText);
     m_modelGroupBox->setTitle(modelGroupTitle);
     m_deviceGroupBox->setTitle(deviceGroupTitle);
 }

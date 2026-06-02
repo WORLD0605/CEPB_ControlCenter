@@ -166,7 +166,6 @@ private:
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
     QGroupBox *m_deviceGroupBox = nullptr;
-    QLabel *m_currentSelectionLabel = nullptr;
     QLabel *m_configProjectNameValueLabel = nullptr;
     QLabel *m_configSourceRootValueLabel = nullptr;
     QLabel *m_configModelCountValueLabel = nullptr;

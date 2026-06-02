@@ -290,19 +290,6 @@ MainWindow::MainWindow(QWidget *parent)
     detailPanelLayout->setContentsMargins(0, 0, 0, 0);
     detailPanelLayout->setSpacing(8);
 
-    m_currentSelectionLabel = new QLabel(QStringLiteral("当前选中: 未选择对象"), this);
-    m_currentSelectionLabel->setStyleSheet(
-        "QLabel {"
-        "  background-color: #2c3e50;"
-        "  color: #ecf0f1;"
-        "  border: 1px solid #4f6d7a;"
-        "  border-radius: 4px;"
-        "  padding: 6px 10px;"
-        "  font-weight: 600;"
-        "}"
-    );
-    detailPanelLayout->addWidget(m_currentSelectionLabel);
-
     auto *modelOverviewPage = new QWidget(this);
     auto *modelOverviewLayout = new QFormLayout(modelOverviewPage);
     modelOverviewLayout->setContentsMargins(12, 12, 12, 12);
