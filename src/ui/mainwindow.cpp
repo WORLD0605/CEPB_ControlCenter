@@ -18,12 +18,14 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QFrame>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QDateTime>
 #include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QSet>
 #include <QTimer>
+#include <QUuid>
 #include <QApplication>
 #include <QClipboard>
 #include <QColor>
@@ -241,6 +243,8 @@ MainWindow::MainWindow(QWidget *parent)
     auto *modelToolbar = new QHBoxLayout();
     m_newModelBtn = new QPushButton("新建模型");
     modelToolbar->addWidget(m_newModelBtn);
+    m_createDeviceFromModelBtn = new QPushButton("由模型创建设备");
+    modelToolbar->addWidget(m_createDeviceFromModelBtn);
     modelToolbar->addStretch();
     modelGroupLayout->addLayout(modelToolbar);
     m_configModelTable = new QTableWidget(0, 4, this);
@@ -298,10 +302,24 @@ MainWindow::MainWindow(QWidget *parent)
     modelFormLayout->addRow("厂家描述:", m_modelManufacturerDescEdit);
     modelFormLayout->addRow("Schema:", m_modelSchemaEdit);
     modelDetailLayout->addWidget(modelFormFrame);
-    modelDetailLayout->addWidget(new QLabel("模型点位:"));
+    auto *pointToolbar = new QHBoxLayout();
+    pointToolbar->addWidget(new QLabel("模型点位:"));
+    m_addPointBtn = new QPushButton("新增点位");
+    m_copyPointBtn = new QPushButton("复制点位");
+    m_deletePointBtn = new QPushButton("删除点位");
+    pointToolbar->addWidget(m_addPointBtn);
+    pointToolbar->addWidget(m_copyPointBtn);
+    pointToolbar->addWidget(m_deletePointBtn);
+    pointToolbar->addStretch();
+    modelDetailLayout->addLayout(pointToolbar);
+    m_modelValidationLabel = new QLabel(this);
+    m_modelValidationLabel->setWordWrap(true);
+    m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
+    modelDetailLayout->addWidget(m_modelValidationLabel);
     m_modelPointsTable = new QTableWidget(0, 6, this);
-    m_modelPointsTable->setHorizontalHeaderLabels({"类别", "DOname", "描述", "DataRef", "数据类型", "单位"});
-    m_modelPointsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_modelPointsTable->setColumnCount(9);
+    m_modelPointsTable->setHorizontalHeaderLabels({"类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
+    m_modelPointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_modelPointsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_modelPointsTable->verticalHeader()->setVisible(false);
@@ -379,6 +397,8 @@ MainWindow::MainWindow(QWidget *parent)
                 this, &MainWindow::onImportIec104ConfigClicked);
                 connect(m_newModelBtn, &QPushButton::clicked,
                     this, &MainWindow::onNewModelClicked);
+                connect(m_createDeviceFromModelBtn, &QPushButton::clicked,
+                    this, &MainWindow::onCreateDeviceFromModelClicked);
                 connect(m_configModelTable, &QTableWidget::itemSelectionChanged,
                     this, &MainWindow::onConfigModelSelectionChanged);
                 connect(m_configDeviceTable, &QTableWidget::itemSelectionChanged,
@@ -397,6 +417,14 @@ MainWindow::MainWindow(QWidget *parent)
                     this, &MainWindow::onModelFieldEdited);
                 connect(m_modelSchemaEdit, &QLineEdit::textEdited,
                     this, &MainWindow::onModelFieldEdited);
+                connect(m_addPointBtn, &QPushButton::clicked,
+                    this, &MainWindow::onAddPointClicked);
+                connect(m_copyPointBtn, &QPushButton::clicked,
+                    this, &MainWindow::onCopyPointClicked);
+                connect(m_deletePointBtn, &QPushButton::clicked,
+                    this, &MainWindow::onDeletePointClicked);
+                connect(m_modelPointsTable, &QTableWidget::itemChanged,
+                    this, &MainWindow::onModelPointItemChanged);
         connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
             connect(m_highlightRefreshTimer, &QTimer::timeout,
@@ -533,6 +561,259 @@ void MainWindow::onModelFieldEdited()
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
     }
+}
+
+void MainWindow::onAddPointClicked()
+{
+    const int modelIndex = currentConfigModelIndex();
+    if (modelIndex < 0) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个模型。"));
+        return;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex >= project.models.size()) {
+        return;
+    }
+
+    configtool::ModelTemplate &model = project.models[modelIndex];
+    model.ensureDefaultServices();
+    configtool::ServiceTemplate *service = model.findService(configtool::ModelServiceType::Measurement);
+    if (!service) {
+        return;
+    }
+
+    configtool::PointTemplate point;
+    point.pointId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    point.category = configtool::ModelServiceType::Measurement;
+    point.signalType = configtool::PointSignalType::Yc;
+    const int nextIndex = service->points.size() + 1;
+    point.name = QStringLiteral("NewPoint%1").arg(nextIndex);
+    point.description = QStringLiteral("新建点位%1").arg(nextIndex);
+    point.ldName = QStringLiteral("PROT");
+    point.lnType = QStringLiteral("CustomGGIO");
+    point.lnInst = QStringLiteral("1");
+    point.doName = point.name;
+    point.doType = QStringLiteral("MV");
+    point.dataType = QStringLiteral("Float");
+    service->points.append(point);
+
+    refreshConfigObjectViews();
+    refreshModelDetail(modelIndex);
+    statusBar()->showMessage(QStringLiteral("已新增模型点位"), 3000);
+}
+
+void MainWindow::onCopyPointClicked()
+{
+    const int modelIndex = currentConfigModelIndex();
+    const QPair<int, int> pointLocation = currentModelPointLocation();
+    if (modelIndex < 0 || pointLocation.first < 0 || pointLocation.second < 0) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个点位。"));
+        return;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex >= project.models.size()) {
+        return;
+    }
+
+    configtool::ModelTemplate &model = project.models[modelIndex];
+    if (pointLocation.first >= model.services.size()) {
+        return;
+    }
+
+    configtool::ServiceTemplate &service = model.services[pointLocation.first];
+    if (pointLocation.second >= service.points.size()) {
+        return;
+    }
+
+    configtool::PointTemplate copied = service.points.at(pointLocation.second);
+    copied.pointId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    copied.name += QStringLiteral("_copy");
+    copied.doName = copied.name;
+    copied.description += QStringLiteral("-副本");
+    service.points.insert(pointLocation.second + 1, copied);
+
+    refreshConfigObjectViews();
+    refreshModelDetail(modelIndex);
+    if (pointLocation.second + 1 < m_modelPointsTable->rowCount()) {
+        m_modelPointsTable->selectRow(pointLocation.second + 1);
+    }
+    statusBar()->showMessage(QStringLiteral("已复制模型点位"), 3000);
+}
+
+void MainWindow::onDeletePointClicked()
+{
+    const int modelIndex = currentConfigModelIndex();
+    const QPair<int, int> pointLocation = currentModelPointLocation();
+    if (modelIndex < 0 || pointLocation.first < 0 || pointLocation.second < 0) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个点位。"));
+        return;
+    }
+
+    if (QMessageBox::question(this,
+                              QStringLiteral("删除点位"),
+                              QStringLiteral("确定删除当前选中的模型点位吗？")) != QMessageBox::Yes) {
+        return;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex >= project.models.size()) {
+        return;
+    }
+
+    configtool::ModelTemplate &model = project.models[modelIndex];
+    if (pointLocation.first >= model.services.size()) {
+        return;
+    }
+
+    configtool::ServiceTemplate &service = model.services[pointLocation.first];
+    if (pointLocation.second >= service.points.size()) {
+        return;
+    }
+
+    service.points.removeAt(pointLocation.second);
+    refreshConfigObjectViews();
+    refreshModelDetail(modelIndex);
+    statusBar()->showMessage(QStringLiteral("已删除模型点位"), 3000);
+}
+
+void MainWindow::onCreateDeviceFromModelClicked()
+{
+    const int modelIndex = currentConfigModelIndex();
+    if (modelIndex < 0) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个模型。"));
+        return;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex >= project.models.size()) {
+        return;
+    }
+
+    const configtool::ModelTemplate &model = project.models.at(modelIndex);
+    const QString suggestedDeviceId = QStringLiteral("DEV_%1_%2")
+        .arg(model.modelId.isEmpty() ? QStringLiteral("new") : model.modelId)
+        .arg(project.devices.size() + 1);
+    bool accepted = false;
+    const QString deviceId = QInputDialog::getText(
+        this,
+        QStringLiteral("创建设备骨架"),
+        QStringLiteral("请输入 DeviceId:"),
+        QLineEdit::Normal,
+        suggestedDeviceId,
+        &accepted).trimmed();
+    if (!accepted || deviceId.isEmpty()) {
+        return;
+    }
+
+    configtool::ProtocolDeviceInstance device;
+    device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    device.appType = QStringLiteral("cepiec104");
+    device.protocol = configtool::ProtocolType::Iec104;
+    device.deviceId = deviceId;
+    device.deviceDesc = model.displayName.isEmpty() ? model.modelId : model.displayName;
+    device.modelId = model.modelId;
+
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            configtool::PointBinding binding;
+            binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            binding.pointRef = point.pointRef(model.modelId);
+            binding.dataRef = point.dataRef();
+            binding.descriptionOverride = point.description;
+            binding.enabled = true;
+            device.bindings.append(binding);
+        }
+    }
+
+    project.devices.append(device);
+    configtool::ImportReport report;
+    refreshConfigImportSummary(report);
+    const int row = m_configDeviceTable->rowCount() - 1;
+    if (row >= 0) {
+        m_configDeviceTable->selectRow(row);
+        m_configDetailTabWidget->setCurrentIndex(1);
+    }
+    statusBar()->showMessage(QStringLiteral("已根据模型生成 104 设备绑定骨架"), 4000);
+}
+
+void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
+{
+    if (!item || m_updatingModelPointsTable) {
+        return;
+    }
+
+    const int modelIndex = currentConfigModelIndex();
+    if (modelIndex < 0) {
+        return;
+    }
+
+    QTableWidgetItem *categoryItem = m_modelPointsTable->item(item->row(), 0);
+    if (!categoryItem) {
+        return;
+    }
+
+    const int serviceIndex = categoryItem->data(Qt::UserRole).toInt();
+    const int pointIndex = categoryItem->data(Qt::UserRole + 1).toInt();
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex >= project.models.size()) {
+        return;
+    }
+
+    configtool::ModelTemplate &model = project.models[modelIndex];
+    if (serviceIndex < 0 || serviceIndex >= model.services.size()) {
+        return;
+    }
+
+    configtool::ServiceTemplate &service = model.services[serviceIndex];
+    if (pointIndex < 0 || pointIndex >= service.points.size()) {
+        return;
+    }
+
+    configtool::PointTemplate &point = service.points[pointIndex];
+    switch (item->column()) {
+    case 1:
+        point.name = item->text().trimmed();
+        point.doName = point.name;
+        break;
+    case 2:
+        point.description = item->text().trimmed();
+        break;
+    case 3:
+        point.ldName = item->text().trimmed();
+        break;
+    case 4:
+        point.lnType = item->text().trimmed();
+        break;
+    case 5:
+        point.lnInst = item->text().trimmed();
+        break;
+    case 7:
+        point.dataType = item->text().trimmed();
+        break;
+    case 8:
+        point.unit = item->text().trimmed();
+        break;
+    default:
+        break;
+    }
+
+    m_updatingModelPointsTable = true;
+    if (QTableWidgetItem *nameItem = m_modelPointsTable->item(item->row(), 1)) {
+        nameItem->setText(point.doName);
+    }
+    if (QTableWidgetItem *dataRefItem = m_modelPointsTable->item(item->row(), 6)) {
+        dataRefItem->setText(point.dataRef());
+    }
+    m_updatingModelPointsTable = false;
+
+    refreshConfigObjectViews();
+    if (modelIndex < m_configModelTable->rowCount()) {
+        m_configModelTable->selectRow(modelIndex);
+    }
+    m_modelPointsTable->selectRow(item->row());
 }
 
 void MainWindow::onConnectClicked()
@@ -1120,11 +1401,13 @@ void MainWindow::refreshModelDetail(int modelIndex)
                                 m_modelManufacturerDescEdit, m_modelSchemaEdit}) {
             edit->clear();
         }
+        m_modelValidationLabel->setText(QStringLiteral("请选择一个模型。"));
         m_modelPointsTable->setRowCount(0);
         return;
     }
 
     const configtool::ModelTemplate &model = project.models.at(modelIndex);
+    const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
     for (auto pair : {qMakePair(m_modelIdEdit, model.modelId),
                       qMakePair(m_modelDisplayNameEdit, model.displayName),
                       qMakePair(m_modelDeviceTypeEdit, model.deviceType),
@@ -1136,22 +1419,67 @@ void MainWindow::refreshModelDetail(int modelIndex)
         pair.first->setText(pair.second);
     }
 
-    QList<configtool::PointTemplate> points;
+    int totalPointCount = 0;
     for (const configtool::ServiceTemplate &service : model.services) {
-        for (const configtool::PointTemplate &point : service.points) {
-            points.append(point);
-        }
+        totalPointCount += service.points.size();
     }
 
-    m_modelPointsTable->setRowCount(points.size());
-    for (int row = 0; row < points.size(); ++row) {
-        const configtool::PointTemplate &point = points.at(row);
-        m_modelPointsTable->setItem(row, 0, new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category)));
-        m_modelPointsTable->setItem(row, 1, new QTableWidgetItem(point.doName));
-        m_modelPointsTable->setItem(row, 2, new QTableWidgetItem(point.description));
-        m_modelPointsTable->setItem(row, 3, new QTableWidgetItem(point.dataRef()));
-        m_modelPointsTable->setItem(row, 4, new QTableWidgetItem(point.dataType));
-        m_modelPointsTable->setItem(row, 5, new QTableWidgetItem(point.unit));
+    m_modelPointsTable->setRowCount(totalPointCount);
+    m_updatingModelPointsTable = true;
+    int row = 0;
+    for (int serviceIndex = 0; serviceIndex < model.services.size(); ++serviceIndex) {
+        const configtool::ServiceTemplate &service = model.services.at(serviceIndex);
+        for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex, ++row) {
+            const configtool::PointTemplate &point = service.points.at(pointIndex);
+        auto *categoryItem = new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category));
+        auto *nameItem = new QTableWidgetItem(point.doName);
+        auto *descriptionItem = new QTableWidgetItem(point.description);
+        auto *ldNameItem = new QTableWidgetItem(point.ldName);
+        auto *lnTypeItem = new QTableWidgetItem(point.lnType);
+        auto *lnInstItem = new QTableWidgetItem(point.lnInst);
+        auto *dataRefItem = new QTableWidgetItem(point.dataRef());
+        auto *dataTypeItem = new QTableWidgetItem(point.dataType);
+        auto *unitItem = new QTableWidgetItem(point.unit);
+
+        categoryItem->setData(Qt::UserRole, serviceIndex);
+        categoryItem->setData(Qt::UserRole + 1, pointIndex);
+        categoryItem->setFlags(categoryItem->flags() & ~Qt::ItemIsEditable);
+        dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+
+        if (duplicateRefs.contains(point.dataRef())) {
+            const QColor duplicateColor(QStringLiteral("#c0392b"));
+            categoryItem->setForeground(duplicateColor);
+            nameItem->setForeground(duplicateColor);
+            descriptionItem->setForeground(duplicateColor);
+            ldNameItem->setForeground(duplicateColor);
+            lnTypeItem->setForeground(duplicateColor);
+            lnInstItem->setForeground(duplicateColor);
+            dataRefItem->setForeground(duplicateColor);
+            dataTypeItem->setForeground(duplicateColor);
+            unitItem->setForeground(duplicateColor);
+        }
+
+        m_modelPointsTable->setItem(row, 0, categoryItem);
+        m_modelPointsTable->setItem(row, 1, nameItem);
+        m_modelPointsTable->setItem(row, 2, descriptionItem);
+        m_modelPointsTable->setItem(row, 3, ldNameItem);
+        m_modelPointsTable->setItem(row, 4, lnTypeItem);
+        m_modelPointsTable->setItem(row, 5, lnInstItem);
+        m_modelPointsTable->setItem(row, 6, dataRefItem);
+        m_modelPointsTable->setItem(row, 7, dataTypeItem);
+        m_modelPointsTable->setItem(row, 8, unitItem);
+        }
+    }
+    m_updatingModelPointsTable = false;
+
+    if (duplicateRefs.isEmpty()) {
+        m_modelValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
+        m_modelValidationLabel->setText(QStringLiteral("当前模型点位的 DataRef 唯一。"));
+    } else {
+        m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
+        m_modelValidationLabel->setText(
+            QStringLiteral("检测到重复 DataRef：%1。请调整 LDname/LNtype/LNinst/DOname 组合。")
+                .arg(QStringList(duplicateRefs.begin(), duplicateRefs.end()).join(QStringLiteral("，"))));
     }
 }
 
@@ -1195,4 +1523,47 @@ int MainWindow::currentConfigDeviceIndex() const
 
     const QModelIndexList rows = m_configDeviceTable->selectionModel()->selectedRows();
     return rows.isEmpty() ? -1 : rows.first().row();
+}
+
+QPair<int, int> MainWindow::currentModelPointLocation() const
+{
+    if (!m_modelPointsTable->selectionModel()) {
+        return qMakePair(-1, -1);
+    }
+
+    const QModelIndexList rows = m_modelPointsTable->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        return qMakePair(-1, -1);
+    }
+
+    QTableWidgetItem *categoryItem = m_modelPointsTable->item(rows.first().row(), 0);
+    if (!categoryItem) {
+        return qMakePair(-1, -1);
+    }
+
+    return qMakePair(categoryItem->data(Qt::UserRole).toInt(),
+                     categoryItem->data(Qt::UserRole + 1).toInt());
+}
+
+QSet<QString> MainWindow::duplicateDataRefsForModel(const configtool::ModelTemplate &model) const
+{
+    QSet<QString> seenRefs;
+    QSet<QString> duplicateRefs;
+
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            const QString ref = point.dataRef();
+            if (ref.isEmpty()) {
+                continue;
+            }
+
+            if (seenRefs.contains(ref)) {
+                duplicateRefs.insert(ref);
+            } else {
+                seenRefs.insert(ref);
+            }
+        }
+    }
+
+    return duplicateRefs;
 }

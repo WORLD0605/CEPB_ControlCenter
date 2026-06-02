@@ -2,6 +2,8 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QPair>
+#include <QSet>
 #include <QHash>
 #include <QList>
 #include "config/config_project_manager.h"
@@ -15,6 +17,7 @@ class QLabel;
 class QGroupBox;
 class QStackedWidget;
 class QTableWidget;
+class QTableWidgetItem;
 class QTabWidget;
 class QTimer;
 class QSplitter;
@@ -62,6 +65,11 @@ private slots:
     void onConfigDeviceSelectionChanged();
     void onNewModelClicked();
     void onModelFieldEdited();
+    void onAddPointClicked();
+    void onCopyPointClicked();
+    void onDeletePointClicked();
+    void onModelPointItemChanged(QTableWidgetItem *item);
+    void onCreateDeviceFromModelClicked();
 
     void onConnected();
     void onDisconnected();
@@ -91,6 +99,8 @@ private:
     void refreshDeviceDetail(int deviceIndex);
     int currentConfigModelIndex() const;
     int currentConfigDeviceIndex() const;
+    QPair<int, int> currentModelPointLocation() const;
+    QSet<QString> duplicateDataRefsForModel(const configtool::ModelTemplate &model) const;
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -101,6 +111,7 @@ private:
     QHash<QString, ServiceChannelDataItem> m_previousServiceChannelItemMap;
     QHash<QString, QDateTime> m_timeHighlightUntilMap;
     QHash<QString, QDateTime> m_valueHighlightUntilMap;
+    bool m_updatingModelPointsTable = false;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
@@ -110,6 +121,10 @@ private:
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_importIec104ConfigBtn = nullptr;
     QPushButton *m_newModelBtn = nullptr;
+    QPushButton *m_createDeviceFromModelBtn = nullptr;
+    QPushButton *m_addPointBtn = nullptr;
+    QPushButton *m_copyPointBtn = nullptr;
+    QPushButton *m_deletePointBtn = nullptr;
     QStackedWidget *m_contentStack = nullptr;
     QTextEdit *m_logView = nullptr;
     QTextEdit *m_configImportReportView = nullptr;
@@ -137,6 +152,7 @@ private:
     QLabel *m_deviceDetailIpLabel = nullptr;
     QLabel *m_deviceDetailPortLabel = nullptr;
     QLabel *m_deviceDetailBindingCountLabel = nullptr;
+    QLabel *m_modelValidationLabel = nullptr;
     QLineEdit *m_modelIdEdit = nullptr;
     QLineEdit *m_modelDisplayNameEdit = nullptr;
     QLineEdit *m_modelDeviceTypeEdit = nullptr;
