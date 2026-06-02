@@ -61,6 +61,7 @@ private slots:
     void onAutoRefreshIntervalChanged(int index);
     void onBrowseConfigImportDirClicked();
     void onImportIec104ConfigClicked();
+    void onExportIec104ConfigClicked();
     void onConfigModelSelectionChanged();
     void onConfigDeviceSelectionChanged();
     void onNewModelClicked();
@@ -125,6 +126,7 @@ private:
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_importIec104ConfigBtn = nullptr;
+    QPushButton *m_exportIec104ConfigBtn = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceFromModelBtn = nullptr;
     QPushButton *m_addPointBtn = nullptr;

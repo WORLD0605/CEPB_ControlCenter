@@ -30,6 +30,17 @@ struct ImportReport {
                   const QString &message);
 };
 
+struct ExportReport {
+    QList<ImportIssue> issues;
+    int exportedModelCount = 0;
+    int exportedDeviceCount = 0;
+
+    bool hasErrors() const;
+    void addIssue(ImportIssueSeverity severity,
+                  const QString &filePath,
+                  const QString &message);
+};
+
 class Iec104ConfigImporter
 {
 public:
@@ -61,6 +72,8 @@ public:
                             const QString &sourceRoot);
     bool importIec104AppDirectory(const QString &appDir,
                                   ImportReport &report);
+    bool exportIec104AppDirectory(const QString &appDir,
+                                  ExportReport &report) const;
 
     ConfigProject &project();
     const ConfigProject &project() const;

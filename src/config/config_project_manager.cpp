@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QUuid>
 
 namespace configtool {
@@ -139,6 +140,292 @@ bool loadJsonDocument(const QString &filePath,
     return true;
 }
 
+QString safeFileSegment(const QString &value,
+                       const QString &fallback)
+{
+    QString result = value.trimmed();
+    if (result.isEmpty()) {
+        result = fallback.trimmed();
+    }
+
+    result.replace(QRegularExpression(QStringLiteral("[\\/:*?\"<>|]+")), QStringLiteral("_"));
+    result.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral("_"));
+    result.replace(QRegularExpression(QStringLiteral("_+")), QStringLiteral("_"));
+    result.remove(QRegularExpression(QStringLiteral("^_+|_+$")));
+    return result.isEmpty() ? QStringLiteral("unnamed") : result;
+}
+
+QString modelFileNameForExport(const ModelTemplate &model)
+{
+    const QFileInfo sourceInfo(model.source.filePath);
+    if (!model.source.fileName.trimmed().isEmpty()
+        && sourceInfo.exists()
+        && sourceInfo.suffix().compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0) {
+        return model.source.fileName;
+    }
+
+    const QString stem = !model.displayName.trimmed().isEmpty()
+        ? model.displayName
+        : model.modelId;
+    return QStringLiteral("model_%1.json")
+        .arg(safeFileSegment(stem, QStringLiteral("model")));
+}
+
+QString deviceFileNameForExport(const ProtocolDeviceInstance &device)
+{
+    const QFileInfo sourceInfo(device.source.filePath);
+    if (!device.source.fileName.trimmed().isEmpty()
+        && sourceInfo.exists()
+        && sourceInfo.suffix().compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0) {
+        return device.source.fileName;
+    }
+
+    const QString stem = !device.deviceDesc.trimmed().isEmpty()
+        ? device.deviceDesc
+        : device.deviceId;
+    return QStringLiteral("device-%1.json")
+        .arg(safeFileSegment(stem, QStringLiteral("device")));
+}
+
+QJsonObject serializePoint(const PointTemplate &point)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("DOname"), point.doName);
+    object.insert(QStringLiteral("DOtype"), point.doType);
+    object.insert(QStringLiteral("LDname"), point.ldName);
+    object.insert(QStringLiteral("LNinst"), point.lnInst);
+    object.insert(QStringLiteral("LNtype"), point.lnType);
+    object.insert(QStringLiteral("datatype"), point.dataType);
+    object.insert(QStringLiteral("deadzonetype"), point.deadZoneType);
+    object.insert(QStringLiteral("deadzoneval"), point.deadZoneValue);
+    object.insert(QStringLiteral("description"), point.description);
+    object.insert(QStringLiteral("max"), point.max);
+    object.insert(QStringLiteral("maxlength"), point.maxLength);
+    object.insert(QStringLiteral("min"), point.min);
+    object.insert(QStringLiteral("step"), point.step);
+    object.insert(QStringLiteral("unit"), point.unit);
+    return object;
+}
+
+QJsonObject serializeModel(const ModelTemplate &model)
+{
+    QJsonObject profile;
+    profile.insert(QStringLiteral("devType"), model.deviceType);
+    profile.insert(QStringLiteral("manufacturerDesc"), model.manufacturerDesc);
+    profile.insert(QStringLiteral("manufacturerId"), model.manufacturerId);
+    profile.insert(QStringLiteral("model"), model.modelId);
+    profile.insert(QStringLiteral("modelDesc"), model.displayName);
+    profile.insert(QStringLiteral("version"), model.version);
+
+    QJsonArray servicesArray;
+    for (ModelServiceType serviceType : {ModelServiceType::Measurement, ModelServiceType::Status, ModelServiceType::Control}) {
+        QJsonObject serviceObject;
+        QJsonArray pointsArray;
+        const ServiceTemplate *service = model.findService(serviceType);
+        if (service) {
+            for (const PointTemplate &point : service->points) {
+                pointsArray.append(serializePoint(point));
+            }
+        }
+        serviceObject.insert(QStringLiteral("DOs"), pointsArray);
+        servicesArray.append(serviceObject);
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("profile"), profile);
+    root.insert(QStringLiteral("schema"), model.schema);
+    root.insert(QStringLiteral("services"), servicesArray);
+    return root;
+}
+
+QHash<QString, QString> buildDataRefDescriptionMap(const ModelTemplate *model)
+{
+    QHash<QString, QString> descriptions;
+    if (!model) {
+        return descriptions;
+    }
+
+    for (const ServiceTemplate &service : model->services) {
+        for (const PointTemplate &point : service.points) {
+            descriptions.insert(point.dataRef(), point.description);
+        }
+    }
+
+    return descriptions;
+}
+
+QHash<QString, int> buildModelPointOrderMap(const ModelTemplate *model)
+{
+    QHash<QString, int> orderMap;
+    if (!model) {
+        return orderMap;
+    }
+
+    int order = 0;
+    for (const ServiceTemplate &service : model->services) {
+        for (const PointTemplate &point : service.points) {
+            orderMap.insert(point.dataRef(), order++);
+        }
+    }
+
+    return orderMap;
+}
+
+QJsonObject serializeBinding(const PointBinding &binding,
+                             const QHash<QString, QString> &descriptionMap)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("dataIndex"), binding.address);
+    object.insert(QStringLiteral("dataRef"), binding.dataRef);
+    object.insert(QStringLiteral("description"), binding.descriptionOverride.isEmpty()
+        ? descriptionMap.value(binding.dataRef)
+        : binding.descriptionOverride);
+    if (!binding.initValue.isEmpty()) {
+        object.insert(QStringLiteral("init_value"), binding.initValue);
+    }
+    if (!binding.selfSignalFlag.isEmpty()) {
+        object.insert(QStringLiteral("self_sig_flag"), binding.selfSignalFlag);
+    }
+    return object;
+}
+
+QList<PointBinding> bindingsForExport(const ProtocolDeviceInstance &device,
+                                      const QHash<QString, int> &orderMap)
+{
+    QList<QPair<int, PointBinding>> orderedBindings;
+    orderedBindings.reserve(device.bindings.size());
+
+    for (int index = 0; index < device.bindings.size(); ++index) {
+        const PointBinding &binding = device.bindings.at(index);
+        if (!binding.enabled || binding.address.trimmed().isEmpty()) {
+            continue;
+        }
+
+        const int order = orderMap.contains(binding.dataRef)
+            ? orderMap.value(binding.dataRef)
+            : (100000 + index);
+        orderedBindings.append(qMakePair(order, binding));
+    }
+
+    std::sort(orderedBindings.begin(), orderedBindings.end(), [](const auto &left, const auto &right) {
+        return left.first < right.first;
+    });
+
+    QList<PointBinding> result;
+    result.reserve(orderedBindings.size());
+    for (const auto &item : orderedBindings) {
+        result.append(item.second);
+    }
+    return result;
+}
+
+QJsonObject serializeDevice(const ProtocolDeviceInstance &device,
+                            const ModelTemplate *model)
+{
+    const QHash<QString, QString> descriptionMap = buildDataRefDescriptionMap(model);
+    const QHash<QString, int> orderMap = buildModelPointOrderMap(model);
+    const QList<PointBinding> exportBindings = bindingsForExport(device, orderMap);
+
+    QJsonArray bindingArray;
+    for (const PointBinding &binding : exportBindings) {
+        bindingArray.append(serializeBinding(binding, descriptionMap));
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("DeviceDesc"), device.deviceDesc);
+    root.insert(QStringLiteral("DeviceId"), device.deviceId);
+    root.insert(QStringLiteral("Model"), device.modelId);
+    root.insert(QStringLiteral("addr"), device.transport.stationAddress);
+    root.insert(QStringLiteral("ipa"), device.transport.ip);
+    if (device.transport.source.rawExtra.contains(QStringLiteral("ipb"))) {
+        root.insert(QStringLiteral("ipb"), device.transport.source.rawExtra.value(QStringLiteral("ipb")));
+    }
+    root.insert(QStringLiteral("meas_points"), bindingArray);
+    root.insert(QStringLiteral("port"), device.transport.port);
+    return root;
+}
+
+bool writeJsonFile(const QString &filePath,
+                   const QJsonObject &object,
+                   QString &errorMessage)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        errorMessage = QStringLiteral("无法写入文件");
+        return false;
+    }
+
+    const QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Indented);
+    if (file.write(payload) < 0) {
+        errorMessage = QStringLiteral("写入 JSON 内容失败");
+        file.close();
+        return false;
+    }
+
+    file.close();
+    return true;
+}
+
+const ModelTemplate *findModelById(const ConfigProject &project,
+                                   const QString &modelId)
+{
+    for (const ModelTemplate &model : project.models) {
+        if (model.modelId == modelId) {
+            return &model;
+        }
+    }
+
+    return nullptr;
+}
+
+QSet<QString> duplicateDataRefsForModel(const ModelTemplate &model)
+{
+    QSet<QString> seenRefs;
+    QSet<QString> duplicateRefs;
+
+    for (const ServiceTemplate &service : model.services) {
+        for (const PointTemplate &point : service.points) {
+            const QString ref = point.dataRef().trimmed();
+            if (ref.isEmpty()) {
+                continue;
+            }
+
+            if (seenRefs.contains(ref)) {
+                duplicateRefs.insert(ref);
+            } else {
+                seenRefs.insert(ref);
+            }
+        }
+    }
+
+    return duplicateRefs;
+}
+
+QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device)
+{
+    QSet<QString> seenAddresses;
+    QSet<QString> duplicateAddresses;
+
+    for (const PointBinding &binding : device.bindings) {
+        if (!binding.enabled) {
+            continue;
+        }
+
+        const QString address = binding.address.trimmed();
+        if (address.isEmpty()) {
+            continue;
+        }
+
+        if (seenAddresses.contains(address)) {
+            duplicateAddresses.insert(address);
+        } else {
+            seenAddresses.insert(address);
+        }
+    }
+
+    return duplicateAddresses;
+}
+
 } // namespace
 
 bool ImportReport::hasErrors() const
@@ -153,6 +440,28 @@ bool ImportReport::hasErrors() const
 }
 
 void ImportReport::addIssue(ImportIssueSeverity severity,
+                            const QString &filePath,
+                            const QString &message)
+{
+    ImportIssue issue;
+    issue.severity = severity;
+    issue.filePath = filePath;
+    issue.message = message;
+    issues.append(issue);
+}
+
+bool ExportReport::hasErrors() const
+{
+    for (const ImportIssue &issue : issues) {
+        if (issue.severity == ImportIssueSeverity::Error) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void ExportReport::addIssue(ImportIssueSeverity severity,
                             const QString &filePath,
                             const QString &message)
 {
@@ -383,6 +692,109 @@ bool ConfigProjectManager::importIec104AppDirectory(const QString &appDir,
     }
 
     return m_iec104Importer.importAppDirectory(appDir, m_project, report);
+}
+
+bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
+                                                    ExportReport &report) const
+{
+    if (m_project.projectId.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("当前没有可导出的配置工程"));
+        return false;
+    }
+
+    if (m_project.models.isEmpty() && m_project.devices.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("当前工程没有模型或设备可导出"));
+        return false;
+    }
+
+    const QDir appDirInfo(appDir);
+    if (!appDirInfo.exists()) {
+        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("104 APP 目录不存在"));
+        return false;
+    }
+
+    for (const ModelTemplate &model : m_project.models) {
+        if (model.modelId.trimmed().isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在模型 modelId 为空，无法导出"));
+        }
+
+        const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
+        if (!duplicateRefs.isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            model.source.filePath.isEmpty() ? model.modelId : model.source.filePath,
+                            QStringLiteral("模型存在重复 DataRef：%1")
+                                .arg(QStringList(duplicateRefs.begin(), duplicateRefs.end()).join(QStringLiteral("，"))));
+        }
+    }
+
+    for (const ProtocolDeviceInstance &device : m_project.devices) {
+        if (device.deviceId.trimmed().isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在设备 DeviceId 为空，无法导出"));
+        }
+
+        const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
+        if (!duplicateAddresses.isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("设备存在重复 104 地址：%1")
+                                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，"))));
+        }
+
+        for (const PointBinding &binding : device.bindings) {
+            if (binding.enabled && binding.address.trimmed().isEmpty()) {
+                report.addIssue(ImportIssueSeverity::Error,
+                                device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                                QStringLiteral("设备 %1 存在启用但未填写地址的点位：%2")
+                                    .arg(device.deviceId, binding.dataRef));
+                break;
+            }
+        }
+
+        if (!device.modelId.trimmed().isEmpty() && !findModelById(m_project, device.modelId)) {
+            report.addIssue(ImportIssueSeverity::Warning,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("设备引用的模型 %1 在当前工程中不存在，描述回填和排序将退化")
+                                .arg(device.modelId));
+        }
+    }
+
+    if (report.hasErrors()) {
+        return false;
+    }
+
+    QDir mutableAppDir(appDir);
+    const QString modelDirPath = mutableAppDir.filePath(QStringLiteral("model"));
+    const QString deviceDirPath = mutableAppDir.filePath(QStringLiteral("dev"));
+    if (!mutableAppDir.mkpath(QStringLiteral("model"))) {
+        report.addIssue(ImportIssueSeverity::Error, modelDirPath, QStringLiteral("无法创建 model 目录"));
+        return false;
+    }
+    if (!mutableAppDir.mkpath(QStringLiteral("dev"))) {
+        report.addIssue(ImportIssueSeverity::Error, deviceDirPath, QStringLiteral("无法创建 dev 目录"));
+        return false;
+    }
+
+    for (const ModelTemplate &model : m_project.models) {
+        const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
+        QString errorMessage;
+        if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
+            report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
+            return false;
+        }
+        ++report.exportedModelCount;
+    }
+
+    for (const ProtocolDeviceInstance &device : m_project.devices) {
+        const QString filePath = QDir(deviceDirPath).filePath(deviceFileNameForExport(device));
+        QString errorMessage;
+        if (!writeJsonFile(filePath, serializeDevice(device, findModelById(m_project, device.modelId)), errorMessage)) {
+            report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
+            return false;
+        }
+        ++report.exportedDeviceCount;
+    }
+
+    return true;
 }
 
 ConfigProject &ConfigProjectManager::project()

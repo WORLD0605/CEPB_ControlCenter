@@ -212,6 +212,8 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(m_browseConfigImportDirBtn);
     m_importIec104ConfigBtn = new QPushButton("导入104配置");
     importRow->addWidget(m_importIec104ConfigBtn);
+    m_exportIec104ConfigBtn = new QPushButton("导出104配置");
+    importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
 
     auto *summaryFrame = new QFrame(this);
@@ -461,6 +463,8 @@ MainWindow::MainWindow(QWidget *parent)
                 this, &MainWindow::onBrowseConfigImportDirClicked);
             connect(m_importIec104ConfigBtn, &QPushButton::clicked,
                 this, &MainWindow::onImportIec104ConfigClicked);
+            connect(m_exportIec104ConfigBtn, &QPushButton::clicked,
+                this, &MainWindow::onExportIec104ConfigClicked);
                 connect(m_newModelBtn, &QPushButton::clicked,
                     this, &MainWindow::onNewModelClicked);
                 connect(m_createDeviceFromModelBtn, &QPushButton::clicked,
@@ -572,6 +576,47 @@ void MainWindow::onImportIec104ConfigClicked()
     }
 
     statusBar()->showMessage(QStringLiteral("104 配置导入完成"), 5000);
+}
+
+void MainWindow::onExportIec104ConfigClicked()
+{
+    const QString appDir = m_configImportDirEdit->text().trimmed();
+    if (appDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择 104 APP 目录"));
+        return;
+    }
+
+    configtool::ExportReport report;
+    const bool ok = m_configProjectManager.exportIec104AppDirectory(appDir, report);
+
+    QStringList issueLines;
+    for (const configtool::ImportIssue &issue : report.issues) {
+        const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
+            ? QStringLiteral("错误")
+            : QStringLiteral("警告");
+        issueLines << QStringLiteral("[%1] %2").arg(severity, issue.message);
+    }
+
+    if (!ok) {
+        const QString detail = issueLines.isEmpty()
+            ? QStringLiteral("导出失败，但未返回详细错误。")
+            : issueLines.join('\n');
+        QMessageBox::warning(this, QStringLiteral("导出失败"), detail);
+        statusBar()->showMessage(QStringLiteral("104 配置导出失败"), 5000);
+        return;
+    }
+
+    QString statusMessage = QStringLiteral("104 配置导出完成: 模型 %1，设备 %2")
+        .arg(report.exportedModelCount)
+        .arg(report.exportedDeviceCount);
+    if (!issueLines.isEmpty()) {
+        statusMessage += QStringLiteral("，警告 %1 条").arg(issueLines.size());
+    }
+    statusBar()->showMessage(statusMessage, 8000);
+
+    if (!issueLines.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("导出完成"), issueLines.join('\n'));
+    }
 }
 
 void MainWindow::onConfigModelSelectionChanged()
