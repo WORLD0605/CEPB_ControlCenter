@@ -16,6 +16,8 @@
 #include <QTableWidgetItem>
 #include <QHeaderView>
 #include <QFileDialog>
+#include <QDir>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
 #include <QInputDialog>
@@ -204,15 +206,15 @@ MainWindow::MainWindow(QWidget *parent)
     configLayout->setSpacing(8);
 
     auto *importRow = new QHBoxLayout();
-    importRow->addWidget(new QLabel("104 APP目录:"));
+    importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
-    m_configImportDirEdit->setPlaceholderText("选择 cepiec104 目录，例如 /home/cepgateway/app/cepiec104 的本地镜像路径");
+    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter 的目录");
     importRow->addWidget(m_configImportDirEdit, 1);
     m_browseConfigImportDirBtn = new QPushButton("浏览...");
     importRow->addWidget(m_browseConfigImportDirBtn);
-    m_importIec104ConfigBtn = new QPushButton("导入104配置");
+    m_importIec104ConfigBtn = new QPushButton("导入配置");
     importRow->addWidget(m_importIec104ConfigBtn);
-    m_exportIec104ConfigBtn = new QPushButton("导出104配置");
+    m_exportIec104ConfigBtn = new QPushButton("导出配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
 
@@ -229,7 +231,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_configDeviceCountValueLabel = new QLabel("0");
     m_configIssueCountValueLabel = new QLabel("0");
     summaryLayout->addRow("工程名称:", m_configProjectNameValueLabel);
-    summaryLayout->addRow("来源目录:", m_configSourceRootValueLabel);
+    summaryLayout->addRow("工程目录:", m_configSourceRootValueLabel);
     summaryLayout->addRow("模型数量:", m_configModelCountValueLabel);
     summaryLayout->addRow("设备数量:", m_configDeviceCountValueLabel);
     summaryLayout->addRow("导入问题数:", m_configIssueCountValueLabel);
@@ -550,41 +552,60 @@ void MainWindow::onBrowseConfigImportDirClicked()
 {
     const QString dir = QFileDialog::getExistingDirectory(
         this,
-        QStringLiteral("选择 104 APP 目录"),
+        QStringLiteral("选择配置工程目录"),
         m_configImportDirEdit->text().trimmed());
     if (!dir.isEmpty()) {
-        m_configImportDirEdit->setText(dir);
+        m_configImportDirEdit->setText(normalizedConfigProjectRoot(dir));
     }
 }
 
 void MainWindow::onImportIec104ConfigClicked()
 {
-    const QString appDir = m_configImportDirEdit->text().trimmed();
-    if (appDir.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择 104 APP 目录"));
+    const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
+    if (projectRoot.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择配置工程目录"));
         return;
     }
 
+    const QString appDir = resolveIec104AppDir(projectRoot);
+    if (appDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104 子目录"));
+        return;
+    }
+
+    m_configImportDirEdit->setText(projectRoot);
+
     configtool::ImportReport report;
-    m_configProjectManager.createEmptyProject(QStringLiteral("104导入工程"), appDir);
+    const QString projectName = QFileInfo(projectRoot).fileName().trimmed().isEmpty()
+        ? QStringLiteral("配置工程")
+        : QFileInfo(projectRoot).fileName();
+    m_configProjectManager.createEmptyProject(projectName, projectRoot);
     const bool ok = m_configProjectManager.importIec104AppDirectory(appDir, report);
     refreshConfigImportSummary(report);
 
     if (!ok && report.hasErrors()) {
-        statusBar()->showMessage(QStringLiteral("104 配置导入失败"), 5000);
+        statusBar()->showMessage(QStringLiteral("配置导入失败"), 5000);
         return;
     }
 
-    statusBar()->showMessage(QStringLiteral("104 配置导入完成"), 5000);
+    statusBar()->showMessage(QStringLiteral("配置导入完成"), 5000);
 }
 
 void MainWindow::onExportIec104ConfigClicked()
 {
-    const QString appDir = m_configImportDirEdit->text().trimmed();
-    if (appDir.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择 104 APP 目录"));
+    const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
+    if (projectRoot.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择配置工程目录"));
         return;
     }
+
+    const QString appDir = resolveIec104AppDir(projectRoot);
+    if (appDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104 子目录"));
+        return;
+    }
+
+    m_configImportDirEdit->setText(projectRoot);
 
     configtool::ExportReport report;
     const bool ok = m_configProjectManager.exportIec104AppDirectory(appDir, report);
@@ -602,11 +623,11 @@ void MainWindow::onExportIec104ConfigClicked()
             ? QStringLiteral("导出失败，但未返回详细错误。")
             : issueLines.join('\n');
         QMessageBox::warning(this, QStringLiteral("导出失败"), detail);
-        statusBar()->showMessage(QStringLiteral("104 配置导出失败"), 5000);
+        statusBar()->showMessage(QStringLiteral("配置导出失败"), 5000);
         return;
     }
 
-    QString statusMessage = QStringLiteral("104 配置导出完成: 模型 %1，设备 %2")
+    QString statusMessage = QStringLiteral("配置导出完成: 模型 %1，设备 %2")
         .arg(report.exportedModelCount)
         .arg(report.exportedDeviceCount);
     if (!issueLines.isEmpty()) {
@@ -617,6 +638,38 @@ void MainWindow::onExportIec104ConfigClicked()
     if (!issueLines.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("导出完成"), issueLines.join('\n'));
     }
+}
+
+QString MainWindow::normalizedConfigProjectRoot(const QString &selectedPath) const
+{
+    if (selectedPath.isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo selectedInfo(selectedPath);
+    const QString absolutePath = selectedInfo.absoluteFilePath();
+    const QString folderName = selectedInfo.fileName().trimmed();
+    if (folderName.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0) {
+        return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));
+    }
+
+    return absolutePath;
+}
+
+QString MainWindow::resolveIec104AppDir(const QString &projectRoot) const
+{
+    if (projectRoot.trimmed().isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo rootInfo(projectRoot);
+    if (rootInfo.fileName().compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0
+        && rootInfo.isDir()) {
+        return rootInfo.absoluteFilePath();
+    }
+
+    const QString appDir = QDir(projectRoot).filePath(QStringLiteral("cepiec104"));
+    return QDir(appDir).exists() ? appDir : QString();
 }
 
 void MainWindow::onConfigModelSelectionChanged()
