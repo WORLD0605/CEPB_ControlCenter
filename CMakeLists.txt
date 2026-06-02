@@ -13,11 +13,15 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Network Widgets)
 
 set(SOURCES
     src/main.cpp
+    src/config/config_domain.cpp
+    src/config/config_project_manager.cpp
     src/network/debug_console_client.cpp
     src/ui/mainwindow.cpp
 )
 
 set(HEADERS
+    src/config/config_domain.h
+    src/config/config_project_manager.h
     src/network/debug_console_client.h
     src/ui/mainwindow.h
 )
