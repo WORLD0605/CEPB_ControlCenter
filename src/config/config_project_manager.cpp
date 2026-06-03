@@ -112,11 +112,10 @@ PointTemplate parsePointTemplate(const QJsonObject &pointObject,
 
     if (serviceType == ModelServiceType::Control) {
         const QString lowerDataType = point.dataType.toLower();
-        point.controlKind = lowerDataType.contains(QStringLiteral("float"))
-            || lowerDataType.contains(QStringLiteral("double"))
-            || lowerDataType.contains(QStringLiteral("int"))
-            ? ControlKind::RemoteAdjust
-            : ControlKind::RemoteControl;
+        point.controlKind = lowerDataType == QStringLiteral("boolean")
+            || lowerDataType == QStringLiteral("dbool")
+            ? ControlKind::RemoteControl
+            : ControlKind::RemoteAdjust;
     }
 
     return point;
@@ -406,6 +405,34 @@ QJsonObject serializePoint(const PointTemplate &point)
     return object;
 }
 
+QString exportedServiceId(ModelServiceType type)
+{
+    switch (type) {
+    case ModelServiceType::Measurement:
+        return QStringLiteral("analog");
+    case ModelServiceType::Status:
+        return QStringLiteral("discrete");
+    case ModelServiceType::Control:
+        return QStringLiteral("control");
+    }
+
+    return QStringLiteral("analog");
+}
+
+QString exportedServiceDescription(ModelServiceType type)
+{
+    switch (type) {
+    case ModelServiceType::Measurement:
+        return QStringLiteral("遥测");
+    case ModelServiceType::Status:
+        return QStringLiteral("遥信");
+    case ModelServiceType::Control:
+        return QStringLiteral("控制");
+    }
+
+    return QStringLiteral("遥测");
+}
+
 QJsonObject serializeModel(const ModelTemplate &model)
 {
     QJsonObject profile;
@@ -427,6 +454,18 @@ QJsonObject serializeModel(const ModelTemplate &model)
             }
         }
         serviceObject.insert(QStringLiteral("DOs"), pointsArray);
+        serviceObject.insert(QStringLiteral("description"),
+            service && !service->displayName.trimmed().isEmpty()
+                ? service->displayName
+                : exportedServiceDescription(serviceType));
+        serviceObject.insert(QStringLiteral("serviceId"),
+            service && !service->serviceId.trimmed().isEmpty()
+                ? (service->serviceId == QStringLiteral("measurement")
+                    ? exportedServiceId(serviceType)
+                    : (service->serviceId == QStringLiteral("status")
+                        ? exportedServiceId(serviceType)
+                        : service->serviceId))
+                : exportedServiceId(serviceType));
         servicesArray.append(serviceObject);
     }
 

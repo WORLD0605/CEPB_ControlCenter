@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QStatusBar>
@@ -79,7 +80,35 @@ QString normalizedModbusKind(const QString &value,
         || lower == QStringLiteral("yk") || lower == QStringLiteral("yt")) {
         return lower;
     }
+    const QString trimmed = value.trimmed();
+    if (trimmed == QStringLiteral("遥信")) {
+        return QStringLiteral("yx");
+    }
+    if (trimmed == QStringLiteral("遥测")) {
+        return QStringLiteral("yc");
+    }
+    if (trimmed == QStringLiteral("遥控")) {
+        return QStringLiteral("yk");
+    }
+    if (trimmed == QStringLiteral("遥调")) {
+        return QStringLiteral("yt");
+    }
     return fallback;
+}
+
+QString modbusKindDisplayName(const QString &kind)
+{
+    const QString normalized = normalizedModbusKind(kind);
+    if (normalized == QStringLiteral("yx")) {
+        return QStringLiteral("遥信");
+    }
+    if (normalized == QStringLiteral("yk")) {
+        return QStringLiteral("遥控");
+    }
+    if (normalized == QStringLiteral("yt")) {
+        return QStringLiteral("遥调");
+    }
+    return QStringLiteral("遥测");
 }
 
 bool selfSignalFlagChecked(const QString &value)
@@ -435,6 +464,9 @@ QString MainWindow::configBrowseStartDir() const
 void MainWindow::onConfigModelSelectionChanged()
 {
     const int modelIndex = currentConfigModelIndex();
+    if (m_deleteModelBtn) {
+        m_deleteModelBtn->setEnabled(modelIndex >= 0);
+    }
     refreshModelOverview(modelIndex);
     refreshModelDetail(modelIndex);
     refreshSelectionOverview();
@@ -443,6 +475,9 @@ void MainWindow::onConfigModelSelectionChanged()
 void MainWindow::onConfigDeviceSelectionChanged()
 {
     const int deviceIndex = currentConfigDeviceIndex();
+    if (m_deleteDeviceBtn) {
+        m_deleteDeviceBtn->setEnabled(deviceIndex >= 0);
+    }
     refreshDeviceDetail(deviceIndex);
     if (deviceIndex >= 0) {
         refreshDeviceEditor(deviceIndex);
@@ -450,6 +485,12 @@ void MainWindow::onConfigDeviceSelectionChanged()
         refreshDeviceEditor(-1);
     }
     refreshSelectionOverview();
+    if (m_deleteModelBtn) {
+        m_deleteModelBtn->setEnabled(currentConfigModelIndex() >= 0);
+    }
+    if (m_deleteDeviceBtn) {
+        m_deleteDeviceBtn->setEnabled(currentConfigDeviceIndex() >= 0);
+    }
 }
 
 void MainWindow::onConfigModelActivated(int row, int /*column*/)
@@ -778,7 +819,13 @@ void MainWindow::onCreateDeviceFromModelClicked()
     device.deviceDesc = model.displayName.isEmpty() ? model.modelId : model.displayName;
     device.modelId = model.modelId;
     if (createModbus) {
-        device.transport.protocolOptions.insert(QStringLiteral("type"), QStringLiteral("TCP"));
+        device.transport.protocolOptions.insert(QStringLiteral("type"), QStringLiteral("RTU"));
+        device.transport.protocolOptions.insert(QStringLiteral("debug"), QStringLiteral("off"));
+        device.transport.serial.insert(QStringLiteral("serialPort"), QStringLiteral("RS485_1"));
+        device.transport.serial.insert(QStringLiteral("baud"), QStringLiteral("9600"));
+        device.transport.serial.insert(QStringLiteral("dataBits"), QStringLiteral("8"));
+        device.transport.serial.insert(QStringLiteral("stopBits"), QStringLiteral("1"));
+        device.transport.serial.insert(QStringLiteral("parity"), QStringLiteral("N"));
         device.modbus.yxType = QStringLiteral("BIT");
         device.modbus.ycType = QStringLiteral("WORD");
         device.modbus.ytType = QStringLiteral("WORD");
@@ -795,9 +842,15 @@ void MainWindow::onCreateDeviceFromModelClicked()
             binding.descriptionOverride = point.description;
             binding.enabled = true;
             if (createModbus) {
-                const QString kind = point.category == configtool::ModelServiceType::Status
-                    ? QStringLiteral("yx")
-                    : (point.category == configtool::ModelServiceType::Control ? QStringLiteral("yt") : QStringLiteral("yc"));
+                QString kind = QStringLiteral("yc");
+                if (point.category == configtool::ModelServiceType::Status) {
+                    kind = QStringLiteral("yx");
+                } else if (point.category == configtool::ModelServiceType::Control) {
+                    const QString dataType = point.dataType.trimmed().toLower();
+                    kind = dataType == QStringLiteral("boolean") || dataType == QStringLiteral("dbool")
+                        ? QStringLiteral("yk")
+                        : QStringLiteral("yt");
+                }
                 const QString lowerDataType = point.dataType.toLower();
                 const QString modbusDataType = kind == QStringLiteral("yx")
                     ? QStringLiteral("BIT")
@@ -820,6 +873,94 @@ void MainWindow::onCreateDeviceFromModelClicked()
     }
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
     statusBar()->showMessage(QStringLiteral("已根据模型生成 104 设备绑定骨架"), 4000);
+}
+
+void MainWindow::onDeleteModelClicked()
+{
+    const int modelIndex = currentConfigModelIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex < 0 || modelIndex >= project.models.size()) {
+        QMessageBox::information(this, QStringLiteral("删除模型"), QStringLiteral("请先选择要删除的模型。"));
+        return;
+    }
+
+    const configtool::ModelTemplate model = project.models.at(modelIndex);
+    int referencedDeviceCount = 0;
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId == model.modelId) {
+            ++referencedDeviceCount;
+        }
+    }
+
+    QString message = QStringLiteral("确定删除模型“%1”？")
+        .arg(model.displayName.isEmpty() ? model.modelId : model.displayName);
+    if (referencedDeviceCount > 0) {
+        message += QStringLiteral("\n\n当前有 %1 个设备使用该模型，删除模型时这些设备也会一起删除。")
+            .arg(referencedDeviceCount);
+    }
+
+    if (QMessageBox::question(this,
+                              QStringLiteral("删除模型"),
+                              message,
+                              QMessageBox::Yes | QMessageBox::No,
+                              QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    const QString deletedModelId = model.modelId;
+    for (int index = project.devices.size() - 1; index >= 0; --index) {
+        if (project.devices.at(index).modelId == deletedModelId) {
+            project.devices.removeAt(index);
+        }
+    }
+    project.models.removeAt(modelIndex);
+
+    configtool::ImportReport report;
+    refreshConfigImportSummary(report);
+    const int nextModelIndex = qMin(modelIndex, project.models.size() - 1);
+    if (nextModelIndex >= 0) {
+        m_configModelTable->selectRow(nextModelIndex);
+    }
+    refreshModelOverview(currentConfigModelIndex());
+    refreshModelDetail(currentConfigModelIndex());
+    refreshDeviceDetail(currentConfigDeviceIndex());
+    refreshDeviceEditor(currentConfigDeviceIndex());
+    statusBar()->showMessage(QStringLiteral("已删除模型"), 3000);
+}
+
+void MainWindow::onDeleteDeviceClicked()
+{
+    const int deviceIndex = currentConfigDeviceIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        QMessageBox::information(this, QStringLiteral("删除设备"), QStringLiteral("请先选择要删除的设备。"));
+        return;
+    }
+
+    const configtool::ProtocolDeviceInstance device = project.devices.at(deviceIndex);
+    const QString deviceName = device.deviceDesc.isEmpty() ? device.deviceId : device.deviceDesc;
+    if (QMessageBox::question(this,
+                              QStringLiteral("删除设备"),
+                              QStringLiteral("确定删除设备“%1”？").arg(deviceName),
+                              QMessageBox::Yes | QMessageBox::No,
+                              QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    project.devices.removeAt(deviceIndex);
+
+    configtool::ImportReport report;
+    refreshConfigImportSummary(report);
+    const int nextDeviceIndex = qMin(deviceIndex, project.devices.size() - 1);
+    if (nextDeviceIndex >= 0) {
+        m_configDeviceTable->selectRow(nextDeviceIndex);
+    }
+    refreshSelectionOverview();
+    refreshDeviceDetail(currentConfigDeviceIndex());
+    refreshDeviceEditor(currentConfigDeviceIndex());
+    statusBar()->showMessage(QStringLiteral("已删除设备"), 3000);
 }
 
 void MainWindow::onDeviceFieldEdited()
@@ -1859,7 +2000,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnCount(ModbusBindingColumnCount);
         m_deviceBindingsTable->setHorizontalHeaderLabels({
             QStringLiteral("启用"),
-            QStringLiteral("类型"),
+            QStringLiteral("点位类型"),
             QStringLiteral("DataRef"),
             QStringLiteral("描述"),
             QStringLiteral("功能码"),
@@ -1907,7 +2048,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusEntryNo")))
                 : QString();
 
-            auto *kindItem = new QTableWidgetItem(kind);
+            auto *kindItem = new QTableWidgetItem(modbusKindDisplayName(kind));
+            kindItem->setFlags(kindItem->flags() & ~Qt::ItemIsEditable);
+            kindItem->setData(Qt::UserRole, row);
             auto *dataRefItem = new QTableWidgetItem(binding.dataRef);
             auto *descriptionItem = new QTableWidgetItem(binding.descriptionOverride);
             auto *funCodeItem = new QTableWidgetItem(funCode);
@@ -1935,6 +2078,45 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
             m_deviceBindingsTable->setItem(row, ModbusColumnEnabled, enabledItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnKind, kindItem);
+            auto *kindCombo = new QComboBox(m_deviceBindingsTable);
+            kindCombo->addItem(QStringLiteral("遥信"), QStringLiteral("yx"));
+            kindCombo->addItem(QStringLiteral("遥测"), QStringLiteral("yc"));
+            kindCombo->addItem(QStringLiteral("遥控"), QStringLiteral("yk"));
+            kindCombo->addItem(QStringLiteral("遥调"), QStringLiteral("yt"));
+            const int kindIndex = kindCombo->findData(kind);
+            kindCombo->setCurrentIndex(kindIndex >= 0 ? kindIndex : kindCombo->findData(QStringLiteral("yc")));
+            kindCombo->setProperty("bindingIndex", row);
+            connect(kindCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, kindCombo](int) {
+                if (m_updatingDeviceBindingsTable || m_restoringConfigUndo) {
+                    return;
+                }
+
+                const int deviceIndex = currentConfigDeviceIndex();
+                if (deviceIndex < 0) {
+                    return;
+                }
+
+                configtool::ConfigProject &project = m_configProjectManager.project();
+                if (deviceIndex >= project.devices.size()) {
+                    return;
+                }
+
+                configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                const int bindingIndex = kindCombo->property("bindingIndex").toInt();
+                if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                    return;
+                }
+
+                pushConfigUndoSnapshot();
+                device.bindings[bindingIndex].extensions.insert(QStringLiteral("modbusKind"), kindCombo->currentData().toString());
+                rebuildModbusDeviceConfig(device);
+                refreshDeviceDetail(deviceIndex);
+                refreshDeviceEditor(deviceIndex);
+                if (bindingIndex < m_deviceBindingsTable->rowCount()) {
+                    m_deviceBindingsTable->setCurrentCell(bindingIndex, ModbusColumnKind);
+                }
+            });
+            m_deviceBindingsTable->setCellWidget(row, ModbusColumnKind, kindCombo);
             m_deviceBindingsTable->setItem(row, ModbusColumnDataRef, dataRefItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnDescription, descriptionItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnFunCode, funCodeItem);

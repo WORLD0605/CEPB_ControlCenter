@@ -245,6 +245,9 @@ MainWindow::MainWindow(QWidget *parent)
     modelToolbar->addWidget(m_newModelBtn);
     m_createDeviceFromModelBtn = new QPushButton("由模型创建设备");
     modelToolbar->addWidget(m_createDeviceFromModelBtn);
+    m_deleteModelBtn = new QPushButton("删除模型");
+    m_deleteModelBtn->setEnabled(false);
+    modelToolbar->addWidget(m_deleteModelBtn);
     modelToolbar->addStretch();
     modelGroupLayout->addLayout(modelToolbar);
     m_configModelTable = new QTableWidget(0, 4, this);
@@ -266,6 +269,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_deviceGroupBox = new QGroupBox("设备列表", this);
     auto *deviceGroupLayout = new QVBoxLayout(m_deviceGroupBox);
+    auto *deviceToolbar = new QHBoxLayout();
+    m_deleteDeviceBtn = new QPushButton("删除设备");
+    m_deleteDeviceBtn->setEnabled(false);
+    deviceToolbar->addWidget(m_deleteDeviceBtn);
+    deviceToolbar->addStretch();
+    deviceGroupLayout->addLayout(deviceToolbar);
     m_configDeviceTable = new QTableWidget(0, 5, this);
     m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "站地址", "点位数"});
     m_configDeviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -576,6 +585,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceFromModelBtn, &QPushButton::clicked,
             this, &MainWindow::onCreateDeviceFromModelClicked);
+    connect(m_deleteModelBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteModelClicked);
+    connect(m_deleteDeviceBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteDeviceClicked);
     connect(m_configModelTable, &QTableWidget::itemSelectionChanged,
             this, &MainWindow::onConfigModelSelectionChanged);
     connect(m_configDeviceTable, &QTableWidget::itemSelectionChanged,

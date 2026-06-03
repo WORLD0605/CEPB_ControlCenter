@@ -77,6 +77,8 @@ private slots:
     void onModelPointCategoryChanged(int index);
     void onModelPointFilterChanged(int index);
     void onCreateDeviceFromModelClicked();
+    void onDeleteModelClicked();
+    void onDeleteDeviceClicked();
     void onDeviceFieldEdited();
     void onDeviceBindingItemChanged(QTableWidgetItem *item);
 
@@ -151,6 +153,8 @@ private:
     QPushButton *m_exportIec104ConfigBtn = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceFromModelBtn = nullptr;
+    QPushButton *m_deleteModelBtn = nullptr;
+    QPushButton *m_deleteDeviceBtn = nullptr;
     QPushButton *m_addPointBtn = nullptr;
     QPushButton *m_copyPointBtn = nullptr;
     QPushButton *m_deletePointBtn = nullptr;
