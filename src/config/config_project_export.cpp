@@ -276,6 +276,30 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     return true;
 }
 
+bool ConfigProjectManager::exportLogicCenterConfigFile(const QString &filePath,
+                                                       ExportReport &report) const
+{
+    if (m_project.projectId.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Error, filePath, QStringLiteral("当前没有可导出的配置工程"));
+        return false;
+    }
+
+    const QFileInfo fileInfo(filePath);
+    QDir dir(fileInfo.absolutePath());
+    if (!dir.exists() && !QDir().mkpath(fileInfo.absolutePath())) {
+        report.addIssue(ImportIssueSeverity::Error, fileInfo.absolutePath(), QStringLiteral("无法创建 LogicCenter etc 目录"));
+        return false;
+    }
+
+    QString errorMessage;
+    if (!writeJsonFile(filePath, serializeLogicCenterConfig(m_project.logicCenter), errorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace configtool
 
 

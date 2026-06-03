@@ -1,5 +1,8 @@
 #include "config/config_domain.h"
 
+#include <QJsonArray>
+#include <QSet>
+
 namespace configtool {
 
 namespace {
@@ -25,6 +28,456 @@ ServiceTemplate makeService(ModelServiceType type)
     service.serviceId = modelServiceTypeId(type);
     service.displayName = modelServiceTypeDisplayName(type);
     return service;
+}
+
+QJsonObject rawExtraWithout(const QJsonObject &object, const QSet<QString> &knownKeys)
+{
+    QJsonObject extra;
+    for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
+        if (!knownKeys.contains(it.key())) {
+            extra.insert(it.key(), it.value());
+        }
+    }
+    return extra;
+}
+
+QString stringValue(const QJsonObject &object, const QString &primaryKey, const QString &fallbackKey = QString())
+{
+    const QJsonValue primary = object.value(primaryKey);
+    if (primary.isString()) {
+        return primary.toString();
+    }
+    if (!fallbackKey.isEmpty()) {
+        const QJsonValue fallback = object.value(fallbackKey);
+        if (fallback.isString()) {
+            return fallback.toString();
+        }
+    }
+    return QString();
+}
+
+double doubleValue(const QJsonObject &object,
+                   const QString &primaryKey,
+                   const QString &fallbackKey,
+                   double defaultValue)
+{
+    const QJsonValue primary = object.value(primaryKey);
+    if (primary.isDouble()) {
+        return primary.toDouble();
+    }
+    if (!fallbackKey.isEmpty()) {
+        const QJsonValue fallback = object.value(fallbackKey);
+        if (fallback.isDouble()) {
+            return fallback.toDouble();
+        }
+    }
+    return defaultValue;
+}
+
+int intValue(const QJsonObject &object,
+             const QString &primaryKey,
+             const QString &fallbackKey,
+             int defaultValue)
+{
+    const QJsonValue primary = object.value(primaryKey);
+    if (primary.isDouble()) {
+        return primary.toInt();
+    }
+    if (!fallbackKey.isEmpty()) {
+        const QJsonValue fallback = object.value(fallbackKey);
+        if (fallback.isDouble()) {
+            return fallback.toInt();
+        }
+    }
+    return defaultValue;
+}
+
+bool boolValue(const QJsonObject &object, const QString &key, bool defaultValue)
+{
+    const QJsonValue value = object.value(key);
+    return value.isBool() ? value.toBool() : defaultValue;
+}
+
+LogicOperand parseLogicOperand(const QJsonObject &object)
+{
+    LogicOperand operand;
+    operand.deviceId = object.value(QStringLiteral("DeviceId")).toString();
+    operand.dataRef = object.value(QStringLiteral("dataRef")).toString();
+    operand.rawExtra = rawExtraWithout(object, {QStringLiteral("DeviceId"), QStringLiteral("dataRef")});
+    return operand;
+}
+
+QJsonObject serializeLogicOperand(const LogicOperand &operand)
+{
+    QJsonObject object = operand.rawExtra;
+    object.insert(QStringLiteral("DeviceId"), operand.deviceId);
+    object.insert(QStringLiteral("dataRef"), operand.dataRef);
+    return object;
+}
+
+LogicComputationPoint parseLogicComputationPoint(const QJsonObject &object)
+{
+    LogicComputationPoint point;
+    point.deviceId = object.value(QStringLiteral("DeviceId")).toString();
+    point.dataRef = object.value(QStringLiteral("dataRef")).toString();
+    point.formula = object.value(QStringLiteral("formula")).toString();
+    point.description = object.value(QStringLiteral("description")).toString();
+    point.dropOperands = object.value(QStringLiteral("drop_operands")).isBool()
+        ? object.value(QStringLiteral("drop_operands")).toBool()
+        : true;
+    const QJsonArray operands = object.value(QStringLiteral("operands")).toArray();
+    for (const QJsonValue &value : operands) {
+        if (value.isObject()) {
+            point.operands.append(parseLogicOperand(value.toObject()));
+        }
+    }
+    point.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("DeviceId"),
+        QStringLiteral("dataRef"),
+        QStringLiteral("formula"),
+        QStringLiteral("description"),
+        QStringLiteral("drop_operands"),
+        QStringLiteral("operands")
+    });
+    return point;
+}
+
+QJsonObject serializeLogicComputationPoint(const LogicComputationPoint &point)
+{
+    QJsonObject object = point.rawExtra;
+    QJsonArray operands;
+    for (const LogicOperand &operand : point.operands) {
+        operands.append(serializeLogicOperand(operand));
+    }
+    object.insert(QStringLiteral("DeviceId"), point.deviceId);
+    object.insert(QStringLiteral("dataRef"), point.dataRef);
+    object.insert(QStringLiteral("formula"), point.formula);
+    object.insert(QStringLiteral("description"), point.description);
+    object.insert(QStringLiteral("drop_operands"), point.dropOperands);
+    object.insert(QStringLiteral("operands"), operands);
+    return object;
+}
+
+LogicControlTarget parseLogicControlTarget(const QJsonObject &object)
+{
+    LogicControlTarget target;
+    target.deviceId = object.value(QStringLiteral("DeviceId")).toString();
+    target.dataRef = object.value(QStringLiteral("dataRef")).toString();
+    target.expr = object.value(QStringLiteral("expr")).toString();
+    target.targetType = stringValue(object, QStringLiteral("targetType"), QStringLiteral("target_type"));
+    if (target.targetType.trimmed().isEmpty()) {
+        target.targetType = QStringLiteral("ctrlcmd");
+    }
+    target.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("DeviceId"),
+        QStringLiteral("dataRef"),
+        QStringLiteral("expr"),
+        QStringLiteral("targetType"),
+        QStringLiteral("target_type")
+    });
+    return target;
+}
+
+QJsonObject serializeLogicControlTarget(const LogicControlTarget &target)
+{
+    QJsonObject object = target.rawExtra;
+    object.insert(QStringLiteral("DeviceId"), target.deviceId);
+    object.insert(QStringLiteral("dataRef"), target.dataRef);
+    object.insert(QStringLiteral("expr"), target.expr);
+    object.insert(QStringLiteral("targetType"), target.targetType.trimmed().isEmpty()
+        ? QStringLiteral("ctrlcmd")
+        : target.targetType);
+    return object;
+}
+
+LogicControlRule parseLogicControlRule(const QJsonObject &object)
+{
+    LogicControlRule rule;
+    const QJsonObject match = object.value(QStringLiteral("match")).toObject();
+    rule.matchDeviceId = match.value(QStringLiteral("DeviceId")).toString();
+    rule.matchDataRef = match.value(QStringLiteral("dataRef")).toString();
+    rule.matchCtrlType = match.value(QStringLiteral("CtrlType")).toString();
+    rule.matchRawExtra = rawExtraWithout(match, {
+        QStringLiteral("DeviceId"),
+        QStringLiteral("dataRef"),
+        QStringLiteral("CtrlType")
+    });
+    const QJsonArray targets = object.value(QStringLiteral("targets")).toArray();
+    for (const QJsonValue &value : targets) {
+        if (value.isObject()) {
+            rule.targets.append(parseLogicControlTarget(value.toObject()));
+        }
+    }
+    rule.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("match"),
+        QStringLiteral("targets")
+    });
+    return rule;
+}
+
+QJsonObject serializeLogicControlRule(const LogicControlRule &rule)
+{
+    QJsonObject match = rule.matchRawExtra;
+    match.insert(QStringLiteral("DeviceId"), rule.matchDeviceId);
+    match.insert(QStringLiteral("dataRef"), rule.matchDataRef);
+    if (!rule.matchCtrlType.isEmpty()) {
+        match.insert(QStringLiteral("CtrlType"), rule.matchCtrlType);
+    }
+
+    QJsonArray targets;
+    for (const LogicControlTarget &target : rule.targets) {
+        targets.append(serializeLogicControlTarget(target));
+    }
+
+    QJsonObject object = rule.rawExtra;
+    object.insert(QStringLiteral("match"), match);
+    object.insert(QStringLiteral("targets"), targets);
+    return object;
+}
+
+AgcAvcFollowConfig parseAgcAvcFollowConfig(const QJsonObject &object)
+{
+    AgcAvcFollowConfig follow;
+    follow.enable = boolValue(object, QStringLiteral("enable"), false);
+    follow.periodMs = intValue(object, QStringLiteral("period_ms"), QString(), 5000);
+    follow.step = doubleValue(object, QStringLiteral("step"), QString(), 100.0);
+    follow.tolerance = doubleValue(object, QStringLiteral("tolerance"), QString(), 0.1);
+    follow.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("enable"),
+        QStringLiteral("period_ms"),
+        QStringLiteral("step"),
+        QStringLiteral("tolerance")
+    });
+    return follow;
+}
+
+QJsonObject serializeAgcAvcFollowConfig(const AgcAvcFollowConfig &follow)
+{
+    QJsonObject object = follow.rawExtra;
+    object.insert(QStringLiteral("enable"), follow.enable);
+    object.insert(QStringLiteral("period_ms"), follow.periodMs);
+    object.insert(QStringLiteral("step"), follow.step);
+    object.insert(QStringLiteral("tolerance"), follow.tolerance);
+    return object;
+}
+
+AgcAvcGateReverseConfig parseAgcAvcGateReverseConfig(const QJsonObject &object)
+{
+    AgcAvcGateReverseConfig gate;
+    gate.enable = boolValue(object, QStringLiteral("enable"), false);
+    gate.distant = boolValue(object, QStringLiteral("distant"), false);
+    gate.lock = boolValue(object, QStringLiteral("lock"), false);
+    gate.uplock = boolValue(object, QStringLiteral("uplock"), false);
+    gate.downlock = boolValue(object, QStringLiteral("downlock"), false);
+    gate.openloop = boolValue(object, QStringLiteral("openloop"), false);
+    gate.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("enable"),
+        QStringLiteral("distant"),
+        QStringLiteral("lock"),
+        QStringLiteral("uplock"),
+        QStringLiteral("downlock"),
+        QStringLiteral("openloop")
+    });
+    return gate;
+}
+
+QJsonObject serializeAgcAvcGateReverseConfig(const AgcAvcGateReverseConfig &gate)
+{
+    QJsonObject object = gate.rawExtra;
+    object.insert(QStringLiteral("enable"), gate.enable);
+    object.insert(QStringLiteral("distant"), gate.distant);
+    object.insert(QStringLiteral("lock"), gate.lock);
+    object.insert(QStringLiteral("uplock"), gate.uplock);
+    object.insert(QStringLiteral("downlock"), gate.downlock);
+    object.insert(QStringLiteral("openloop"), gate.openloop);
+    return object;
+}
+
+AgcAvcMeasurementScale parseAgcAvcMeasurementScale(const QJsonObject &object)
+{
+    AgcAvcMeasurementScale scale;
+    scale.totalP = doubleValue(object, QStringLiteral("totalP"), QStringLiteral("total_p"), 1.0);
+    scale.totalQ = doubleValue(object, QStringLiteral("totalQ"), QStringLiteral("total_q"), 1.0);
+    scale.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("totalP"),
+        QStringLiteral("totalQ"),
+        QStringLiteral("total_p"),
+        QStringLiteral("total_q")
+    });
+    return scale;
+}
+
+QJsonObject serializeAgcAvcMeasurementScale(const AgcAvcMeasurementScale &scale)
+{
+    QJsonObject object = scale.rawExtra;
+    object.insert(QStringLiteral("totalP"), scale.totalP);
+    object.insert(QStringLiteral("totalQ"), scale.totalQ);
+    return object;
+}
+
+AgcAvcDevice parseAgcAvcDevice(const QJsonObject &object)
+{
+    AgcAvcDevice device;
+    device.deviceId = object.value(QStringLiteral("DeviceId")).toString();
+    device.ctrlDataRefP = stringValue(object, QStringLiteral("ctrlDataRefP"), QStringLiteral("ctrl_dataref_p"));
+    device.ctrlDataRefQ = stringValue(object, QStringLiteral("ctrlDataRefQ"), QStringLiteral("ctrl_dataref_q"));
+    device.onlineDeviceId = stringValue(object, QStringLiteral("onlineDeviceId"), QStringLiteral("online_device_id"));
+    device.onlineDataRef = stringValue(object, QStringLiteral("onlineDataRef"), QStringLiteral("online_dataref"));
+    device.onlineOkValue = intValue(object, QStringLiteral("onlineOkValue"), QStringLiteral("online_ok_value"), 1);
+    device.pMax = doubleValue(object, QStringLiteral("pMax"), QString(), 0.0);
+    device.pMin = doubleValue(object, QStringLiteral("pMin"), QString(), 0.0);
+    device.qMax = doubleValue(object, QStringLiteral("qMax"), QString(), 0.0);
+    device.qMin = doubleValue(object, QStringLiteral("qMin"), QString(), 0.0);
+    const double legacyScale = doubleValue(object, QStringLiteral("scale"), QString(), 1.0);
+    device.scaleP = doubleValue(object, QStringLiteral("scaleP"), QStringLiteral("scale_p"), legacyScale);
+    device.scaleQ = doubleValue(object, QStringLiteral("scaleQ"), QStringLiteral("scale_q"), legacyScale);
+    device.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("DeviceId"),
+        QStringLiteral("ctrlDataRefP"),
+        QStringLiteral("ctrlDataRefQ"),
+        QStringLiteral("ctrl_dataref_p"),
+        QStringLiteral("ctrl_dataref_q"),
+        QStringLiteral("onlineDeviceId"),
+        QStringLiteral("onlineDataRef"),
+        QStringLiteral("online_device_id"),
+        QStringLiteral("online_dataref"),
+        QStringLiteral("onlineOkValue"),
+        QStringLiteral("online_ok_value"),
+        QStringLiteral("pMax"),
+        QStringLiteral("pMin"),
+        QStringLiteral("qMax"),
+        QStringLiteral("qMin"),
+        QStringLiteral("scale"),
+        QStringLiteral("scaleP"),
+        QStringLiteral("scaleQ"),
+        QStringLiteral("scale_p"),
+        QStringLiteral("scale_q")
+    });
+    return device;
+}
+
+QJsonObject serializeAgcAvcDevice(const AgcAvcDevice &device)
+{
+    QJsonObject object = device.rawExtra;
+    object.insert(QStringLiteral("DeviceId"), device.deviceId);
+    object.insert(QStringLiteral("ctrlDataRefP"), device.ctrlDataRefP);
+    object.insert(QStringLiteral("ctrlDataRefQ"), device.ctrlDataRefQ);
+    if (!device.onlineDeviceId.trimmed().isEmpty()) {
+        object.insert(QStringLiteral("onlineDeviceId"), device.onlineDeviceId);
+    }
+    if (!device.onlineDataRef.trimmed().isEmpty()) {
+        object.insert(QStringLiteral("onlineDataRef"), device.onlineDataRef);
+    }
+    object.insert(QStringLiteral("onlineOkValue"), device.onlineOkValue);
+    object.insert(QStringLiteral("pMax"), device.pMax);
+    object.insert(QStringLiteral("pMin"), device.pMin);
+    object.insert(QStringLiteral("qMax"), device.qMax);
+    object.insert(QStringLiteral("qMin"), device.qMin);
+    object.insert(QStringLiteral("scaleP"), device.scaleP);
+    object.insert(QStringLiteral("scaleQ"), device.scaleQ);
+    return object;
+}
+
+AgcAvcGroup parseAgcAvcGroup(const QJsonObject &object)
+{
+    AgcAvcGroup group;
+    group.groupId = stringValue(object, QStringLiteral("groupId"), QStringLiteral("group_id"));
+    if (group.groupId.trimmed().isEmpty()) {
+        group.groupId = QStringLiteral("default");
+    }
+    group.virtualDeviceId = stringValue(object, QStringLiteral("virtualDeviceId"), QStringLiteral("virtual_device_id"));
+    if (group.virtualDeviceId.trimmed().isEmpty()) {
+        group.virtualDeviceId = QStringLiteral("999");
+    }
+    const QJsonArray devices = object.value(QStringLiteral("devicelist")).toArray();
+    for (const QJsonValue &value : devices) {
+        if (value.isObject()) {
+            group.devices.append(parseAgcAvcDevice(value.toObject()));
+        }
+    }
+    group.measurementScale = parseAgcAvcMeasurementScale(object.value(QStringLiteral("measurement_scale")).toObject());
+    group.gateReverse = parseAgcAvcGateReverseConfig(object.value(QStringLiteral("gate_reverse")).toObject());
+    const QJsonObject legacyFollow = object.value(QStringLiteral("follow")).toObject();
+    group.agcFollow = object.value(QStringLiteral("agc_follow")).isObject()
+        ? parseAgcAvcFollowConfig(object.value(QStringLiteral("agc_follow")).toObject())
+        : parseAgcAvcFollowConfig(legacyFollow);
+    group.avcFollow = object.value(QStringLiteral("avc_follow")).isObject()
+        ? parseAgcAvcFollowConfig(object.value(QStringLiteral("avc_follow")).toObject())
+        : parseAgcAvcFollowConfig(legacyFollow);
+    group.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("groupId"),
+        QStringLiteral("group_id"),
+        QStringLiteral("virtualDeviceId"),
+        QStringLiteral("virtual_device_id"),
+        QStringLiteral("devicelist"),
+        QStringLiteral("measurement_scale"),
+        QStringLiteral("gate_reverse"),
+        QStringLiteral("follow"),
+        QStringLiteral("agc_follow"),
+        QStringLiteral("avc_follow")
+    });
+    return group;
+}
+
+QJsonObject serializeAgcAvcGroup(const AgcAvcGroup &group)
+{
+    QJsonArray devices;
+    for (const AgcAvcDevice &device : group.devices) {
+        devices.append(serializeAgcAvcDevice(device));
+    }
+
+    QJsonObject object = group.rawExtra;
+    object.insert(QStringLiteral("groupId"), group.groupId);
+    object.insert(QStringLiteral("virtualDeviceId"), group.virtualDeviceId);
+    object.insert(QStringLiteral("devicelist"), devices);
+    object.insert(QStringLiteral("measurement_scale"), serializeAgcAvcMeasurementScale(group.measurementScale));
+    object.insert(QStringLiteral("gate_reverse"), serializeAgcAvcGateReverseConfig(group.gateReverse));
+    object.insert(QStringLiteral("agc_follow"), serializeAgcAvcFollowConfig(group.agcFollow));
+    object.insert(QStringLiteral("avc_follow"), serializeAgcAvcFollowConfig(group.avcFollow));
+    return object;
+}
+
+LogicOnlineStatusLink parseLogicOnlineStatusLink(const QJsonObject &object)
+{
+    LogicOnlineStatusLink link;
+    link.deviceId = object.value(QStringLiteral("DeviceId")).toString();
+    link.linkToDeviceId = object.value(QStringLiteral("LinkToDeviceId")).toString();
+    link.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("DeviceId"),
+        QStringLiteral("LinkToDeviceId")
+    });
+    return link;
+}
+
+QJsonObject serializeLogicOnlineStatusLink(const LogicOnlineStatusLink &link)
+{
+    QJsonObject object = link.rawExtra;
+    object.insert(QStringLiteral("DeviceId"), link.deviceId);
+    object.insert(QStringLiteral("LinkToDeviceId"), link.linkToDeviceId);
+    return object;
+}
+
+AgcAvcDebugConfig parseAgcAvcDebugConfig(const QJsonObject &object)
+{
+    AgcAvcDebugConfig debug;
+    debug.enable = boolValue(object, QStringLiteral("enable"), false);
+    debug.intervalMs = intValue(object, QStringLiteral("interval_ms"), QString(), 5000);
+    debug.maxList = intValue(object, QStringLiteral("max_list"), QString(), 50);
+    debug.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("enable"),
+        QStringLiteral("interval_ms"),
+        QStringLiteral("max_list")
+    });
+    return debug;
+}
+
+QJsonObject serializeAgcAvcDebugConfig(const AgcAvcDebugConfig &debug)
+{
+    QJsonObject object = debug.rawExtra;
+    object.insert(QStringLiteral("enable"), debug.enable);
+    object.insert(QStringLiteral("interval_ms"), debug.intervalMs);
+    object.insert(QStringLiteral("max_list"), debug.maxList);
+    return object;
 }
 
 } // namespace
@@ -193,6 +646,93 @@ QList<ServiceTemplate> createDefaultModelServices()
     }
 
     return services;
+}
+
+LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object)
+{
+    LogicCenterConfig config;
+
+    const QJsonArray computationPoints = object.value(QStringLiteral("computation_points")).toArray();
+    for (const QJsonValue &value : computationPoints) {
+        if (value.isObject()) {
+            config.computationPoints.append(parseLogicComputationPoint(value.toObject()));
+        }
+    }
+
+    const QJsonArray controlRules = object.value(QStringLiteral("control_rules")).toArray();
+    for (const QJsonValue &value : controlRules) {
+        if (value.isObject()) {
+            config.controlRules.append(parseLogicControlRule(value.toObject()));
+        }
+    }
+
+    const QJsonArray groups = object.value(QStringLiteral("AgcAvcGroups")).toArray();
+    for (const QJsonValue &value : groups) {
+        if (value.isObject()) {
+            config.agcAvcGroups.append(parseAgcAvcGroup(value.toObject()));
+        }
+    }
+    if (config.agcAvcGroups.isEmpty() && object.value(QStringLiteral("AgcAvc")).isObject()) {
+        config.agcAvcGroups.append(parseAgcAvcGroup(object.value(QStringLiteral("AgcAvc")).toObject()));
+    }
+
+    const QJsonArray onlineLinks = object.value(QStringLiteral("onlineStatus_link")).toArray();
+    for (const QJsonValue &value : onlineLinks) {
+        if (value.isObject()) {
+            config.onlineStatusLinks.append(parseLogicOnlineStatusLink(value.toObject()));
+        }
+    }
+
+    config.hasDebug = object.value(QStringLiteral("AgcAvc_debug")).isObject();
+    if (config.hasDebug) {
+        config.debug = parseAgcAvcDebugConfig(object.value(QStringLiteral("AgcAvc_debug")).toObject());
+    }
+
+    config.rawExtra = rawExtraWithout(object, {
+        QStringLiteral("computation_points"),
+        QStringLiteral("control_rules"),
+        QStringLiteral("AgcAvcGroups"),
+        QStringLiteral("AgcAvc"),
+        QStringLiteral("onlineStatus_link"),
+        QStringLiteral("AgcAvc_debug")
+    });
+
+    return config;
+}
+
+QJsonObject serializeLogicCenterConfig(const LogicCenterConfig &config)
+{
+    QJsonObject object = config.rawExtra;
+
+    QJsonArray computationPoints;
+    for (const LogicComputationPoint &point : config.computationPoints) {
+        computationPoints.append(serializeLogicComputationPoint(point));
+    }
+    object.insert(QStringLiteral("computation_points"), computationPoints);
+
+    QJsonArray controlRules;
+    for (const LogicControlRule &rule : config.controlRules) {
+        controlRules.append(serializeLogicControlRule(rule));
+    }
+    object.insert(QStringLiteral("control_rules"), controlRules);
+
+    QJsonArray groups;
+    for (const AgcAvcGroup &group : config.agcAvcGroups) {
+        groups.append(serializeAgcAvcGroup(group));
+    }
+    object.insert(QStringLiteral("AgcAvcGroups"), groups);
+
+    QJsonArray onlineLinks;
+    for (const LogicOnlineStatusLink &link : config.onlineStatusLinks) {
+        onlineLinks.append(serializeLogicOnlineStatusLink(link));
+    }
+    object.insert(QStringLiteral("onlineStatus_link"), onlineLinks);
+
+    if (config.hasDebug) {
+        object.insert(QStringLiteral("AgcAvc_debug"), serializeAgcAvcDebugConfig(config.debug));
+    }
+
+    return object;
 }
 
 } // namespace configtool

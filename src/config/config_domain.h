@@ -82,6 +82,113 @@ struct ModbusDeviceConfig {
     QJsonObject rawExtra;
 };
 
+struct LogicOperand {
+    QString deviceId;
+    QString dataRef;
+    QJsonObject rawExtra;
+};
+
+struct LogicComputationPoint {
+    QString deviceId;
+    QString dataRef;
+    QString formula;
+    QString description;
+    bool dropOperands = true;
+    QList<LogicOperand> operands;
+    QJsonObject rawExtra;
+};
+
+struct LogicControlTarget {
+    QString deviceId;
+    QString dataRef;
+    QString expr;
+    QString targetType = QStringLiteral("ctrlcmd");
+    QJsonObject rawExtra;
+};
+
+struct LogicControlRule {
+    QString matchDeviceId;
+    QString matchDataRef;
+    QString matchCtrlType;
+    QList<LogicControlTarget> targets;
+    QJsonObject rawExtra;
+    QJsonObject matchRawExtra;
+};
+
+struct AgcAvcFollowConfig {
+    bool enable = false;
+    int periodMs = 5000;
+    double step = 100.0;
+    double tolerance = 0.1;
+    QJsonObject rawExtra;
+};
+
+struct AgcAvcGateReverseConfig {
+    bool enable = false;
+    bool distant = false;
+    bool lock = false;
+    bool uplock = false;
+    bool downlock = false;
+    bool openloop = false;
+    QJsonObject rawExtra;
+};
+
+struct AgcAvcMeasurementScale {
+    double totalP = 1.0;
+    double totalQ = 1.0;
+    QJsonObject rawExtra;
+};
+
+struct AgcAvcDevice {
+    QString deviceId;
+    QString ctrlDataRefP;
+    QString ctrlDataRefQ;
+    QString onlineDeviceId;
+    QString onlineDataRef;
+    int onlineOkValue = 1;
+    double pMax = 0.0;
+    double pMin = 0.0;
+    double qMax = 0.0;
+    double qMin = 0.0;
+    double scaleP = 1.0;
+    double scaleQ = 1.0;
+    QJsonObject rawExtra;
+};
+
+struct AgcAvcGroup {
+    QString groupId = QStringLiteral("default");
+    QString virtualDeviceId = QStringLiteral("999");
+    QList<AgcAvcDevice> devices;
+    AgcAvcMeasurementScale measurementScale;
+    AgcAvcGateReverseConfig gateReverse;
+    AgcAvcFollowConfig agcFollow;
+    AgcAvcFollowConfig avcFollow;
+    QJsonObject rawExtra;
+};
+
+struct LogicOnlineStatusLink {
+    QString deviceId;
+    QString linkToDeviceId;
+    QJsonObject rawExtra;
+};
+
+struct AgcAvcDebugConfig {
+    bool enable = false;
+    int intervalMs = 5000;
+    int maxList = 50;
+    QJsonObject rawExtra;
+};
+
+struct LogicCenterConfig {
+    QList<LogicComputationPoint> computationPoints;
+    QList<LogicControlRule> controlRules;
+    QList<AgcAvcGroup> agcAvcGroups;
+    QList<LogicOnlineStatusLink> onlineStatusLinks;
+    AgcAvcDebugConfig debug;
+    QJsonObject rawExtra;
+    bool hasDebug = false;
+};
+
 struct SourceInfo {
     QString filePath;
     QString fileName;
@@ -192,6 +299,7 @@ struct ConfigProject {
     QList<ModelTemplate> models;
     QList<ProtocolDeviceInstance> devices;
     ModbusGlobalConfig modbus;
+    LogicCenterConfig logicCenter;
     QJsonObject logic;
     QJsonObject metadata;
 };
@@ -209,6 +317,9 @@ QString protocolTypeId(ProtocolType type);
 QString modbusPointKindId(ModbusPointKind kind);
 
 QList<ServiceTemplate> createDefaultModelServices();
+
+LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object);
+QJsonObject serializeLogicCenterConfig(const LogicCenterConfig &config);
 
 } // namespace configtool
 

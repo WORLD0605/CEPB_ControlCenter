@@ -992,6 +992,25 @@ bool ConfigProjectManager::importModbusAppDirectory(const QString &appDir,
     return m_modbusImporter.importAppDirectory(appDir, m_project, report);
 }
 
+bool ConfigProjectManager::importLogicCenterConfigFile(const QString &filePath,
+                                                       ImportReport &report)
+{
+    if (m_project.projectId.isEmpty()) {
+        createEmptyProject(QStringLiteral("导入工程"), QFileInfo(filePath).absolutePath());
+    }
+
+    QJsonDocument document;
+    QString errorMessage;
+    if (!loadJsonDocument(filePath, document, errorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
+        return false;
+    }
+
+    m_project.logicCenter = parseLogicCenterConfig(document.object());
+    m_project.logic = document.object();
+    return true;
+}
+
 ConfigProject &ConfigProjectManager::project()
 {
     return m_project;
