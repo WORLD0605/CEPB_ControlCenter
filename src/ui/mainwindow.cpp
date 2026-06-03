@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "ui/point_selector_dialog.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -210,6 +211,8 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(m_browseConfigImportDirBtn);
     m_exportIec104ConfigBtn = new QPushButton("导出配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
+    m_openPointSelectorBtn = new QPushButton(QStringLiteral("选择点位..."));
+    importRow->addWidget(m_openPointSelectorBtn);
     configLayout->addLayout(importRow);
 
     auto *summaryFrame = new QFrame(this);
@@ -581,6 +584,22 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onBrowseConfigImportDirClicked);
     connect(m_exportIec104ConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onExportIec104ConfigClicked);
+    connect(m_openPointSelectorBtn, &QPushButton::clicked,
+            this, [this]() {
+                PointSelectorDialog dialog(this);
+                dialog.setProject(&m_configProjectManager.project());
+                if (dialog.exec() != QDialog::Accepted) {
+                    return;
+                }
+
+                const PointSelectorDialog::SelectedPoint point = dialog.selectedPoint();
+                if (!point.valid) {
+                    return;
+                }
+                const QString text = point.deviceId + QLatin1Char('\t') + point.dataRef;
+                QApplication::clipboard()->setText(text);
+                statusBar()->showMessage(QStringLiteral("已复制点位: %1 / %2").arg(point.deviceId, point.dataRef), 5000);
+            });
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceFromModelBtn, &QPushButton::clicked,

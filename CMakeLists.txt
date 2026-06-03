@@ -23,6 +23,7 @@ set(SOURCES
     src/ui/mainwindow.cpp
     src/ui/mainwindow_debug.cpp
     src/ui/mainwindow_config.cpp
+    src/ui/point_selector_dialog.cpp
 )
 
 set(HEADERS
@@ -32,6 +33,7 @@ set(HEADERS
     src/config/config_project_manager.h
     src/network/debug_console_client.h
     src/ui/mainwindow.h
+    src/ui/point_selector_dialog.h
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
