@@ -119,6 +119,7 @@ void MainWindow::onBrowseConfigImportDirClicked()
         m_configImportDirEdit->setText(projectRoot);
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         settings.setValue(QStringLiteral("config/lastBrowseDir"), projectRoot);
+        onImportIec104ConfigClicked();
     }
 }
 
@@ -713,23 +714,18 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
     }
 
     pushConfigUndoSnapshot();
-    configtool::PointTemplate &point = service.points[pointIndex];
+    const int editedRow = item->row();
+    const int editedColumn = item->column();
+    const QString pointId = service.points.at(pointIndex).pointId;
     applyModelPointCellText(item->row(), item->column(), item->text());
-
-    m_updatingModelPointsTable = true;
-    if (QTableWidgetItem *nameItem = m_modelPointsTable->item(item->row(), 1)) {
-        nameItem->setText(point.doName);
-    }
-    if (QTableWidgetItem *dataRefItem = m_modelPointsTable->item(item->row(), 6)) {
-        dataRefItem->setText(point.dataRef());
-    }
-    m_updatingModelPointsTable = false;
 
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
     }
-    m_modelPointsTable->setCurrentCell(item->row(), item->column());
+    refreshModelDetail(modelIndex);
+    selectModelPointById(pointId);
+    m_modelPointsTable->setCurrentCell(editedRow, editedColumn);
 }
 
 void MainWindow::applyModelPointCellText(int row, int column, const QString &text)
@@ -1343,9 +1339,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         auto *addressItem = new QTableWidgetItem(binding.address);
         auto *initValueItem = new QTableWidgetItem(binding.initValue);
         auto *selfSignalItem = new QTableWidgetItem(binding.selfSignalFlag);
-        auto *pointRefItem = new QTableWidgetItem(binding.pointRef);
         dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
-        pointRefItem->setFlags(pointRefItem->flags() & ~Qt::ItemIsEditable);
 
         if (binding.enabled && duplicateAddresses.contains(binding.address.trimmed())) {
             const QColor duplicateColor(QStringLiteral("#c0392b"));
@@ -1355,7 +1349,6 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             addressItem->setForeground(duplicateColor);
             initValueItem->setForeground(duplicateColor);
             selfSignalItem->setForeground(duplicateColor);
-            pointRefItem->setForeground(duplicateColor);
         } else if (binding.enabled && binding.address.trimmed().isEmpty()) {
             const QColor warningColor(QStringLiteral("#b9770e"));
             dataRefItem->setForeground(warningColor);
@@ -1368,7 +1361,6 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setItem(row, 3, addressItem);
         m_deviceBindingsTable->setItem(row, 4, initValueItem);
         m_deviceBindingsTable->setItem(row, 5, selfSignalItem);
-        m_deviceBindingsTable->setItem(row, 6, pointRefItem);
     }
     m_updatingDeviceBindingsTable = false;
 

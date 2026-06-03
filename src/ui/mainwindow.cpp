@@ -204,10 +204,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_configImportDirEdit = new QLineEdit();
     m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter 的目录");
     importRow->addWidget(m_configImportDirEdit, 1);
-    m_browseConfigImportDirBtn = new QPushButton("浏览...");
+    m_browseConfigImportDirBtn = new QPushButton("打开配置工作区...");
     importRow->addWidget(m_browseConfigImportDirBtn);
-    m_importIec104ConfigBtn = new QPushButton("导入配置");
-    importRow->addWidget(m_importIec104ConfigBtn);
     m_exportIec104ConfigBtn = new QPushButton("导出配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
@@ -423,8 +421,8 @@ MainWindow::MainWindow(QWidget *parent)
     bindingToolbar->addWidget(new QLabel("104 点位地址绑定:", this));
     bindingToolbar->addStretch();
     deviceEditorLayout->addLayout(bindingToolbar);
-    m_deviceBindingsTable = new QTableWidget(0, 7, this);
-    m_deviceBindingsTable->setHorizontalHeaderLabels({"启用", "DataRef", "描述", "地址", "初值", "自发标志", "PointRef"});
+    m_deviceBindingsTable = new QTableWidget(0, 6, this);
+    m_deviceBindingsTable->setHorizontalHeaderLabels({"启用", "DataRef", "描述", "地址", "初值", "自发标志"});
     m_deviceBindingsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_deviceBindingsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_deviceBindingsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -437,7 +435,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingsTable->setColumnWidth(3, 90);
     m_deviceBindingsTable->setColumnWidth(4, 90);
     m_deviceBindingsTable->setColumnWidth(5, 90);
-    m_deviceBindingsTable->setColumnWidth(6, 280);
     deviceEditorLayout->addWidget(m_deviceBindingsTable, 1);
     deviceEditorLayout->setStretch(2, 1);
     deviceEditorLayout->setStretch(3, 8);
@@ -508,8 +505,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAutoRefreshIntervalChanged);
     connect(m_browseConfigImportDirBtn, &QPushButton::clicked,
             this, &MainWindow::onBrowseConfigImportDirClicked);
-    connect(m_importIec104ConfigBtn, &QPushButton::clicked,
-            this, &MainWindow::onImportIec104ConfigClicked);
     connect(m_exportIec104ConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onExportIec104ConfigClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
