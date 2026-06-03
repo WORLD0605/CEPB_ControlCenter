@@ -12,7 +12,9 @@
 class QLineEdit;
 class QComboBox;
 class QCheckBox;
+class QDoubleSpinBox;
 class QPushButton;
+class QSpinBox;
 class QTextEdit;
 class QLabel;
 class QGroupBox;
@@ -81,6 +83,11 @@ private slots:
     void onDeleteDeviceClicked();
     void onDeviceFieldEdited();
     void onDeviceBindingItemChanged(QTableWidgetItem *item);
+    void onLogicAgcAvcBasicEdited();
+    void onLogicAgcAvcDeviceItemChanged(QTableWidgetItem *item);
+    void onLogicAgcAvcDeviceCellDoubleClicked(int row, int column);
+    void onAddLogicAgcAvcDeviceClicked();
+    void onDeleteLogicAgcAvcDeviceClicked();
 
     void onConnected();
     void onDisconnected();
@@ -119,6 +126,7 @@ private:
     void refreshConfigImportSummary(const configtool::ImportReport &report);
     void refreshConfigObjectViews();
     void refreshLogicCenterOverview();
+    void refreshLogicAgcAvcPage();
     void refreshSelectionOverview();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
@@ -130,6 +138,11 @@ private:
     QPair<int, int> currentModelPointLocation() const;
     QSet<QString> duplicateDataRefsForModel(const configtool::ModelTemplate &model) const;
     QSet<QString> duplicateBindingAddresses(const configtool::ProtocolDeviceInstance &device) const;
+    configtool::AgcAvcGroup *ensureLogicAgcAvcGroup();
+    configtool::AgcAvcGroup *currentLogicAgcAvcGroup();
+    void selectLogicAgcAvcPointForColumn(int dataRefColumn,
+                                         configtool::ModelServiceType preferredType,
+                                         bool updateOnlineDevice);
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -143,6 +156,7 @@ private:
     bool m_updatingModelPointsTable = false;
     bool m_updatingModelPointCategory = false;
     bool m_updatingDeviceBindingsTable = false;
+    bool m_updatingLogicAgcAvcPage = false;
     bool m_restoringConfigUndo = false;
     QList<configtool::ConfigProject> m_configUndoStack;
 
@@ -180,6 +194,7 @@ private:
     QTabBar *m_modelPointFilterTabBar = nullptr;
     QWidget *m_configPage = nullptr;
     QWidget *m_logicCenterPage = nullptr;
+    QWidget *m_logicAgcAvcPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -197,6 +212,27 @@ private:
     QLabel *m_logicIssueCountLabel = nullptr;
     QLabel *m_logicExportPathLabel = nullptr;
     QTableWidget *m_logicIssueTable = nullptr;
+    QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
+    QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
+    QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;
+    QDoubleSpinBox *m_logicMeasurementTotalQEdit = nullptr;
+    QCheckBox *m_logicGateEnableReverseCheck = nullptr;
+    QCheckBox *m_logicGateDistantReverseCheck = nullptr;
+    QCheckBox *m_logicGateLockReverseCheck = nullptr;
+    QCheckBox *m_logicGateUplockReverseCheck = nullptr;
+    QCheckBox *m_logicGateDownlockReverseCheck = nullptr;
+    QCheckBox *m_logicGateOpenloopReverseCheck = nullptr;
+    QCheckBox *m_logicAgcFollowEnableCheck = nullptr;
+    QSpinBox *m_logicAgcFollowPeriodEdit = nullptr;
+    QDoubleSpinBox *m_logicAgcFollowStepEdit = nullptr;
+    QDoubleSpinBox *m_logicAgcFollowToleranceEdit = nullptr;
+    QCheckBox *m_logicAvcFollowEnableCheck = nullptr;
+    QSpinBox *m_logicAvcFollowPeriodEdit = nullptr;
+    QDoubleSpinBox *m_logicAvcFollowStepEdit = nullptr;
+    QDoubleSpinBox *m_logicAvcFollowToleranceEdit = nullptr;
+    QTableWidget *m_logicAgcAvcDeviceTable = nullptr;
+    QPushButton *m_addLogicAgcAvcDeviceBtn = nullptr;
+    QPushButton *m_deleteLogicAgcAvcDeviceBtn = nullptr;
     QLabel *m_modelOverviewIdLabel = nullptr;
     QLabel *m_modelOverviewDisplayNameLabel = nullptr;
     QLabel *m_modelOverviewDeviceTypeLabel = nullptr;

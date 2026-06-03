@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "config/modbus_mapping_utils.h"
+#include "ui/point_selector_dialog.h"
 
 #include <algorithm>
 #include <QApplication>
@@ -8,6 +9,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGroupBox>
@@ -19,6 +21,7 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTableWidget>
@@ -41,6 +44,18 @@ constexpr int ModbusColumnGroupNo = 8;
 constexpr int ModbusColumnEntryNo = 9;
 constexpr int ModbusColumnDataIndex = 10;
 constexpr int ModbusColumnSelfSignal = 11;
+constexpr int LogicAgcAvcDeviceColumnDeviceId = 0;
+constexpr int LogicAgcAvcDeviceColumnCtrlP = 1;
+constexpr int LogicAgcAvcDeviceColumnCtrlQ = 2;
+constexpr int LogicAgcAvcDeviceColumnOnlineDevice = 3;
+constexpr int LogicAgcAvcDeviceColumnOnlinePoint = 4;
+constexpr int LogicAgcAvcDeviceColumnOnlineOk = 5;
+constexpr int LogicAgcAvcDeviceColumnPMin = 6;
+constexpr int LogicAgcAvcDeviceColumnPMax = 7;
+constexpr int LogicAgcAvcDeviceColumnQMin = 8;
+constexpr int LogicAgcAvcDeviceColumnQMax = 9;
+constexpr int LogicAgcAvcDeviceColumnScaleP = 10;
+constexpr int LogicAgcAvcDeviceColumnScaleQ = 11;
 
 using configtool::buildModbusDataIndex;
 using configtool::isModbusDevice;
@@ -188,6 +203,25 @@ QColor configIssueSeverityColor(configtool::ConfigIssueSeverity severity)
     }
 
     return QColor(QStringLiteral("#c0392b"));
+}
+
+QString doubleToUiText(double value)
+{
+    return QString::number(value, 'g', 12);
+}
+
+double uiTextToDouble(const QString &text, double fallback)
+{
+    bool ok = false;
+    const double value = text.trimmed().toDouble(&ok);
+    return ok ? value : fallback;
+}
+
+int uiTextToInt(const QString &text, int fallback)
+{
+    bool ok = false;
+    const int value = text.trimmed().toInt(&ok);
+    return ok ? value : fallback;
 }
 
 } // namespace
@@ -1648,6 +1682,7 @@ void MainWindow::refreshConfigObjectViews()
 
     refreshSelectionOverview();
     refreshLogicCenterOverview();
+    refreshLogicAgcAvcPage();
 }
 
 void MainWindow::refreshSelectionOverview()
@@ -2235,6 +2270,286 @@ void MainWindow::refreshLogicCenterOverview()
         m_logicIssueTable->setItem(row, 2, objectItem);
         m_logicIssueTable->setItem(row, 3, messageItem);
     }
+}
+
+configtool::AgcAvcGroup *MainWindow::ensureLogicAgcAvcGroup()
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (logic.agcAvcGroups.isEmpty()) {
+        configtool::AgcAvcGroup group;
+        group.groupId = QStringLiteral("default");
+        group.virtualDeviceId = QStringLiteral("999");
+        logic.agcAvcGroups.append(group);
+    }
+    return &logic.agcAvcGroups[0];
+}
+
+configtool::AgcAvcGroup *MainWindow::currentLogicAgcAvcGroup()
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (logic.agcAvcGroups.isEmpty()) {
+        return nullptr;
+    }
+    return &logic.agcAvcGroups[0];
+}
+
+void MainWindow::refreshLogicAgcAvcPage()
+{
+    if (!m_logicAgcAvcPage) {
+        return;
+    }
+
+    const configtool::AgcAvcGroup defaultGroup;
+    const configtool::AgcAvcGroup *group = currentLogicAgcAvcGroup();
+    if (!group) {
+        group = &defaultGroup;
+    }
+    m_updatingLogicAgcAvcPage = true;
+
+    m_logicAgcAvcGroupIdEdit->setText(group->groupId);
+    m_logicAgcAvcVirtualDeviceIdEdit->setText(group->virtualDeviceId);
+    m_logicMeasurementTotalPEdit->setValue(group->measurementScale.totalP);
+    m_logicMeasurementTotalQEdit->setValue(group->measurementScale.totalQ);
+
+    m_logicGateEnableReverseCheck->setChecked(group->gateReverse.enable);
+    m_logicGateDistantReverseCheck->setChecked(group->gateReverse.distant);
+    m_logicGateLockReverseCheck->setChecked(group->gateReverse.lock);
+    m_logicGateUplockReverseCheck->setChecked(group->gateReverse.uplock);
+    m_logicGateDownlockReverseCheck->setChecked(group->gateReverse.downlock);
+    m_logicGateOpenloopReverseCheck->setChecked(group->gateReverse.openloop);
+
+    m_logicAgcFollowEnableCheck->setChecked(group->agcFollow.enable);
+    m_logicAgcFollowPeriodEdit->setValue(group->agcFollow.periodMs);
+    m_logicAgcFollowStepEdit->setValue(group->agcFollow.step);
+    m_logicAgcFollowToleranceEdit->setValue(group->agcFollow.tolerance);
+    m_logicAvcFollowEnableCheck->setChecked(group->avcFollow.enable);
+    m_logicAvcFollowPeriodEdit->setValue(group->avcFollow.periodMs);
+    m_logicAvcFollowStepEdit->setValue(group->avcFollow.step);
+    m_logicAvcFollowToleranceEdit->setValue(group->avcFollow.tolerance);
+
+    m_logicAgcAvcDeviceTable->setRowCount(group->devices.size());
+    for (int row = 0; row < group->devices.size(); ++row) {
+        const configtool::AgcAvcDevice &device = group->devices.at(row);
+        const QStringList values = {
+            device.deviceId,
+            device.ctrlDataRefP,
+            device.ctrlDataRefQ,
+            device.onlineDeviceId,
+            device.onlineDataRef,
+            QString::number(device.onlineOkValue),
+            doubleToUiText(device.pMin),
+            doubleToUiText(device.pMax),
+            doubleToUiText(device.qMin),
+            doubleToUiText(device.qMax),
+            doubleToUiText(device.scaleP),
+            doubleToUiText(device.scaleQ)
+        };
+        for (int column = 0; column < values.size(); ++column) {
+            m_logicAgcAvcDeviceTable->setItem(row, column, new QTableWidgetItem(values.at(column)));
+        }
+    }
+
+    m_updatingLogicAgcAvcPage = false;
+}
+
+void MainWindow::onLogicAgcAvcBasicEdited()
+{
+    if (m_updatingLogicAgcAvcPage || m_restoringConfigUndo) {
+        return;
+    }
+
+    configtool::AgcAvcGroup *group = ensureLogicAgcAvcGroup();
+    pushConfigUndoSnapshot();
+    group->groupId = m_logicAgcAvcGroupIdEdit->text().trimmed();
+    group->virtualDeviceId = m_logicAgcAvcVirtualDeviceIdEdit->text().trimmed();
+    group->measurementScale.totalP = m_logicMeasurementTotalPEdit->value();
+    group->measurementScale.totalQ = m_logicMeasurementTotalQEdit->value();
+
+    group->gateReverse.enable = m_logicGateEnableReverseCheck->isChecked();
+    group->gateReverse.distant = m_logicGateDistantReverseCheck->isChecked();
+    group->gateReverse.lock = m_logicGateLockReverseCheck->isChecked();
+    group->gateReverse.uplock = m_logicGateUplockReverseCheck->isChecked();
+    group->gateReverse.downlock = m_logicGateDownlockReverseCheck->isChecked();
+    group->gateReverse.openloop = m_logicGateOpenloopReverseCheck->isChecked();
+
+    group->agcFollow.enable = m_logicAgcFollowEnableCheck->isChecked();
+    group->agcFollow.periodMs = m_logicAgcFollowPeriodEdit->value();
+    group->agcFollow.step = m_logicAgcFollowStepEdit->value();
+    group->agcFollow.tolerance = m_logicAgcFollowToleranceEdit->value();
+    group->avcFollow.enable = m_logicAvcFollowEnableCheck->isChecked();
+    group->avcFollow.periodMs = m_logicAvcFollowPeriodEdit->value();
+    group->avcFollow.step = m_logicAvcFollowStepEdit->value();
+    group->avcFollow.tolerance = m_logicAvcFollowToleranceEdit->value();
+
+    refreshLogicCenterOverview();
+}
+
+void MainWindow::onLogicAgcAvcDeviceItemChanged(QTableWidgetItem *item)
+{
+    if (m_updatingLogicAgcAvcPage || m_restoringConfigUndo || !item) {
+        return;
+    }
+
+    configtool::AgcAvcGroup *group = currentLogicAgcAvcGroup();
+    if (!group || item->row() < 0 || item->row() >= group->devices.size()) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::AgcAvcDevice &device = group->devices[item->row()];
+    const QString text = item->text().trimmed();
+    switch (item->column()) {
+    case LogicAgcAvcDeviceColumnDeviceId:
+        device.deviceId = text;
+        if (device.onlineDeviceId.trimmed().isEmpty()) {
+            device.onlineDeviceId = text;
+        }
+        break;
+    case LogicAgcAvcDeviceColumnCtrlP:
+        device.ctrlDataRefP = text;
+        break;
+    case LogicAgcAvcDeviceColumnCtrlQ:
+        device.ctrlDataRefQ = text;
+        break;
+    case LogicAgcAvcDeviceColumnOnlineDevice:
+        device.onlineDeviceId = text;
+        break;
+    case LogicAgcAvcDeviceColumnOnlinePoint:
+        device.onlineDataRef = text;
+        break;
+    case LogicAgcAvcDeviceColumnOnlineOk:
+        device.onlineOkValue = uiTextToInt(text, device.onlineOkValue);
+        break;
+    case LogicAgcAvcDeviceColumnPMin:
+        device.pMin = uiTextToDouble(text, device.pMin);
+        break;
+    case LogicAgcAvcDeviceColumnPMax:
+        device.pMax = uiTextToDouble(text, device.pMax);
+        break;
+    case LogicAgcAvcDeviceColumnQMin:
+        device.qMin = uiTextToDouble(text, device.qMin);
+        break;
+    case LogicAgcAvcDeviceColumnQMax:
+        device.qMax = uiTextToDouble(text, device.qMax);
+        break;
+    case LogicAgcAvcDeviceColumnScaleP:
+        device.scaleP = uiTextToDouble(text, device.scaleP);
+        break;
+    case LogicAgcAvcDeviceColumnScaleQ:
+        device.scaleQ = uiTextToDouble(text, device.scaleQ);
+        break;
+    default:
+        break;
+    }
+
+    refreshLogicCenterOverview();
+}
+
+void MainWindow::onAddLogicAgcAvcDeviceClicked()
+{
+    configtool::AgcAvcGroup *group = ensureLogicAgcAvcGroup();
+    pushConfigUndoSnapshot();
+    configtool::AgcAvcDevice device;
+    device.deviceId = QStringLiteral("device_%1").arg(group->devices.size() + 1);
+    device.onlineDeviceId = device.deviceId;
+    device.ctrlDataRefP = QStringLiteral("PROT.SlrInvCtlGGIO.1.TotalP_Ctrl");
+    device.ctrlDataRefQ = QStringLiteral("PROT.SlrInvCtlGGIO.1.TotalQ_Ctrl");
+    device.pMax = 1000.0;
+    device.pMin = 0.0;
+    device.qMax = 1000.0;
+    device.qMin = -1000.0;
+    group->devices.append(device);
+    refreshLogicAgcAvcPage();
+    refreshLogicCenterOverview();
+    m_logicAgcAvcDeviceTable->selectRow(group->devices.size() - 1);
+}
+
+void MainWindow::onLogicAgcAvcDeviceCellDoubleClicked(int row, int column)
+{
+    if (row < 0) {
+        return;
+    }
+
+    m_logicAgcAvcDeviceTable->setCurrentCell(row, column);
+    if (column == LogicAgcAvcDeviceColumnCtrlP) {
+        selectLogicAgcAvcPointForColumn(LogicAgcAvcDeviceColumnCtrlP,
+                                        configtool::ModelServiceType::Control,
+                                        false);
+    } else if (column == LogicAgcAvcDeviceColumnCtrlQ) {
+        selectLogicAgcAvcPointForColumn(LogicAgcAvcDeviceColumnCtrlQ,
+                                        configtool::ModelServiceType::Control,
+                                        false);
+    } else if (column == LogicAgcAvcDeviceColumnOnlinePoint) {
+        selectLogicAgcAvcPointForColumn(LogicAgcAvcDeviceColumnOnlinePoint,
+                                        configtool::ModelServiceType::Status,
+                                        true);
+    }
+}
+
+void MainWindow::onDeleteLogicAgcAvcDeviceClicked()
+{
+    configtool::AgcAvcGroup *group = currentLogicAgcAvcGroup();
+    if (!group) {
+        return;
+    }
+    const int row = m_logicAgcAvcDeviceTable->currentRow();
+    if (row < 0 || row >= group->devices.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择要删除的南向设备。"));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    group->devices.removeAt(row);
+    refreshLogicAgcAvcPage();
+    refreshLogicCenterOverview();
+}
+
+void MainWindow::selectLogicAgcAvcPointForColumn(int dataRefColumn,
+                                                 configtool::ModelServiceType preferredType,
+                                                 bool updateOnlineDevice)
+{
+    configtool::AgcAvcGroup *group = ensureLogicAgcAvcGroup();
+    int row = m_logicAgcAvcDeviceTable->currentRow();
+    if (row < 0) {
+        onAddLogicAgcAvcDeviceClicked();
+        row = m_logicAgcAvcDeviceTable->currentRow();
+    }
+    if (row < 0 || row >= group->devices.size()) {
+        return;
+    }
+
+    PointSelectorDialog dialog(this);
+    dialog.setProject(&m_configProjectManager.project());
+    dialog.setServiceTypeFilter(preferredType);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const PointSelectorDialog::SelectedPoint point = dialog.selectedPoint();
+    if (!point.valid) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::AgcAvcDevice &device = group->devices[row];
+    device.deviceId = point.deviceId;
+    if (dataRefColumn == LogicAgcAvcDeviceColumnCtrlP) {
+        device.ctrlDataRefP = point.dataRef;
+    } else if (dataRefColumn == LogicAgcAvcDeviceColumnCtrlQ) {
+        device.ctrlDataRefQ = point.dataRef;
+    } else if (dataRefColumn == LogicAgcAvcDeviceColumnOnlinePoint) {
+        device.onlineDataRef = point.dataRef;
+        if (updateOnlineDevice) {
+            device.onlineDeviceId = point.deviceId;
+        }
+    }
+    if (device.onlineDeviceId.trimmed().isEmpty()) {
+        device.onlineDeviceId = device.deviceId;
+    }
+
+    refreshLogicAgcAvcPage();
+    refreshLogicCenterOverview();
+    m_logicAgcAvcDeviceTable->setCurrentCell(row, dataRefColumn);
 }
 
 int MainWindow::currentConfigModelIndex() const

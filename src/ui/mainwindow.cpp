@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QFrame>
@@ -23,6 +24,7 @@
 #include <QSettings>
 #include <QShortcut>
 #include <QSplitter>
+#include <QSpinBox>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
@@ -592,6 +594,11 @@ MainWindow::MainWindow(QWidget *parent)
         auto *button = new QPushButton(text, this);
         logicActionLayout->addWidget(button, row, column);
         connect(button, &QPushButton::clicked, this, [this, text]() {
+            if (text == QStringLiteral("AGC/AVC") && m_logicAgcAvcPage) {
+                refreshLogicAgcAvcPage();
+                m_mainTabWidget->setCurrentWidget(m_logicAgcAvcPage);
+                return;
+            }
             statusBar()->showMessage(QStringLiteral("%1 编辑器将在后续步骤接入").arg(text), 5000);
         });
         return button;
@@ -630,11 +637,148 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicIssueTable->setColumnWidth(2, 260);
     logicLayout->addWidget(m_logicIssueTable, 1);
 
+    m_logicAgcAvcPage = new QWidget(this);
+    auto *agcAvcLayout = new QVBoxLayout(m_logicAgcAvcPage);
+    agcAvcLayout->setContentsMargins(0, 0, 0, 0);
+    agcAvcLayout->setSpacing(8);
+
+    auto *agcAvcBasicFrame = new QFrame(this);
+    agcAvcBasicFrame->setFrameShape(QFrame::StyledPanel);
+    auto *agcAvcBasicLayout = new QGridLayout(agcAvcBasicFrame);
+    agcAvcBasicLayout->setContentsMargins(10, 8, 10, 8);
+    agcAvcBasicLayout->setHorizontalSpacing(10);
+    agcAvcBasicLayout->setVerticalSpacing(6);
+    m_logicAgcAvcGroupIdEdit = new QLineEdit(this);
+    m_logicAgcAvcVirtualDeviceIdEdit = new QLineEdit(this);
+    m_logicMeasurementTotalPEdit = new QDoubleSpinBox(this);
+    m_logicMeasurementTotalQEdit = new QDoubleSpinBox(this);
+    for (QDoubleSpinBox *spin : {m_logicMeasurementTotalPEdit, m_logicMeasurementTotalQEdit}) {
+        spin->setDecimals(6);
+        spin->setRange(-1000000000.0, 1000000000.0);
+        spin->setValue(1.0);
+    }
+    agcAvcBasicLayout->addWidget(new QLabel(QStringLiteral("组 ID:"), this), 0, 0);
+    agcAvcBasicLayout->addWidget(m_logicAgcAvcGroupIdEdit, 0, 1);
+    agcAvcBasicLayout->addWidget(new QLabel(QStringLiteral("虚拟设备:"), this), 0, 2);
+    agcAvcBasicLayout->addWidget(m_logicAgcAvcVirtualDeviceIdEdit, 0, 3);
+    agcAvcBasicLayout->addWidget(new QLabel(QStringLiteral("总有功缩放:"), this), 1, 0);
+    agcAvcBasicLayout->addWidget(m_logicMeasurementTotalPEdit, 1, 1);
+    agcAvcBasicLayout->addWidget(new QLabel(QStringLiteral("总无功缩放:"), this), 1, 2);
+    agcAvcBasicLayout->addWidget(m_logicMeasurementTotalQEdit, 1, 3);
+    agcAvcLayout->addWidget(agcAvcBasicFrame);
+
+    auto *agcAvcDeviceToolbar = new QHBoxLayout();
+    agcAvcDeviceToolbar->addWidget(new QLabel(QStringLiteral("南向设备:"), this));
+    m_addLogicAgcAvcDeviceBtn = new QPushButton(QStringLiteral("新增设备"), this);
+    m_deleteLogicAgcAvcDeviceBtn = new QPushButton(QStringLiteral("删除设备"), this);
+    agcAvcDeviceToolbar->addWidget(m_addLogicAgcAvcDeviceBtn);
+    agcAvcDeviceToolbar->addWidget(m_deleteLogicAgcAvcDeviceBtn);
+    agcAvcDeviceToolbar->addStretch();
+    agcAvcLayout->addLayout(agcAvcDeviceToolbar);
+
+    m_logicAgcAvcDeviceTable = new QTableWidget(0, 12, this);
+    m_logicAgcAvcDeviceTable->setHorizontalHeaderLabels({
+        QStringLiteral("DeviceId"),
+        QStringLiteral("P 控制点"),
+        QStringLiteral("Q 控制点"),
+        QStringLiteral("设备在线判断ID"),
+        QStringLiteral("设备在线判定点位"),
+        QStringLiteral("设备在线判定值"),
+        QStringLiteral("Pmin"),
+        QStringLiteral("Pmax"),
+        QStringLiteral("Qmin"),
+        QStringLiteral("Qmax"),
+        QStringLiteral("scaleP"),
+        QStringLiteral("scaleQ")
+    });
+    m_logicAgcAvcDeviceTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
+    m_logicAgcAvcDeviceTable->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_logicAgcAvcDeviceTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_logicAgcAvcDeviceTable->setAlternatingRowColors(true);
+    m_logicAgcAvcDeviceTable->verticalHeader()->setVisible(false);
+    m_logicAgcAvcDeviceTable->horizontalHeader()->setStretchLastSection(true);
+    m_logicAgcAvcDeviceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_logicAgcAvcDeviceTable->setColumnWidth(0, 120);
+    m_logicAgcAvcDeviceTable->setColumnWidth(1, 260);
+    m_logicAgcAvcDeviceTable->setColumnWidth(2, 260);
+    m_logicAgcAvcDeviceTable->setColumnWidth(3, 120);
+    m_logicAgcAvcDeviceTable->setColumnWidth(4, 220);
+    agcAvcLayout->addWidget(m_logicAgcAvcDeviceTable, 1);
+
+    auto *onlineRuleHint = new QLabel(
+        QStringLiteral("在线判定信息不填写时，以该 DeviceId 的通信状态作为状态判定；仅填写设备在线判断ID时，以填写的设备ID的通信状态作为状态判定；若填写了设备在线判定点位以及判定值，则以该点位是否等于判定值作为依据。"),
+        this);
+    onlineRuleHint->setWordWrap(true);
+    onlineRuleHint->setStyleSheet(QStringLiteral("QLabel { color: #b0b0b0; }"));
+    agcAvcLayout->addWidget(onlineRuleHint);
+
+    auto *agcAvcOptionsPanel = new QWidget(this);
+    auto *agcAvcOptionsLayout = new QHBoxLayout(agcAvcOptionsPanel);
+    agcAvcOptionsLayout->setContentsMargins(0, 0, 0, 0);
+    agcAvcOptionsLayout->setSpacing(8);
+
+    auto *gateGroup = new QGroupBox(QStringLiteral("Gate 反相"), this);
+    auto *gateLayout = new QGridLayout(gateGroup);
+    m_logicGateEnableReverseCheck = new QCheckBox(QStringLiteral("投退"), this);
+    m_logicGateDistantReverseCheck = new QCheckBox(QStringLiteral("远方"), this);
+    m_logicGateLockReverseCheck = new QCheckBox(QStringLiteral("总闭锁"), this);
+    m_logicGateUplockReverseCheck = new QCheckBox(QStringLiteral("增闭锁"), this);
+    m_logicGateDownlockReverseCheck = new QCheckBox(QStringLiteral("减闭锁"), this);
+    m_logicGateOpenloopReverseCheck = new QCheckBox(QStringLiteral("开环"), this);
+    gateLayout->addWidget(m_logicGateEnableReverseCheck, 0, 0);
+    gateLayout->addWidget(m_logicGateDistantReverseCheck, 0, 1);
+    gateLayout->addWidget(m_logicGateLockReverseCheck, 0, 2);
+    gateLayout->addWidget(m_logicGateUplockReverseCheck, 1, 0);
+    gateLayout->addWidget(m_logicGateDownlockReverseCheck, 1, 1);
+    gateLayout->addWidget(m_logicGateOpenloopReverseCheck, 1, 2);
+    agcAvcOptionsLayout->addWidget(gateGroup, 1);
+
+    auto makeFollowGroup = [this](const QString &title,
+                                  QCheckBox **enableCheck,
+                                  QSpinBox **periodEdit,
+                                  QDoubleSpinBox **stepEdit,
+                                  QDoubleSpinBox **toleranceEdit) {
+        auto *group = new QGroupBox(title, this);
+        auto *layout = new QGridLayout(group);
+        *enableCheck = new QCheckBox(QStringLiteral("启用"), this);
+        *periodEdit = new QSpinBox(this);
+        (*periodEdit)->setRange(500, 3600000);
+        (*periodEdit)->setSingleStep(500);
+        (*periodEdit)->setSuffix(QStringLiteral(" ms"));
+        *stepEdit = new QDoubleSpinBox(this);
+        (*stepEdit)->setRange(1.0, 1000000000.0);
+        (*stepEdit)->setDecimals(3);
+        *toleranceEdit = new QDoubleSpinBox(this);
+        (*toleranceEdit)->setRange(0.0, 1.0);
+        (*toleranceEdit)->setDecimals(4);
+        (*toleranceEdit)->setSingleStep(0.01);
+        layout->addWidget(*enableCheck, 0, 0, 1, 2);
+        layout->addWidget(new QLabel(QStringLiteral("周期:"), this), 1, 0);
+        layout->addWidget(*periodEdit, 1, 1);
+        layout->addWidget(new QLabel(QStringLiteral("步长:"), this), 2, 0);
+        layout->addWidget(*stepEdit, 2, 1);
+        layout->addWidget(new QLabel(QStringLiteral("容差:"), this), 3, 0);
+        layout->addWidget(*toleranceEdit, 3, 1);
+        return group;
+    };
+    agcAvcOptionsLayout->addWidget(makeFollowGroup(QStringLiteral("AGC 跟随"),
+                                                   &m_logicAgcFollowEnableCheck,
+                                                   &m_logicAgcFollowPeriodEdit,
+                                                   &m_logicAgcFollowStepEdit,
+                                                   &m_logicAgcFollowToleranceEdit), 1);
+    agcAvcOptionsLayout->addWidget(makeFollowGroup(QStringLiteral("AVC 跟随"),
+                                                   &m_logicAvcFollowEnableCheck,
+                                                   &m_logicAvcFollowPeriodEdit,
+                                                   &m_logicAvcFollowStepEdit,
+                                                   &m_logicAvcFollowToleranceEdit), 1);
+    agcAvcLayout->addWidget(agcAvcOptionsPanel);
+
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_configPage, "配置概览");
-    m_mainTabWidget->addTab(m_logicCenterPage, "LogicCenter");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
+    m_mainTabWidget->addTab(m_logicCenterPage, "逻辑中心");
+    m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
 
     setCentralWidget(central);
 
@@ -686,6 +830,42 @@ MainWindow::MainWindow(QWidget *parent)
                 QApplication::clipboard()->setText(text);
                 statusBar()->showMessage(QStringLiteral("已复制点位: %1 / %2").arg(point.deviceId, point.dataRef), 5000);
             });
+    for (QLineEdit *edit : {m_logicAgcAvcGroupIdEdit, m_logicAgcAvcVirtualDeviceIdEdit}) {
+        connect(edit, &QLineEdit::textEdited,
+                this, &MainWindow::onLogicAgcAvcBasicEdited);
+    }
+    for (QDoubleSpinBox *spin : {m_logicMeasurementTotalPEdit,
+                                 m_logicMeasurementTotalQEdit,
+                                 m_logicAgcFollowStepEdit,
+                                 m_logicAgcFollowToleranceEdit,
+                                 m_logicAvcFollowStepEdit,
+                                 m_logicAvcFollowToleranceEdit}) {
+        connect(spin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                this, [this](double) { onLogicAgcAvcBasicEdited(); });
+    }
+    for (QSpinBox *spin : {m_logicAgcFollowPeriodEdit, m_logicAvcFollowPeriodEdit}) {
+        connect(spin, qOverload<int>(&QSpinBox::valueChanged),
+                this, [this](int) { onLogicAgcAvcBasicEdited(); });
+    }
+    for (QCheckBox *check : {m_logicGateEnableReverseCheck,
+                             m_logicGateDistantReverseCheck,
+                             m_logicGateLockReverseCheck,
+                             m_logicGateUplockReverseCheck,
+                             m_logicGateDownlockReverseCheck,
+                             m_logicGateOpenloopReverseCheck,
+                             m_logicAgcFollowEnableCheck,
+                             m_logicAvcFollowEnableCheck}) {
+        connect(check, &QCheckBox::toggled,
+                this, [this](bool) { onLogicAgcAvcBasicEdited(); });
+    }
+    connect(m_logicAgcAvcDeviceTable, &QTableWidget::itemChanged,
+            this, &MainWindow::onLogicAgcAvcDeviceItemChanged);
+    connect(m_logicAgcAvcDeviceTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onLogicAgcAvcDeviceCellDoubleClicked);
+    connect(m_addLogicAgcAvcDeviceBtn, &QPushButton::clicked,
+            this, &MainWindow::onAddLogicAgcAvcDeviceClicked);
+    connect(m_deleteLogicAgcAvcDeviceBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteLogicAgcAvcDeviceClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceFromModelBtn, &QPushButton::clicked,
