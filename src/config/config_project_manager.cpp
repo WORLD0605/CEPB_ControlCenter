@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSet>
+#include <QStringList>
 #include <QTextStream>
 #include <QUuid>
 
@@ -911,6 +912,62 @@ QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device)
     return duplicateAddresses;
 }
 
+ImportIssueSeverity importSeverityForConfigIssue(ConfigIssueSeverity severity)
+{
+    return severity == ConfigIssueSeverity::Error
+        ? ImportIssueSeverity::Error
+        : ImportIssueSeverity::Warning;
+}
+
+QString formatConfigIssue(const ConfigIssue &issue)
+{
+    QString severity;
+    switch (issue.severity) {
+    case ConfigIssueSeverity::Info:
+        severity = QStringLiteral("提示");
+        break;
+    case ConfigIssueSeverity::Warning:
+        severity = QStringLiteral("警告");
+        break;
+    case ConfigIssueSeverity::Error:
+        severity = QStringLiteral("错误");
+        break;
+    }
+
+    QStringList parts;
+    parts << severity;
+    if (!issue.module.trimmed().isEmpty()) {
+        parts << issue.module.trimmed();
+    }
+    if (!issue.objectId.trimmed().isEmpty()) {
+        parts << issue.objectId.trimmed();
+    }
+    parts << issue.message;
+    return QStringLiteral("[%1] %2").arg(parts.takeFirst(), parts.join(QStringLiteral(" / ")));
+}
+
+void appendConfigIssuesToReport(const QList<ConfigIssue> &issues,
+                                const QString &filePath,
+                                ImportReport &report)
+{
+    for (const ConfigIssue &issue : issues) {
+        report.addIssue(importSeverityForConfigIssue(issue.severity),
+                        filePath,
+                        formatConfigIssue(issue));
+    }
+}
+
+void appendConfigIssuesToReport(const QList<ConfigIssue> &issues,
+                                const QString &filePath,
+                                ExportReport &report)
+{
+    for (const ConfigIssue &issue : issues) {
+        report.addIssue(importSeverityForConfigIssue(issue.severity),
+                        filePath,
+                        formatConfigIssue(issue));
+    }
+}
+
 } // namespace detail
 
 using namespace detail;
@@ -1008,6 +1065,9 @@ bool ConfigProjectManager::importLogicCenterConfigFile(const QString &filePath,
 
     m_project.logicCenter = parseLogicCenterConfig(document.object());
     m_project.logic = document.object();
+    appendConfigIssuesToReport(validateLogicCenterConfig(m_project.logicCenter, &m_project),
+                               filePath,
+                               report);
     return true;
 }
 

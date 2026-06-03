@@ -1,7 +1,10 @@
 #include "config/config_domain.h"
 
+#include <QHash>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QSet>
+#include <QStringList>
 
 namespace configtool {
 
@@ -480,6 +483,144 @@ QJsonObject serializeAgcAvcDebugConfig(const AgcAvcDebugConfig &debug)
     return object;
 }
 
+QString pointKey(const QString &deviceId, const QString &dataRef)
+{
+    return deviceId.trimmed() + QLatin1Char('#') + dataRef.trimmed();
+}
+
+ConfigIssue makeConfigIssue(ConfigIssueSeverity severity,
+                            const QString &module,
+                            const QString &objectId,
+                            const QString &message)
+{
+    ConfigIssue issue;
+    issue.severity = severity;
+    issue.module = module;
+    issue.objectId = objectId;
+    issue.message = message;
+    return issue;
+}
+
+QSet<QString> buildProjectDeviceIds(const ConfigProject *project)
+{
+    QSet<QString> deviceIds;
+    if (!project) {
+        return deviceIds;
+    }
+
+    for (const ProtocolDeviceInstance &device : project->devices) {
+        if (!device.deviceId.trimmed().isEmpty()) {
+            deviceIds.insert(device.deviceId.trimmed());
+        }
+    }
+    return deviceIds;
+}
+
+QSet<QString> buildProjectPointKeys(const ConfigProject *project)
+{
+    QSet<QString> pointKeys;
+    if (!project) {
+        return pointKeys;
+    }
+
+    QHash<QString, const ModelTemplate*> modelsById;
+    for (const ModelTemplate &model : project->models) {
+        if (!model.modelId.trimmed().isEmpty()) {
+            modelsById.insert(model.modelId.trimmed(), &model);
+        }
+    }
+
+    for (const ProtocolDeviceInstance &device : project->devices) {
+        for (const PointBinding &binding : device.bindings) {
+            if (!device.deviceId.trimmed().isEmpty() && !binding.dataRef.trimmed().isEmpty()) {
+                pointKeys.insert(pointKey(device.deviceId, binding.dataRef));
+            }
+        }
+
+        const ModelTemplate *model = modelsById.value(device.modelId.trimmed(), nullptr);
+        if (!model || device.deviceId.trimmed().isEmpty()) {
+            continue;
+        }
+        for (const ServiceTemplate &service : model->services) {
+            for (const PointTemplate &point : service.points) {
+                const QString dataRef = point.dataRef().trimmed();
+                if (!dataRef.isEmpty()) {
+                    pointKeys.insert(pointKey(device.deviceId, dataRef));
+                }
+            }
+        }
+    }
+
+    return pointKeys;
+}
+
+QString placeholderName(int index)
+{
+    return QStringLiteral("{%1}").arg(index);
+}
+
+void validateLogicFormula(const QString &module,
+                          const QString &objectId,
+                          const QString &formula,
+                          int operandCount,
+                          QList<ConfigIssue> &issues)
+{
+    if (formula.trimmed().isEmpty()) {
+        issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                      module,
+                                      objectId,
+                                      QStringLiteral("公式不能为空")));
+        return;
+    }
+
+    QSet<int> usedOperandIndexes;
+    const QRegularExpression placeholderPattern(QStringLiteral("\\{(\\d+)\\}"));
+    QRegularExpressionMatchIterator it = placeholderPattern.globalMatch(formula);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        bool ok = false;
+        const int operandIndex = match.captured(1).toInt(&ok);
+        if (!ok) {
+            continue;
+        }
+        usedOperandIndexes.insert(operandIndex);
+        if (operandIndex < 1 || operandIndex > operandCount) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          module,
+                                          objectId,
+                                          QStringLiteral("公式引用 %1 超出源点数量 %2")
+                                              .arg(placeholderName(operandIndex))
+                                              .arg(operandCount)));
+        }
+    }
+
+    if (operandCount > 0 && usedOperandIndexes.isEmpty()) {
+        issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                      module,
+                                      objectId,
+                                      QStringLiteral("公式没有引用任何源点占位符")));
+    }
+
+    for (int index = 1; index <= operandCount; ++index) {
+        if (!usedOperandIndexes.contains(index)) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                          module,
+                                          objectId,
+                                          QStringLiteral("源点 %1 未在公式中使用").arg(placeholderName(index))));
+        }
+    }
+}
+
+bool projectDeviceExists(const QSet<QString> &deviceIds, const QString &deviceId)
+{
+    return deviceIds.contains(deviceId.trimmed());
+}
+
+bool projectPointExists(const QSet<QString> &pointKeys, const QString &deviceId, const QString &dataRef)
+{
+    return pointKeys.contains(pointKey(deviceId, dataRef));
+}
+
 } // namespace
 
 QString PointTemplate::dataRef() const
@@ -733,6 +874,295 @@ QJsonObject serializeLogicCenterConfig(const LogicCenterConfig &config)
     }
 
     return object;
+}
+
+QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
+                                             const ConfigProject *project)
+{
+    QList<ConfigIssue> issues;
+    const QSet<QString> projectDeviceIds = buildProjectDeviceIds(project);
+    const QSet<QString> projectPointKeys = buildProjectPointKeys(project);
+    const bool hasProjectContext = project != nullptr;
+
+    for (const LogicComputationPoint &point : config.computationPoints) {
+        const QString objectId = pointKey(point.deviceId, point.dataRef);
+        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("计算点"),
+                                          objectId,
+                                          QStringLiteral("计算点输出 DeviceId 和 dataRef 不能为空")));
+        }
+        if (point.operands.isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("计算点"),
+                                          objectId,
+                                          QStringLiteral("operands 不能为空")));
+        }
+        validateLogicFormula(QStringLiteral("计算点"),
+                             objectId,
+                             point.formula,
+                             point.operands.size(),
+                             issues);
+        if (!point.dropOperands) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Info,
+                                          QStringLiteral("计算点"),
+                                          objectId,
+                                          QStringLiteral("drop_operands=false 会保留源点原始转发")));
+        }
+
+        if (hasProjectContext) {
+            if (!point.deviceId.trimmed().isEmpty() && !projectDeviceExists(projectDeviceIds, point.deviceId)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("计算点"),
+                                              objectId,
+                                              QStringLiteral("输出设备在当前工程中不存在")));
+            } else if (!point.dataRef.trimmed().isEmpty()
+                       && !projectPointExists(projectPointKeys, point.deviceId, point.dataRef)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("计算点"),
+                                              objectId,
+                                              QStringLiteral("输出点在当前工程设备或模型点表中找不到")));
+            }
+
+            for (const LogicOperand &operand : point.operands) {
+                const QString operandId = pointKey(operand.deviceId, operand.dataRef);
+                if (operand.deviceId.trimmed().isEmpty() || operand.dataRef.trimmed().isEmpty()) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                                  QStringLiteral("计算点"),
+                                                  objectId,
+                                                  QStringLiteral("源点 DeviceId 和 dataRef 不能为空")));
+                    continue;
+                }
+                if (!projectDeviceExists(projectDeviceIds, operand.deviceId)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("计算点"),
+                                                  objectId,
+                                                  QStringLiteral("源设备 %1 在当前工程中不存在").arg(operand.deviceId)));
+                } else if (!projectPointExists(projectPointKeys, operand.deviceId, operand.dataRef)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("计算点"),
+                                                  objectId,
+                                                  QStringLiteral("源点 %1 在当前工程设备或模型点表中找不到").arg(operandId)));
+                }
+            }
+        }
+    }
+
+    QHash<QString, int> controlMatchCount;
+    for (const LogicControlRule &rule : config.controlRules) {
+        const QString objectId = pointKey(rule.matchDeviceId, rule.matchDataRef);
+        controlMatchCount[objectId] += 1;
+
+        if (rule.matchDeviceId.trimmed().isEmpty() || rule.matchDataRef.trimmed().isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("控制转换"),
+                                          objectId,
+                                          QStringLiteral("match.DeviceId 和 match.dataRef 不能为空")));
+        }
+        if (!rule.matchCtrlType.trimmed().isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Info,
+                                          QStringLiteral("控制转换"),
+                                          objectId,
+                                          QStringLiteral("CtrlType 当前不参与匹配，仅保存")));
+        }
+        if (rule.targets.isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("控制转换"),
+                                          objectId,
+                                          QStringLiteral("targets 不能为空")));
+        }
+
+        if (hasProjectContext) {
+            if (!rule.matchDeviceId.trimmed().isEmpty() && !projectDeviceExists(projectDeviceIds, rule.matchDeviceId)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("控制转换"),
+                                              objectId,
+                                              QStringLiteral("源控制设备在当前工程中不存在")));
+            } else if (!rule.matchDataRef.trimmed().isEmpty()
+                       && !projectPointExists(projectPointKeys, rule.matchDeviceId, rule.matchDataRef)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("控制转换"),
+                                              objectId,
+                                              QStringLiteral("源控制点在当前工程设备或模型点表中找不到")));
+            }
+        }
+
+        for (const LogicControlTarget &target : rule.targets) {
+            const QString targetId = pointKey(target.deviceId, target.dataRef);
+            if (target.deviceId.trimmed().isEmpty() || target.dataRef.trimmed().isEmpty()) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                              QStringLiteral("控制转换"),
+                                              objectId,
+                                              QStringLiteral("目标 DeviceId 和 dataRef 不能为空")));
+            }
+            if (target.expr.trimmed().isEmpty()) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                              QStringLiteral("控制转换"),
+                                              objectId,
+                                              QStringLiteral("目标 %1 的 expr 不能为空").arg(targetId)));
+            }
+            const QString targetType = target.targetType.trimmed();
+            if (targetType != QStringLiteral("ctrlcmd") && targetType != QStringLiteral("data_write")) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                              QStringLiteral("控制转换"),
+                                              objectId,
+                                              QStringLiteral("目标 %1 的 targetType 非法：%2")
+                                                  .arg(targetId, target.targetType)));
+            }
+
+            if (hasProjectContext) {
+                if (!target.deviceId.trimmed().isEmpty() && !projectDeviceExists(projectDeviceIds, target.deviceId)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("控制转换"),
+                                                  objectId,
+                                                  QStringLiteral("目标设备 %1 在当前工程中不存在").arg(target.deviceId)));
+                } else if (!target.dataRef.trimmed().isEmpty()
+                           && !projectPointExists(projectPointKeys, target.deviceId, target.dataRef)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("控制转换"),
+                                                  objectId,
+                                                  QStringLiteral("目标点 %1 在当前工程设备或模型点表中找不到").arg(targetId)));
+                }
+            }
+        }
+    }
+    for (auto it = controlMatchCount.constBegin(); it != controlMatchCount.constEnd(); ++it) {
+        if (it.value() > 1) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                          QStringLiteral("控制转换"),
+                                          it.key(),
+                                          QStringLiteral("存在重复 match.DeviceId + match.dataRef，运行时会全部执行")));
+        }
+    }
+
+    QHash<QString, int> virtualDeviceCount;
+    for (const AgcAvcGroup &group : config.agcAvcGroups) {
+        const QString objectId = group.groupId.trimmed().isEmpty()
+            ? group.virtualDeviceId
+            : group.groupId;
+        virtualDeviceCount[group.virtualDeviceId.trimmed()] += 1;
+
+        if (group.virtualDeviceId.trimmed().isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("AGC/AVC"),
+                                          objectId,
+                                          QStringLiteral("virtualDeviceId 不能为空")));
+        }
+        if (group.devices.isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("AGC/AVC"),
+                                          objectId,
+                                          QStringLiteral("devicelist 不能为空")));
+        }
+
+        double totalPCapacity = 0.0;
+        double totalQCapacity = 0.0;
+        for (const AgcAvcDevice &device : group.devices) {
+            if (device.deviceId.trimmed().isEmpty()) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                              QStringLiteral("AGC/AVC"),
+                                              objectId,
+                                              QStringLiteral("南向设备 DeviceId 不能为空")));
+            }
+            if (device.pMax <= device.pMin) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                              QStringLiteral("AGC/AVC"),
+                                              objectId,
+                                              QStringLiteral("设备 %1 有功容量异常：pMax 必须大于 pMin").arg(device.deviceId)));
+            } else {
+                totalPCapacity += device.pMax - device.pMin;
+            }
+            if (device.qMax <= device.qMin) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                              QStringLiteral("AGC/AVC"),
+                                              objectId,
+                                              QStringLiteral("设备 %1 无功容量异常：qMax 必须大于 qMin").arg(device.deviceId)));
+            } else {
+                totalQCapacity += device.qMax - device.qMin;
+            }
+
+            if (hasProjectContext) {
+                if (!device.deviceId.trimmed().isEmpty() && !projectDeviceExists(projectDeviceIds, device.deviceId)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("AGC/AVC"),
+                                                  objectId,
+                                                  QStringLiteral("南向设备 %1 在当前工程中不存在").arg(device.deviceId)));
+                }
+                if (!device.ctrlDataRefP.trimmed().isEmpty()
+                    && !projectPointExists(projectPointKeys, device.deviceId, device.ctrlDataRefP)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("AGC/AVC"),
+                                                  objectId,
+                                                  QStringLiteral("设备 %1 的 P 控制点在当前工程中找不到").arg(device.deviceId)));
+                }
+                if (!device.ctrlDataRefQ.trimmed().isEmpty()
+                    && !projectPointExists(projectPointKeys, device.deviceId, device.ctrlDataRefQ)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("AGC/AVC"),
+                                                  objectId,
+                                                  QStringLiteral("设备 %1 的 Q 控制点在当前工程中找不到").arg(device.deviceId)));
+                }
+                if (!device.onlineDataRef.trimmed().isEmpty()) {
+                    const QString onlineDeviceId = device.onlineDeviceId.trimmed().isEmpty()
+                        ? device.deviceId
+                        : device.onlineDeviceId;
+                    if (!projectPointExists(projectPointKeys, onlineDeviceId, device.onlineDataRef)) {
+                        issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                      QStringLiteral("AGC/AVC"),
+                                                      objectId,
+                                                      QStringLiteral("设备 %1 的在线状态点在当前工程中找不到").arg(device.deviceId)));
+                    }
+                }
+            }
+        }
+
+        if (!group.devices.isEmpty() && totalPCapacity <= 0.0) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("AGC/AVC"),
+                                          objectId,
+                                          QStringLiteral("AGC 组总有功容量为 0")));
+        }
+        if (!group.devices.isEmpty() && totalQCapacity <= 0.0) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("AGC/AVC"),
+                                          objectId,
+                                          QStringLiteral("AVC 组总无功容量为 0")));
+        }
+    }
+    for (auto it = virtualDeviceCount.constBegin(); it != virtualDeviceCount.constEnd(); ++it) {
+        if (!it.key().isEmpty() && it.value() > 1) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("AGC/AVC"),
+                                          it.key(),
+                                          QStringLiteral("virtualDeviceId 重复")));
+        }
+    }
+
+    for (const LogicOnlineStatusLink &link : config.onlineStatusLinks) {
+        const QString objectId = QStringLiteral("%1 -> %2").arg(link.deviceId, link.linkToDeviceId);
+        if (link.deviceId.trimmed().isEmpty() || link.linkToDeviceId.trimmed().isEmpty()) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("在线联动"),
+                                          objectId,
+                                          QStringLiteral("DeviceId 和 LinkToDeviceId 不能为空")));
+        }
+        if (hasProjectContext) {
+            if (!link.deviceId.trimmed().isEmpty() && !projectDeviceExists(projectDeviceIds, link.deviceId)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("在线联动"),
+                                              objectId,
+                                              QStringLiteral("被联动设备在当前工程中不存在")));
+            }
+            if (!link.linkToDeviceId.trimmed().isEmpty() && !projectDeviceExists(projectDeviceIds, link.linkToDeviceId)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("在线联动"),
+                                              objectId,
+                                              QStringLiteral("跟随设备在当前工程中不存在")));
+            }
+        }
+    }
+
+    return issues;
 }
 
 } // namespace configtool

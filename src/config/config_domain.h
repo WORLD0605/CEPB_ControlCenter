@@ -39,6 +39,19 @@ enum class ModbusPointKind {
     Yt
 };
 
+enum class ConfigIssueSeverity {
+    Info,
+    Warning,
+    Error
+};
+
+struct ConfigIssue {
+    ConfigIssueSeverity severity = ConfigIssueSeverity::Error;
+    QString module;
+    QString objectId;
+    QString message;
+};
+
 struct ModbusGlobalConfig {
     QString frameInterval;
     QString hwVariant;
@@ -320,6 +333,8 @@ QList<ServiceTemplate> createDefaultModelServices();
 
 LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object);
 QJsonObject serializeLogicCenterConfig(const LogicCenterConfig &config);
+QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
+                                             const ConfigProject *project = nullptr);
 
 } // namespace configtool
 

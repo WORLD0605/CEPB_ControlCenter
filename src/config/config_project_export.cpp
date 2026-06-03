@@ -284,6 +284,13 @@ bool ConfigProjectManager::exportLogicCenterConfigFile(const QString &filePath,
         return false;
     }
 
+    appendConfigIssuesToReport(validateLogicCenterConfig(m_project.logicCenter, &m_project),
+                               filePath,
+                               report);
+    if (report.hasErrors()) {
+        return false;
+    }
+
     const QFileInfo fileInfo(filePath);
     QDir dir(fileInfo.absolutePath());
     if (!dir.exists() && !QDir().mkpath(fileInfo.absolutePath())) {

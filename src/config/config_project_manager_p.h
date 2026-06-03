@@ -54,6 +54,14 @@ const ModelTemplate *findModelById(const ConfigProject &project,
                                    const QString &modelId);
 QSet<QString> duplicateDataRefsForModel(const ModelTemplate &model);
 QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device);
+ImportIssueSeverity importSeverityForConfigIssue(ConfigIssueSeverity severity);
+QString formatConfigIssue(const ConfigIssue &issue);
+void appendConfigIssuesToReport(const QList<ConfigIssue> &issues,
+                                const QString &filePath,
+                                ImportReport &report);
+void appendConfigIssuesToReport(const QList<ConfigIssue> &issues,
+                                const QString &filePath,
+                                ExportReport &report);
 QHash<QString, QString> buildDataRefDescriptionMap(const ModelTemplate *model);
 QHash<QString, int> buildModelPointOrderMap(const ModelTemplate *model);
 QJsonObject serializeDevice(const ProtocolDeviceInstance &device,
