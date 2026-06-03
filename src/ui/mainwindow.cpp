@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QDateTime>
@@ -9,6 +10,7 @@
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -414,15 +416,50 @@ MainWindow::MainWindow(QWidget *parent)
     deviceFormLayout->addRow("通道:", m_deviceChannelEdit);
     deviceFormLayout->addRow("兼容 ipb:", m_deviceCompatIpbLabel);
     deviceEditorLayout->addWidget(deviceFormFrame);
+    m_modbusParamsGroupBox = new QGroupBox(QStringLiteral("Modbus 参数"), this);
+    auto *modbusParamsLayout = new QGridLayout(m_modbusParamsGroupBox);
+    modbusParamsLayout->setContentsMargins(10, 8, 10, 8);
+    modbusParamsLayout->setHorizontalSpacing(8);
+    modbusParamsLayout->setVerticalSpacing(4);
+    m_modbusTypeCombo = new QComboBox(this);
+    m_modbusTypeCombo->addItem(QStringLiteral("TCP"));
+    m_modbusTypeCombo->addItem(QStringLiteral("RTU"));
+    m_modbusSerialPortEdit = new QLineEdit(this);
+    m_modbusBaudEdit = new QLineEdit(this);
+    m_modbusDataBitsEdit = new QLineEdit(this);
+    m_modbusStopBitsEdit = new QLineEdit(this);
+    m_modbusParityEdit = new QLineEdit(this);
+    m_modbusDebugCheck = new QCheckBox(QStringLiteral("debug"), this);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("类型:"), this), 0, 0);
+    modbusParamsLayout->addWidget(m_modbusTypeCombo, 0, 1);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("串口:"), this), 0, 2);
+    modbusParamsLayout->addWidget(m_modbusSerialPortEdit, 0, 3);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("波特率:"), this), 0, 4);
+    modbusParamsLayout->addWidget(m_modbusBaudEdit, 0, 5);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("数据位:"), this), 1, 0);
+    modbusParamsLayout->addWidget(m_modbusDataBitsEdit, 1, 1);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("停止位:"), this), 1, 2);
+    modbusParamsLayout->addWidget(m_modbusStopBitsEdit, 1, 3);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("校验:"), this), 1, 4);
+    modbusParamsLayout->addWidget(m_modbusParityEdit, 1, 5);
+    modbusParamsLayout->addWidget(m_modbusDebugCheck, 1, 6);
+    deviceEditorLayout->addWidget(m_modbusParamsGroupBox);
     m_deviceValidationLabel = new QLabel(this);
     m_deviceValidationLabel->setWordWrap(true);
     deviceEditorLayout->addWidget(m_deviceValidationLabel);
     auto *bindingToolbar = new QHBoxLayout();
-    bindingToolbar->addWidget(new QLabel("104 点位地址绑定:", this));
+    bindingToolbar->addWidget(new QLabel(QStringLiteral("点位映射:"), this));
     bindingToolbar->addStretch();
     deviceEditorLayout->addLayout(bindingToolbar);
     m_deviceBindingsTable = new QTableWidget(0, 6, this);
-    m_deviceBindingsTable->setHorizontalHeaderLabels({"启用", "DataRef", "描述", "地址", "初值", "自发标志"});
+    m_deviceBindingsTable->setHorizontalHeaderLabels({
+        QStringLiteral("启用"),
+        QStringLiteral("DataRef"),
+        QStringLiteral("描述"),
+        QStringLiteral("地址"),
+        QStringLiteral("初值"),
+        QStringLiteral("自发标志")
+    });
     m_deviceBindingsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_deviceBindingsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_deviceBindingsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -436,8 +473,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingsTable->setColumnWidth(4, 90);
     m_deviceBindingsTable->setColumnWidth(5, 90);
     deviceEditorLayout->addWidget(m_deviceBindingsTable, 1);
-    deviceEditorLayout->setStretch(2, 1);
-    deviceEditorLayout->setStretch(3, 8);
+    deviceEditorLayout->setStretch(0, 0);
+    deviceEditorLayout->setStretch(1, 0);
+    deviceEditorLayout->setStretch(2, 0);
+    deviceEditorLayout->setStretch(3, 0);
+    deviceEditorLayout->setStretch(4, 1);
 
     auto *deviceDetailPage = new QWidget(this);
     auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
@@ -471,7 +511,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
-    m_mainTabWidget->addTab(m_deviceEditorPage, "104设备编辑器");
+    m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
 
     setCentralWidget(central);
 
@@ -554,6 +594,20 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_devicePortEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_deviceChannelEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusSerialPortEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusBaudEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusDataBitsEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusStopBitsEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusParityEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusDebugCheck, &QCheckBox::toggled,
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_deviceBindingsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onDeviceBindingItemChanged);

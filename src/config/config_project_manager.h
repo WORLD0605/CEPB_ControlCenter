@@ -104,6 +104,8 @@ public:
                                   ImportReport &report);
     bool exportIec104AppDirectory(const QString &appDir,
                                   ExportReport &report) const;
+    bool exportModbusAppDirectory(const QString &appDir,
+                                  ExportReport &report) const;
 
     ConfigProject &project();
     const ConfigProject &project() const;

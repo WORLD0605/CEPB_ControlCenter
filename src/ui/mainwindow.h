@@ -11,6 +11,7 @@
 
 class QLineEdit;
 class QComboBox;
+class QCheckBox;
 class QPushButton;
 class QTextEdit;
 class QLabel;
@@ -104,6 +105,7 @@ private:
     void pasteClipboardIntoDeviceBindingsTable();
     void applyModelPointCellText(int row, int column, const QString &text);
     void applyDeviceBindingCellText(int row, int column, const QString &text);
+    void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
@@ -208,6 +210,14 @@ private:
     QLineEdit *m_deviceIpEdit = nullptr;
     QLineEdit *m_devicePortEdit = nullptr;
     QLineEdit *m_deviceChannelEdit = nullptr;
+    QComboBox *m_modbusTypeCombo = nullptr;
+    QLineEdit *m_modbusSerialPortEdit = nullptr;
+    QLineEdit *m_modbusBaudEdit = nullptr;
+    QLineEdit *m_modbusDataBitsEdit = nullptr;
+    QLineEdit *m_modbusStopBitsEdit = nullptr;
+    QLineEdit *m_modbusParityEdit = nullptr;
+    QCheckBox *m_modbusDebugCheck = nullptr;
+    QGroupBox *m_modbusParamsGroupBox = nullptr;
     QLabel *m_statusLabel = nullptr;
     QLabel *m_versionLabel = nullptr;
 };

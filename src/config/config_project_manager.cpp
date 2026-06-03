@@ -9,7 +9,10 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSet>
+#include <QTextStream>
 #include <QUuid>
+
+#include <type_traits>
 
 namespace configtool {
 
@@ -250,8 +253,15 @@ void annotateModbusBinding(PointBinding &binding,
 
     for (const ModbusPollGroup &group : modbus.pollGroups) {
         if (modbusBindingMatchesPollGroup(binding, group)) {
+            const int entryNo = static_cast<int>(dataIndex & 0xffff);
+            const int regStep = group.dataType == QStringLiteral("DWORD")
+                || group.dataType == QStringLiteral("DWORD_L")
+                || group.dataType == QStringLiteral("FLOAT")
+                ? 2
+                : (group.dataType == QStringLiteral("FLOAT_L") ? 4 : 1);
             binding.extensions.insert(QStringLiteral("modbusKind"), modbusPointKindId(group.kind));
             binding.extensions.insert(QStringLiteral("modbusFunctionCode"), group.funCode);
+            binding.extensions.insert(QStringLiteral("modbusRegisterAddress"), group.startAddr + ((entryNo - 1) * regStep));
             binding.extensions.insert(QStringLiteral("modbusStartAddress"), group.startAddr);
             binding.extensions.insert(QStringLiteral("modbusRegisterCount"), group.regNum);
             binding.extensions.insert(QStringLiteral("modbusDataType"), group.dataType);
@@ -259,6 +269,89 @@ void annotateModbusBinding(PointBinding &binding,
             return;
         }
     }
+}
+
+bool isDeviceForProtocol(const ProtocolDeviceInstance &device,
+                         ProtocolType protocol)
+{
+    if (device.protocol == protocol) {
+        return true;
+    }
+    if (protocol == ProtocolType::Iec104) {
+        return device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
+    }
+    if (protocol == ProtocolType::Modbus) {
+        return device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
+    }
+    return false;
+}
+
+QList<ProtocolDeviceInstance> devicesForProtocol(const ConfigProject &project,
+                                                 ProtocolType protocol)
+{
+    QList<ProtocolDeviceInstance> devices;
+    for (const ProtocolDeviceInstance &device : project.devices) {
+        if (isDeviceForProtocol(device, protocol)) {
+            devices.append(device);
+        }
+    }
+    return devices;
+}
+
+QSet<QString> modelIdsUsedByDevices(const QList<ProtocolDeviceInstance> &devices)
+{
+    QSet<QString> modelIds;
+    for (const ProtocolDeviceInstance &device : devices) {
+        if (!device.modelId.trimmed().isEmpty()) {
+            modelIds.insert(device.modelId);
+        }
+    }
+    return modelIds;
+}
+
+QList<ModelTemplate> modelsForDeviceSet(const ConfigProject &project,
+                                        const QSet<QString> &modelIds)
+{
+    QList<ModelTemplate> models;
+    for (const ModelTemplate &model : project.models) {
+        if (modelIds.contains(model.modelId)) {
+            models.append(model);
+        }
+    }
+    return models;
+}
+
+QString modbusKindString(ModbusPointKind kind)
+{
+    return modbusPointKindId(kind);
+}
+
+QString modbusPollKeyPrefix(ModbusPointKind kind)
+{
+    return kind == ModbusPointKind::Yx ? QStringLiteral("yx") : QStringLiteral("yc");
+}
+
+QString modbusSetKeyPrefix(ModbusPointKind kind)
+{
+    return kind == ModbusPointKind::Yk ? QStringLiteral("yk") : QStringLiteral("yt");
+}
+
+QString modbusIniPollLine(const ModbusPollGroup &group)
+{
+    return QStringLiteral("_%1_%2_%3_%4")
+        .arg(group.groupNo)
+        .arg(group.funCode)
+        .arg(group.startAddr)
+        .arg(group.regNum);
+}
+
+QString modbusIniSetLine(const ModbusSetPoint &setPoint)
+{
+    return QStringLiteral("_%1_%2_%3_%4")
+        .arg(setPoint.groupNo)
+        .arg(setPoint.entryNo)
+        .arg(setPoint.funCode)
+        .arg(setPoint.regAddr);
 }
 
 QString modelFileNameForExport(const ModelTemplate &model)
@@ -451,6 +544,82 @@ QJsonObject serializeDevice(const ProtocolDeviceInstance &device,
     return root;
 }
 
+QJsonObject serializeModbusBinding(const PointBinding &binding,
+                                   const QHash<QString, QString> &descriptionMap)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("dataIndex"), binding.address);
+    object.insert(QStringLiteral("dataRef"), binding.dataRef);
+    object.insert(QStringLiteral("description"), binding.descriptionOverride.isEmpty()
+        ? descriptionMap.value(binding.dataRef)
+        : binding.descriptionOverride);
+    const QJsonValue scaleValue = binding.extensions.value(QStringLiteral("modbusPointScale"));
+    if (!scaleValue.isUndefined() && !scaleValue.isNull()) {
+        object.insert(QStringLiteral("scale"), scaleValue);
+    }
+    if (!binding.initValue.isEmpty()) {
+        object.insert(QStringLiteral("init_value"), binding.initValue);
+    }
+    if (!binding.selfSignalFlag.isEmpty()) {
+        object.insert(QStringLiteral("self_sig_flag"), binding.selfSignalFlag);
+    }
+    if (binding.extensions.contains(QStringLiteral("precontrol_dataIndex"))) {
+        object.insert(QStringLiteral("precontrol_dataIndex"), binding.extensions.value(QStringLiteral("precontrol_dataIndex")));
+    }
+    if (binding.extensions.contains(QStringLiteral("linkto"))) {
+        object.insert(QStringLiteral("linkto"), binding.extensions.value(QStringLiteral("linkto")));
+    }
+    if (binding.extensions.contains(QStringLiteral("virdot"))) {
+        object.insert(QStringLiteral("virdot"), binding.extensions.value(QStringLiteral("virdot")));
+    }
+    return object;
+}
+
+QJsonObject serializeModbusDevice(const ProtocolDeviceInstance &device,
+                                  const ModelTemplate *model)
+{
+    const QHash<QString, QString> descriptionMap = buildDataRefDescriptionMap(model);
+    const QHash<QString, int> orderMap = buildModelPointOrderMap(model);
+    const QList<PointBinding> exportBindings = bindingsForExport(device, orderMap);
+
+    QJsonArray bindingArray;
+    for (const PointBinding &binding : exportBindings) {
+        bindingArray.append(serializeModbusBinding(binding, descriptionMap));
+    }
+
+    const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper();
+
+    QJsonObject root;
+    root.insert(QStringLiteral("DeviceId"), device.deviceId);
+    root.insert(QStringLiteral("DeviceDesc"), device.deviceDesc);
+    root.insert(QStringLiteral("Model"), device.modelId);
+    root.insert(QStringLiteral("addr"), device.transport.stationAddress);
+    root.insert(QStringLiteral("type"), type);
+    if (type == QStringLiteral("RTU")) {
+        QJsonObject rtu;
+        rtu.insert(QStringLiteral("serialPort"), jsonValueToString(device.transport.serial.value(QStringLiteral("serialPort"))));
+        for (const QString &key : {QStringLiteral("baud"), QStringLiteral("dataBits"), QStringLiteral("stopBits")}) {
+            bool ok = false;
+            const int value = jsonValueToString(device.transport.serial.value(key)).toInt(&ok);
+            rtu.insert(key, ok ? QJsonValue(value) : device.transport.serial.value(key));
+        }
+        rtu.insert(QStringLiteral("parity"), jsonValueToString(device.transport.serial.value(QStringLiteral("parity"))));
+        root.insert(QStringLiteral("rtu"), rtu);
+    } else {
+        root.insert(QStringLiteral("ip"), device.transport.ip);
+        bool ok = false;
+        const int port = device.transport.port.toInt(&ok);
+        root.insert(QStringLiteral("port"), ok ? QJsonValue(port) : QJsonValue(device.transport.port));
+    }
+
+    const QString debug = device.transport.protocolOptions.value(QStringLiteral("debug")).toString().trimmed();
+    if (!debug.isEmpty() && debug.compare(QStringLiteral("off"), Qt::CaseInsensitive) != 0) {
+        root.insert(QStringLiteral("debug"), debug);
+    }
+    root.insert(QStringLiteral("meas_points"), bindingArray);
+    return root;
+}
+
 bool writeJsonFile(const QString &filePath,
                    const QJsonObject &object,
                    QString &errorMessage)
@@ -470,6 +639,154 @@ bool writeJsonFile(const QString &filePath,
 
     file.close();
     return true;
+}
+
+bool writeTextFile(const QString &filePath,
+                   const QString &content,
+                   QString &errorMessage)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        errorMessage = QStringLiteral("无法写入文件");
+        return false;
+    }
+
+    QTextStream stream(&file);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    stream.setEncoding(QStringConverter::Utf8);
+#else
+    stream.setCodec("UTF-8");
+#endif
+    stream << content;
+    if (stream.status() != QTextStream::Ok) {
+        errorMessage = QStringLiteral("写入文本内容失败");
+        file.close();
+        return false;
+    }
+
+    file.close();
+    return true;
+}
+
+QString buildModbusIniContent(const ConfigProject &project,
+                              const QList<ProtocolDeviceInstance> &devices)
+{
+    QString content;
+    QTextStream stream(&content);
+
+    stream << "[Base]\n";
+    stream << "frameInterval=" << (project.modbus.frameInterval.trimmed().isEmpty()
+        ? QStringLiteral("100")
+        : project.modbus.frameInterval.trimmed()) << "\n";
+    if (!project.modbus.hwVariant.trimmed().isEmpty()) {
+        stream << "hw_variant=" << project.modbus.hwVariant.trimmed() << "\n";
+    }
+    if (!project.modbus.yxUploadPeriod.trimmed().isEmpty()) {
+        stream << "YX_UploadPeriod=" << project.modbus.yxUploadPeriod.trimmed() << "\n";
+    }
+    if (!project.modbus.ycUploadPeriod.trimmed().isEmpty()) {
+        stream << "YC_UploadPeriod=" << project.modbus.ycUploadPeriod.trimmed() << "\n";
+    }
+    for (const QString &key : project.modbus.rawExtra.keys()) {
+        stream << key << "=" << project.modbus.rawExtra.value(key).toString() << "\n";
+    }
+
+    for (const ProtocolDeviceInstance &device : devices) {
+        QList<ModbusPollGroup> yxPolls;
+        QList<ModbusPollGroup> ycPolls;
+        QList<ModbusSetPoint> ykSets;
+        QList<ModbusSetPoint> ytSets;
+
+        for (const ModbusPollGroup &group : device.modbus.pollGroups) {
+            if (group.kind == ModbusPointKind::Yx) {
+                yxPolls.append(group);
+            } else {
+                ycPolls.append(group);
+            }
+        }
+        for (const ModbusSetPoint &setPoint : device.modbus.setPoints) {
+            if (setPoint.kind == ModbusPointKind::Yk) {
+                ykSets.append(setPoint);
+            } else {
+                ytSets.append(setPoint);
+            }
+        }
+
+        auto sortByOrder = [](const auto &left, const auto &right) {
+            if (left.order != right.order) {
+                return left.order < right.order;
+            }
+            if (left.groupNo != right.groupNo) {
+                return left.groupNo < right.groupNo;
+            }
+            if constexpr (std::is_same_v<std::decay_t<decltype(left)>, ModbusSetPoint>) {
+                return left.entryNo < right.entryNo;
+            } else {
+                return left.startAddr < right.startAddr;
+            }
+        };
+        std::sort(yxPolls.begin(), yxPolls.end(), sortByOrder);
+        std::sort(ycPolls.begin(), ycPolls.end(), sortByOrder);
+        std::sort(ykSets.begin(), ykSets.end(), sortByOrder);
+        std::sort(ytSets.begin(), ytSets.end(), sortByOrder);
+
+        stream << "\n[dev_" << device.deviceId << "]\n";
+        stream << "type=" << device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).toUpper() << "\n";
+        stream << "yx_type=" << (device.modbus.yxType.trimmed().isEmpty() ? QStringLiteral("BIT") : device.modbus.yxType.trimmed()) << "\n";
+        stream << "yc_type=" << (device.modbus.ycType.trimmed().isEmpty() ? QStringLiteral("WORD") : device.modbus.ycType.trimmed()) << "\n";
+        stream << "yt_type=" << (device.modbus.ytType.trimmed().isEmpty() ? QStringLiteral("WORD") : device.modbus.ytType.trimmed()) << "\n";
+        stream << "yx_poll_num=" << yxPolls.size() << "\n";
+        stream << "yc_poll_num=" << ycPolls.size() << "\n";
+        stream << "yk_set_num=" << ykSets.size() << "\n";
+        stream << "yt_set_num=" << ytSets.size() << "\n";
+
+        if (!device.modbus.ycScale.trimmed().isEmpty()) {
+            stream << "yc_scale=" << device.modbus.ycScale.trimmed() << "\n";
+        }
+        if (!device.modbus.ytScale.trimmed().isEmpty()) {
+            stream << "yt_scale=" << device.modbus.ytScale.trimmed() << "\n";
+        }
+
+        for (int index = 0; index < yxPolls.size(); ++index) {
+            const ModbusPollGroup &group = yxPolls.at(index);
+            const int order = index + 1;
+            stream << "yx_poll" << order << "=" << modbusIniPollLine(group) << "\n";
+            if (!group.dataType.trimmed().isEmpty() && group.dataType != device.modbus.yxType) {
+                stream << "yx_type" << order << "=" << group.dataType.trimmed() << "\n";
+            }
+        }
+        for (int index = 0; index < ycPolls.size(); ++index) {
+            const ModbusPollGroup &group = ycPolls.at(index);
+            const int order = index + 1;
+            stream << "yc_poll" << order << "=" << modbusIniPollLine(group) << "\n";
+            if (!group.dataType.trimmed().isEmpty() && group.dataType != device.modbus.ycType) {
+                stream << "yc_type" << order << "=" << group.dataType.trimmed() << "\n";
+            }
+            if (!group.scale.trimmed().isEmpty() && group.scale != device.modbus.ycScale) {
+                stream << "yc_scale" << order << "=" << group.scale.trimmed() << "\n";
+            }
+        }
+        for (int index = 0; index < ykSets.size(); ++index) {
+            stream << "yk_set" << (index + 1) << "=" << modbusIniSetLine(ykSets.at(index)) << "\n";
+        }
+        for (int index = 0; index < ytSets.size(); ++index) {
+            const ModbusSetPoint &setPoint = ytSets.at(index);
+            const int order = index + 1;
+            stream << "yt_set" << order << "=" << modbusIniSetLine(setPoint) << "\n";
+            if (!setPoint.dataType.trimmed().isEmpty() && setPoint.dataType != device.modbus.ytType) {
+                stream << "yt_type" << order << "=" << setPoint.dataType.trimmed() << "\n";
+            }
+            if (!setPoint.scale.trimmed().isEmpty() && setPoint.scale != device.modbus.ytScale) {
+                stream << "yt_scale" << order << "=" << setPoint.scale.trimmed() << "\n";
+            }
+        }
+
+        for (const QString &key : device.modbus.rawExtra.keys()) {
+            stream << key << "=" << device.modbus.rawExtra.value(key).toString() << "\n";
+        }
+    }
+
+    return content;
 }
 
 const ModelTemplate *findModelById(const ConfigProject &project,
@@ -1207,8 +1524,11 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return false;
     }
 
-    if (m_project.models.isEmpty() && m_project.devices.isEmpty()) {
-        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("当前工程没有模型或设备可导出"));
+    const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Iec104);
+    const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
+
+    if (exportModels.isEmpty() && exportDevices.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Warning, appDir, QStringLiteral("当前工程没有 104 模型或设备可导出"));
         return false;
     }
 
@@ -1218,7 +1538,7 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return false;
     }
 
-    for (const ModelTemplate &model : m_project.models) {
+    for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在模型 modelId 为空，无法导出"));
         }
@@ -1232,7 +1552,7 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         }
     }
 
-    for (const ProtocolDeviceInstance &device : m_project.devices) {
+    for (const ProtocolDeviceInstance &device : exportDevices) {
         if (device.deviceId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在设备 DeviceId 为空，无法导出"));
         }
@@ -1279,7 +1599,7 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return false;
     }
 
-    for (const ModelTemplate &model : m_project.models) {
+    for (const ModelTemplate &model : exportModels) {
         const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
         QString errorMessage;
         if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
@@ -1289,7 +1609,7 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         ++report.exportedModelCount;
     }
 
-    for (const ProtocolDeviceInstance &device : m_project.devices) {
+    for (const ProtocolDeviceInstance &device : exportDevices) {
         const QString filePath = QDir(deviceDirPath).filePath(deviceFileNameForExport(device));
         QString errorMessage;
         if (!writeJsonFile(filePath, serializeDevice(device, findModelById(m_project, device.modelId)), errorMessage)) {
@@ -1297,6 +1617,148 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
             return false;
         }
         ++report.exportedDeviceCount;
+    }
+
+    return true;
+}
+
+bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
+                                                    ExportReport &report) const
+{
+    if (m_project.projectId.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("当前没有可导出的配置工程"));
+        return false;
+    }
+
+    const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Modbus);
+    const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
+    if (exportModels.isEmpty() && exportDevices.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Warning, appDir, QStringLiteral("当前工程没有 Modbus 模型或设备可导出"));
+        return false;
+    }
+
+    for (const ModelTemplate &model : exportModels) {
+        if (model.modelId.trimmed().isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在 Modbus 模型 modelId 为空，无法导出"));
+        }
+        const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
+        if (!duplicateRefs.isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            model.source.filePath.isEmpty() ? model.modelId : model.source.filePath,
+                            QStringLiteral("Modbus 模型存在重复 DataRef：%1")
+                                .arg(QStringList(duplicateRefs.begin(), duplicateRefs.end()).join(QStringLiteral("，"))));
+        }
+    }
+
+    for (const ProtocolDeviceInstance &device : exportDevices) {
+        if (device.deviceId.trimmed().isEmpty()) {
+            report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在 Modbus 设备 DeviceId 为空，无法导出"));
+        }
+        if (!device.modelId.trimmed().isEmpty() && !findModelById(m_project, device.modelId)) {
+            report.addIssue(ImportIssueSeverity::Warning,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("Modbus 设备引用的模型 %1 在当前工程中不存在")
+                                .arg(device.modelId));
+        }
+
+        const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper();
+        if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("Modbus 设备 %1 的 type 必须为 TCP 或 RTU").arg(device.deviceId));
+        }
+        bool portOk = false;
+        device.transport.port.trimmed().toInt(&portOk);
+        if (type == QStringLiteral("TCP") && (device.transport.ip.trimmed().isEmpty() || !portOk)) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("Modbus TCP 设备 %1 缺少 ip 或数字 port").arg(device.deviceId));
+        }
+        if (type == QStringLiteral("RTU")) {
+            const QJsonObject rtu = device.transport.serial;
+            if (jsonValueToString(rtu.value(QStringLiteral("serialPort"))).trimmed().isEmpty()
+                || jsonValueToString(rtu.value(QStringLiteral("baud"))).trimmed().isEmpty()
+                || jsonValueToString(rtu.value(QStringLiteral("dataBits"))).trimmed().isEmpty()
+                || jsonValueToString(rtu.value(QStringLiteral("stopBits"))).trimmed().isEmpty()
+                || jsonValueToString(rtu.value(QStringLiteral("parity"))).trimmed().isEmpty()) {
+                report.addIssue(ImportIssueSeverity::Error,
+                                device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                                QStringLiteral("Modbus RTU 设备 %1 缺少完整 rtu 参数").arg(device.deviceId));
+            }
+        }
+
+        for (const PointBinding &binding : device.bindings) {
+            if (!binding.enabled) {
+                continue;
+            }
+            if (binding.address.trimmed().isEmpty()) {
+                report.addIssue(ImportIssueSeverity::Error,
+                                device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                                QStringLiteral("Modbus 设备 %1 存在启用但未生成 dataIndex 的点位：%2")
+                                    .arg(device.deviceId, binding.dataRef));
+                break;
+            }
+            if (!binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
+                report.addIssue(ImportIssueSeverity::Error,
+                                device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                                QStringLiteral("Modbus 设备 %1 的点位 %2 未填写寄存器地址")
+                                    .arg(device.deviceId, binding.dataRef));
+                break;
+            }
+        }
+    }
+
+    if (report.hasErrors()) {
+        return false;
+    }
+
+    QDir mutableAppDir(appDir);
+    if (!mutableAppDir.exists() && !QDir().mkpath(appDir)) {
+        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("无法创建 Modbus APP 目录"));
+        return false;
+    }
+
+    const QString modelDirPath = mutableAppDir.filePath(QStringLiteral("model"));
+    const QString deviceDirPath = mutableAppDir.filePath(QStringLiteral("dev"));
+    const QString etcDirPath = mutableAppDir.filePath(QStringLiteral("etc"));
+    if (!mutableAppDir.mkpath(QStringLiteral("model"))) {
+        report.addIssue(ImportIssueSeverity::Error, modelDirPath, QStringLiteral("无法创建 model 目录"));
+        return false;
+    }
+    if (!mutableAppDir.mkpath(QStringLiteral("dev"))) {
+        report.addIssue(ImportIssueSeverity::Error, deviceDirPath, QStringLiteral("无法创建 dev 目录"));
+        return false;
+    }
+    if (!mutableAppDir.mkpath(QStringLiteral("etc"))) {
+        report.addIssue(ImportIssueSeverity::Error, etcDirPath, QStringLiteral("无法创建 etc 目录"));
+        return false;
+    }
+
+    for (const ModelTemplate &model : exportModels) {
+        const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
+        QString errorMessage;
+        if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
+            report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
+            return false;
+        }
+        ++report.exportedModelCount;
+    }
+
+    for (const ProtocolDeviceInstance &device : exportDevices) {
+        const QString filePath = QDir(deviceDirPath).filePath(deviceFileNameForExport(device));
+        QString errorMessage;
+        if (!writeJsonFile(filePath, serializeModbusDevice(device, findModelById(m_project, device.modelId)), errorMessage)) {
+            report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
+            return false;
+        }
+        ++report.exportedDeviceCount;
+    }
+
+    QString errorMessage;
+    const QString iniPath = QDir(etcDirPath).filePath(QStringLiteral("cepmodbus.ini"));
+    if (!writeTextFile(iniPath, buildModbusIniContent(m_project, exportDevices), errorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, iniPath, errorMessage);
+        return false;
     }
 
     return true;

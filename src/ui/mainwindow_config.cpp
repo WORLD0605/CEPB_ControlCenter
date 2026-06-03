@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QColor>
 #include <QComboBox>
@@ -23,6 +24,129 @@
 #include <QUuid>
 
 namespace {
+
+constexpr int Iec104BindingColumnCount = 6;
+constexpr int ModbusBindingColumnCount = 12;
+constexpr int ModbusColumnEnabled = 0;
+constexpr int ModbusColumnKind = 1;
+constexpr int ModbusColumnDataRef = 2;
+constexpr int ModbusColumnDescription = 3;
+constexpr int ModbusColumnFunCode = 4;
+constexpr int ModbusColumnRegister = 5;
+constexpr int ModbusColumnDataType = 6;
+constexpr int ModbusColumnScale = 7;
+constexpr int ModbusColumnGroupNo = 8;
+constexpr int ModbusColumnEntryNo = 9;
+constexpr int ModbusColumnDataIndex = 10;
+constexpr int ModbusColumnSelfSignal = 11;
+
+bool isModbusDevice(const configtool::ProtocolDeviceInstance &device)
+{
+    return device.protocol == configtool::ProtocolType::Modbus
+        || device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
+}
+
+int modbusTypeRegisterCount(const QString &dataType)
+{
+    const QString normalized = dataType.trimmed().toUpper();
+    if (normalized == QStringLiteral("DWORD")
+        || normalized == QStringLiteral("DWORD_L")
+        || normalized == QStringLiteral("FLOAT")) {
+        return 2;
+    }
+    if (normalized == QStringLiteral("FLOAT_L")) {
+        return 4;
+    }
+    return 1;
+}
+
+QString normalizedModbusKind(const QString &value,
+                             const QString &fallback = QStringLiteral("yc"))
+{
+    const QString lower = value.trimmed().toLower();
+    if (lower == QStringLiteral("yx") || lower == QStringLiteral("yc")
+        || lower == QStringLiteral("yk") || lower == QStringLiteral("yt")) {
+        return lower;
+    }
+    return fallback;
+}
+
+configtool::ModbusPointKind modbusKindFromString(const QString &value)
+{
+    const QString kind = normalizedModbusKind(value);
+    if (kind == QStringLiteral("yx")) {
+        return configtool::ModbusPointKind::Yx;
+    }
+    if (kind == QStringLiteral("yk")) {
+        return configtool::ModbusPointKind::Yk;
+    }
+    if (kind == QStringLiteral("yt")) {
+        return configtool::ModbusPointKind::Yt;
+    }
+    return configtool::ModbusPointKind::Yc;
+}
+
+bool isModbusSetKind(const QString &kind)
+{
+    const QString normalized = normalizedModbusKind(kind);
+    return normalized == QStringLiteral("yk") || normalized == QStringLiteral("yt");
+}
+
+QString modbusBindingKind(const configtool::PointBinding &binding)
+{
+    return normalizedModbusKind(binding.extensions.value(QStringLiteral("modbusKind")).toString());
+}
+
+int modbusBindingInt(const configtool::PointBinding &binding,
+                     const QString &key,
+                     int fallback = 0)
+{
+    const QJsonValue value = binding.extensions.value(key);
+    if (value.isDouble()) {
+        return value.toInt();
+    }
+
+    bool ok = false;
+    const int parsed = value.toString().trimmed().toInt(&ok, 0);
+    return ok ? parsed : fallback;
+}
+
+QString modbusBindingString(const configtool::PointBinding &binding,
+                            const QString &key,
+                            const QString &fallback = QString())
+{
+    const QJsonValue value = binding.extensions.value(key);
+    if (value.isString()) {
+        return value.toString();
+    }
+    if (value.isDouble()) {
+        return QString::number(value.toInt());
+    }
+    return fallback;
+}
+
+uint buildModbusDataIndex(int groupNo, int entryNo)
+{
+    return (static_cast<uint>(groupNo) << 16) + static_cast<uint>(entryNo);
+}
+
+QString uiJsonValueToString(const QJsonValue &value)
+{
+    if (value.isString()) {
+        return value.toString();
+    }
+    if (value.isDouble()) {
+        const double number = value.toDouble();
+        const int integer = value.toInt();
+        return qFuzzyCompare(number + 1.0, static_cast<double>(integer) + 1.0)
+            ? QString::number(integer)
+            : QString::number(number);
+    }
+    if (value.isBool()) {
+        return value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+    }
+    return QString();
+}
 
 int modelPointFilterTabIndex(configtool::ModelServiceType type)
 {
@@ -170,8 +294,12 @@ void MainWindow::onExportIec104ConfigClicked()
         return;
     }
 
-    const QString appDir = resolveIec104AppDir(projectRoot);
-    if (appDir.isEmpty()) {
+    const QString iec104AppDir = resolveIec104AppDir(projectRoot);
+    const QString resolvedModbusDir = resolveModbusAppDir(projectRoot);
+    const QString modbusAppDir = resolvedModbusDir.isEmpty()
+        ? QDir(projectRoot).filePath(QStringLiteral("cepmodbus"))
+        : resolvedModbusDir;
+    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104 子目录"));
         return;
     }
@@ -179,17 +307,23 @@ void MainWindow::onExportIec104ConfigClicked()
     m_configImportDirEdit->setText(projectRoot);
 
     configtool::ExportReport report;
-    const bool ok = m_configProjectManager.exportIec104AppDirectory(appDir, report);
+    bool ok = true;
+    if (!iec104AppDir.isEmpty()) {
+        ok = m_configProjectManager.exportIec104AppDirectory(iec104AppDir, report) && ok;
+    }
+    ok = m_configProjectManager.exportModbusAppDirectory(modbusAppDir, report) && ok;
 
     QStringList issueLines;
+    bool hasErrors = false;
     for (const configtool::ImportIssue &issue : report.issues) {
         const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
             ? QStringLiteral("错误")
             : QStringLiteral("警告");
+        hasErrors = hasErrors || issue.severity == configtool::ImportIssueSeverity::Error;
         issueLines << QStringLiteral("[%1] %2").arg(severity, issue.message);
     }
 
-    if (!ok) {
+    if (!ok && hasErrors) {
         const QString detail = issueLines.isEmpty()
             ? QStringLiteral("导出失败，但未返回详细错误。")
             : issueLines.join('\n');
@@ -606,13 +740,34 @@ void MainWindow::onCreateDeviceFromModelClicked()
         return;
     }
 
+    const QString protocolName = QInputDialog::getItem(
+        this,
+        QStringLiteral("选择协议"),
+        QStringLiteral("请选择设备协议:"),
+        {QStringLiteral("104"), QStringLiteral("Modbus")},
+        0,
+        false,
+        &accepted);
+    if (!accepted || protocolName.isEmpty()) {
+        return;
+    }
+    const bool createModbus = protocolName.compare(QStringLiteral("Modbus"), Qt::CaseInsensitive) == 0;
+
     configtool::ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    device.appType = QStringLiteral("cepiec104");
-    device.protocol = configtool::ProtocolType::Iec104;
+    device.appType = createModbus ? QStringLiteral("cepmodbus") : QStringLiteral("cepiec104");
+    device.protocol = createModbus ? configtool::ProtocolType::Modbus : configtool::ProtocolType::Iec104;
     device.deviceId = deviceId;
     device.deviceDesc = model.displayName.isEmpty() ? model.modelId : model.displayName;
     device.modelId = model.modelId;
+    if (createModbus) {
+        device.transport.protocolOptions.insert(QStringLiteral("type"), QStringLiteral("TCP"));
+        device.modbus.yxType = QStringLiteral("BIT");
+        device.modbus.ycType = QStringLiteral("WORD");
+        device.modbus.ytType = QStringLiteral("WORD");
+        device.modbus.ycScale = QStringLiteral("1.0");
+        device.modbus.ytScale = QStringLiteral("1.0");
+    }
 
     for (const configtool::ServiceTemplate &service : model.services) {
         for (const configtool::PointTemplate &point : service.points) {
@@ -622,6 +777,19 @@ void MainWindow::onCreateDeviceFromModelClicked()
             binding.dataRef = point.dataRef();
             binding.descriptionOverride = point.description;
             binding.enabled = true;
+            if (createModbus) {
+                const QString kind = point.category == configtool::ModelServiceType::Status
+                    ? QStringLiteral("yx")
+                    : (point.category == configtool::ModelServiceType::Control ? QStringLiteral("yt") : QStringLiteral("yc"));
+                const QString lowerDataType = point.dataType.toLower();
+                const QString modbusDataType = kind == QStringLiteral("yx")
+                    ? QStringLiteral("BIT")
+                    : (lowerDataType.contains(QStringLiteral("float")) ? QStringLiteral("FLOAT") : QStringLiteral("WORD"));
+                binding.extensions.insert(QStringLiteral("modbusKind"), kind);
+                binding.extensions.insert(QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : (kind == QStringLiteral("yc") ? 3 : 6));
+                binding.extensions.insert(QStringLiteral("modbusDataType"), modbusDataType);
+                binding.extensions.insert(QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+            }
             device.bindings.append(binding);
         }
     }
@@ -656,6 +824,23 @@ void MainWindow::onDeviceFieldEdited()
     device.transport.ip = m_deviceIpEdit->text().trimmed();
     device.transport.port = m_devicePortEdit->text().trimmed();
     device.transport.channel = m_deviceChannelEdit->text().trimmed();
+    if (isModbusDevice(device)) {
+        const QString type = m_modbusTypeCombo && m_modbusTypeCombo->currentIndex() >= 0
+            ? m_modbusTypeCombo->currentText().trimmed().toUpper()
+            : QStringLiteral("TCP");
+        device.transport.protocolOptions.insert(QStringLiteral("type"), type);
+        device.transport.protocolOptions.insert(QStringLiteral("debug"), m_modbusDebugCheck && m_modbusDebugCheck->isChecked()
+            ? QStringLiteral("on")
+            : QStringLiteral("off"));
+
+        QJsonObject rtu;
+        rtu.insert(QStringLiteral("serialPort"), m_modbusSerialPortEdit->text().trimmed());
+        rtu.insert(QStringLiteral("baud"), m_modbusBaudEdit->text().trimmed());
+        rtu.insert(QStringLiteral("dataBits"), m_modbusDataBitsEdit->text().trimmed());
+        rtu.insert(QStringLiteral("stopBits"), m_modbusStopBitsEdit->text().trimmed());
+        rtu.insert(QStringLiteral("parity"), m_modbusParityEdit->text().trimmed());
+        device.transport.serial = rtu;
+    }
 
     refreshConfigObjectViews();
     refreshDeviceDetail(deviceIndex);
@@ -698,6 +883,9 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
         binding.enabled = item->checkState() == Qt::Checked;
     } else {
         applyDeviceBindingCellText(item->row(), item->column(), item->text());
+    }
+    if (isModbusDevice(device)) {
+        rebuildModbusDeviceConfig(device);
     }
 
     refreshDeviceDetail(deviceIndex);
@@ -831,6 +1019,44 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
 
     configtool::PointBinding &binding = device.bindings[bindingIndex];
     const QString value = text.trimmed();
+    if (isModbusDevice(device)) {
+        switch (column) {
+        case ModbusColumnKind:
+            binding.extensions.insert(QStringLiteral("modbusKind"), normalizedModbusKind(value));
+            break;
+        case ModbusColumnDescription:
+            binding.descriptionOverride = value;
+            break;
+        case ModbusColumnFunCode:
+            if (value.isEmpty()) {
+                binding.extensions.remove(QStringLiteral("modbusFunctionCode"));
+            } else {
+                binding.extensions.insert(QStringLiteral("modbusFunctionCode"), value.toInt());
+            }
+            break;
+        case ModbusColumnRegister:
+            if (value.isEmpty()) {
+                binding.extensions.remove(QStringLiteral("modbusRegisterAddress"));
+            } else {
+                binding.extensions.insert(QStringLiteral("modbusRegisterAddress"), value.toInt());
+            }
+            break;
+        case ModbusColumnDataType:
+            binding.extensions.insert(QStringLiteral("modbusDataType"), value);
+            break;
+        case ModbusColumnScale:
+            binding.extensions.insert(QStringLiteral("modbusScale"), value);
+            break;
+        case ModbusColumnSelfSignal:
+            binding.selfSignalFlag = value;
+            break;
+        default:
+            break;
+        }
+        rebuildModbusDeviceConfig(device);
+        return;
+    }
+
     switch (column) {
     case 2:
         binding.descriptionOverride = value;
@@ -846,6 +1072,158 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         break;
     default:
         break;
+    }
+}
+
+void MainWindow::rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device)
+{
+    if (!isModbusDevice(device)) {
+        return;
+    }
+
+    device.modbus.pollGroups.clear();
+    device.modbus.setPoints.clear();
+    if (device.modbus.yxType.trimmed().isEmpty()) {
+        device.modbus.yxType = QStringLiteral("BIT");
+    }
+    if (device.modbus.ycType.trimmed().isEmpty()) {
+        device.modbus.ycType = QStringLiteral("WORD");
+    }
+    if (device.modbus.ytType.trimmed().isEmpty()) {
+        device.modbus.ytType = QStringLiteral("WORD");
+    }
+    if (device.modbus.ycScale.trimmed().isEmpty()) {
+        device.modbus.ycScale = QStringLiteral("1.0");
+    }
+    if (device.modbus.ytScale.trimmed().isEmpty()) {
+        device.modbus.ytScale = QStringLiteral("1.0");
+    }
+
+    QMap<QString, QList<int>> pollGroupIndexes;
+    QMap<QString, QList<int>> setGroupIndexes;
+
+    for (int index = 0; index < device.bindings.size(); ++index) {
+        configtool::PointBinding &binding = device.bindings[index];
+        if (!binding.enabled || !binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
+            continue;
+        }
+
+        const QString kind = modbusBindingKind(binding);
+        QString dataType = modbusBindingString(binding, QStringLiteral("modbusDataType"));
+        if (dataType.trimmed().isEmpty()) {
+            dataType = kind == QStringLiteral("yx")
+                ? QStringLiteral("BIT")
+                : QStringLiteral("WORD");
+            binding.extensions.insert(QStringLiteral("modbusDataType"), dataType);
+        }
+
+        const int defaultFunCode = kind == QStringLiteral("yx")
+            ? 2
+            : (kind == QStringLiteral("yc") ? 3 : 6);
+        const int funCode = modbusBindingInt(binding, QStringLiteral("modbusFunctionCode"), defaultFunCode);
+        binding.extensions.insert(QStringLiteral("modbusFunctionCode"), funCode);
+
+        QString scale = modbusBindingString(binding, QStringLiteral("modbusScale"));
+        if (scale.trimmed().isEmpty()) {
+            scale = QStringLiteral("1.0");
+            binding.extensions.insert(QStringLiteral("modbusScale"), scale);
+        }
+
+        const QString groupKey = QStringLiteral("%1|%2|%3|%4")
+            .arg(kind)
+            .arg(funCode)
+            .arg(dataType.trimmed().toUpper())
+            .arg(scale.trimmed());
+        if (isModbusSetKind(kind)) {
+            setGroupIndexes[groupKey].append(index);
+        } else {
+            pollGroupIndexes[groupKey].append(index);
+        }
+    }
+
+    int nextGroupNo = 1;
+    int yxOrder = 1;
+    int ycOrder = 1;
+    int ykOrder = 1;
+    int ytOrder = 1;
+
+    for (const QString &groupKey : pollGroupIndexes.keys()) {
+        QList<int> indexes = pollGroupIndexes.value(groupKey);
+        std::sort(indexes.begin(), indexes.end(), [&](int left, int right) {
+            return modbusBindingInt(device.bindings.at(left), QStringLiteral("modbusRegisterAddress"))
+                < modbusBindingInt(device.bindings.at(right), QStringLiteral("modbusRegisterAddress"));
+        });
+
+        if (indexes.isEmpty()) {
+            continue;
+        }
+
+        configtool::PointBinding &firstBinding = device.bindings[indexes.first()];
+        const QString kind = modbusBindingKind(firstBinding);
+        const QString dataType = modbusBindingString(firstBinding, QStringLiteral("modbusDataType"), QStringLiteral("WORD"));
+        const QString scale = modbusBindingString(firstBinding, QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+        const int funCode = modbusBindingInt(firstBinding, QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : 3);
+        const int startAddr = modbusBindingInt(firstBinding, QStringLiteral("modbusRegisterAddress"));
+        const int regStep = modbusTypeRegisterCount(dataType);
+        int maxRegisterEnd = startAddr;
+
+        for (int bindingIndex : indexes) {
+            configtool::PointBinding &binding = device.bindings[bindingIndex];
+            const int regAddr = modbusBindingInt(binding, QStringLiteral("modbusRegisterAddress"));
+            const int entryNo = ((regAddr - startAddr) / qMax(1, regStep)) + 1;
+            binding.extensions.insert(QStringLiteral("modbusGroupNo"), nextGroupNo);
+            binding.extensions.insert(QStringLiteral("modbusEntryNo"), entryNo);
+            binding.address = QString::number(buildModbusDataIndex(nextGroupNo, entryNo));
+            maxRegisterEnd = qMax(maxRegisterEnd, regAddr + regStep);
+        }
+
+        configtool::ModbusPollGroup group;
+        group.kind = modbusKindFromString(kind);
+        group.order = kind == QStringLiteral("yx") ? yxOrder++ : ycOrder++;
+        group.groupNo = nextGroupNo++;
+        group.funCode = funCode;
+        group.startAddr = startAddr;
+        group.regNum = qMax(regStep, maxRegisterEnd - startAddr);
+        group.dataType = dataType;
+        group.scale = kind == QStringLiteral("yc") ? scale : QStringLiteral("1.0");
+        device.modbus.pollGroups.append(group);
+    }
+
+    for (const QString &groupKey : setGroupIndexes.keys()) {
+        QList<int> indexes = setGroupIndexes.value(groupKey);
+        std::sort(indexes.begin(), indexes.end(), [&](int left, int right) {
+            return modbusBindingInt(device.bindings.at(left), QStringLiteral("modbusRegisterAddress"))
+                < modbusBindingInt(device.bindings.at(right), QStringLiteral("modbusRegisterAddress"));
+        });
+
+        if (indexes.isEmpty()) {
+            continue;
+        }
+
+        const int groupNo = nextGroupNo++;
+        int entryNo = 1;
+        for (int bindingIndex : indexes) {
+            configtool::PointBinding &binding = device.bindings[bindingIndex];
+            const QString kind = modbusBindingKind(binding);
+            const QString dataType = modbusBindingString(binding, QStringLiteral("modbusDataType"), QStringLiteral("WORD"));
+            const QString scale = modbusBindingString(binding, QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+
+            configtool::ModbusSetPoint setPoint;
+            setPoint.kind = modbusKindFromString(kind);
+            setPoint.order = kind == QStringLiteral("yk") ? ykOrder++ : ytOrder++;
+            setPoint.groupNo = groupNo;
+            setPoint.entryNo = entryNo;
+            setPoint.funCode = modbusBindingInt(binding, QStringLiteral("modbusFunctionCode"), 6);
+            setPoint.regAddr = modbusBindingInt(binding, QStringLiteral("modbusRegisterAddress"));
+            setPoint.dataType = kind == QStringLiteral("yt") ? dataType : QStringLiteral("WORD");
+            setPoint.scale = kind == QStringLiteral("yt") ? scale : QStringLiteral("1.0");
+            device.modbus.setPoints.append(setPoint);
+
+            binding.extensions.insert(QStringLiteral("modbusGroupNo"), groupNo);
+            binding.extensions.insert(QStringLiteral("modbusEntryNo"), entryNo);
+            binding.address = QString::number(buildModbusDataIndex(groupNo, entryNo));
+            ++entryNo;
+        }
     }
 }
 
@@ -1314,6 +1692,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 edit->clear();
             }
         }
+        if (m_modbusParamsGroupBox) {
+            m_modbusParamsGroupBox->setVisible(false);
+        }
         m_deviceCompatIpbLabel->setText(QStringLiteral("-"));
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #666666; }");
         m_deviceValidationLabel->setText(QStringLiteral("请选择一个 104 设备。"));
@@ -1331,6 +1712,34 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                       qMakePair(m_deviceChannelEdit, device.transport.channel)}) {
         QSignalBlocker blocker(pair.first);
         pair.first->setText(pair.second);
+    }
+
+    const bool modbusDevice = isModbusDevice(device);
+    if (m_modbusParamsGroupBox) {
+        m_modbusParamsGroupBox->setVisible(modbusDevice);
+    }
+    if (modbusDevice) {
+        const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).toUpper();
+        {
+            QSignalBlocker blocker(m_modbusTypeCombo);
+            const int typeIndex = m_modbusTypeCombo->findText(type);
+            m_modbusTypeCombo->setCurrentIndex(typeIndex >= 0 ? typeIndex : 0);
+        }
+        const QJsonObject rtu = device.transport.serial;
+        for (auto pair : {qMakePair(m_modbusSerialPortEdit, uiJsonValueToString(rtu.value(QStringLiteral("serialPort")))),
+                          qMakePair(m_modbusBaudEdit, uiJsonValueToString(rtu.value(QStringLiteral("baud")))),
+                          qMakePair(m_modbusDataBitsEdit, uiJsonValueToString(rtu.value(QStringLiteral("dataBits")))),
+                          qMakePair(m_modbusStopBitsEdit, uiJsonValueToString(rtu.value(QStringLiteral("stopBits")))),
+                          qMakePair(m_modbusParityEdit, uiJsonValueToString(rtu.value(QStringLiteral("parity"))))}) {
+            QSignalBlocker blocker(pair.first);
+            pair.first->setText(pair.second);
+        }
+        QSignalBlocker debugBlocker(m_modbusDebugCheck);
+        const QString debug = device.transport.protocolOptions.value(QStringLiteral("debug")).toString().toLower();
+        m_modbusDebugCheck->setChecked(debug == QStringLiteral("on")
+            || debug == QStringLiteral("1")
+            || debug == QStringLiteral("true")
+            || debug == QStringLiteral("yes"));
     }
 
     const QJsonValue ipbValue = device.transport.source.rawExtra.value(QStringLiteral("ipb"));
@@ -1352,7 +1761,124 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
     }
 
+    if (modbusDevice) {
+        int missingRegisterCount = 0;
+        m_updatingDeviceBindingsTable = true;
+        m_deviceBindingsTable->clear();
+        m_deviceBindingsTable->setColumnCount(ModbusBindingColumnCount);
+        m_deviceBindingsTable->setHorizontalHeaderLabels({
+            QStringLiteral("启用"),
+            QStringLiteral("类型"),
+            QStringLiteral("DataRef"),
+            QStringLiteral("描述"),
+            QStringLiteral("功能码"),
+            QStringLiteral("寄存器"),
+            QStringLiteral("数据类型"),
+            QStringLiteral("比例"),
+            QStringLiteral("组号"),
+            QStringLiteral("序号"),
+            QStringLiteral("dataIndex"),
+            QStringLiteral("自发标志")
+        });
+        m_deviceBindingsTable->setRowCount(device.bindings.size());
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnKind, 58);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataRef, 260);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDescription, 180);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnFunCode, 64);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnRegister, 80);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataType, 90);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnScale, 64);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnGroupNo, 58);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnEntryNo, 58);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataIndex, 90);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnSelfSignal, 80);
+
+        for (int row = 0; row < device.bindings.size(); ++row) {
+            const configtool::PointBinding &binding = device.bindings.at(row);
+            auto *enabledItem = new QTableWidgetItem();
+            enabledItem->setFlags((enabledItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+            enabledItem->setCheckState(binding.enabled ? Qt::Checked : Qt::Unchecked);
+            enabledItem->setData(Qt::UserRole, row);
+
+            const QString kind = modbusBindingKind(binding);
+            const QString dataType = modbusBindingString(binding, QStringLiteral("modbusDataType"), kind == QStringLiteral("yx") ? QStringLiteral("BIT") : QStringLiteral("WORD"));
+            const QString scale = modbusBindingString(binding, QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+            const QString funCode = QString::number(modbusBindingInt(binding, QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : (kind == QStringLiteral("yc") ? 3 : 6)));
+            const bool hasRegister = binding.extensions.contains(QStringLiteral("modbusRegisterAddress"));
+            const QString registerAddress = hasRegister
+                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusRegisterAddress")))
+                : QString();
+            const QString groupNo = binding.extensions.contains(QStringLiteral("modbusGroupNo"))
+                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusGroupNo")))
+                : QString();
+            const QString entryNo = binding.extensions.contains(QStringLiteral("modbusEntryNo"))
+                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusEntryNo")))
+                : QString();
+
+            auto *kindItem = new QTableWidgetItem(kind);
+            auto *dataRefItem = new QTableWidgetItem(binding.dataRef);
+            auto *descriptionItem = new QTableWidgetItem(binding.descriptionOverride);
+            auto *funCodeItem = new QTableWidgetItem(funCode);
+            auto *registerItem = new QTableWidgetItem(registerAddress);
+            auto *dataTypeItem = new QTableWidgetItem(dataType);
+            auto *scaleItem = new QTableWidgetItem(scale);
+            auto *groupItem = new QTableWidgetItem(groupNo);
+            auto *entryItem = new QTableWidgetItem(entryNo);
+            auto *dataIndexItem = new QTableWidgetItem(binding.address);
+            auto *selfSignalItem = new QTableWidgetItem(binding.selfSignalFlag);
+
+            dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+            groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
+            entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsEditable);
+            dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
+
+            if (binding.enabled && !hasRegister) {
+                ++missingRegisterCount;
+                const QColor warningColor(QStringLiteral("#b9770e"));
+                dataRefItem->setForeground(warningColor);
+                registerItem->setForeground(warningColor);
+            }
+
+            m_deviceBindingsTable->setItem(row, ModbusColumnEnabled, enabledItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnKind, kindItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnDataRef, dataRefItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnDescription, descriptionItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnFunCode, funCodeItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnRegister, registerItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnDataType, dataTypeItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnScale, scaleItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnGroupNo, groupItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnEntryNo, entryItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnDataIndex, dataIndexItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnSelfSignal, selfSignalItem);
+        }
+        m_updatingDeviceBindingsTable = false;
+
+        if (missingRegisterCount > 0) {
+            m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
+            m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 Modbus 寄存器地址。填写后会自动生成分组、组内序号和 dataIndex。")
+                .arg(missingRegisterCount));
+        } else {
+            m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
+            m_deviceValidationLabel->setText(QStringLiteral("Modbus 映射已生成：轮询组 %1 个，写入项 %2 个。")
+                .arg(device.modbus.pollGroups.size())
+                .arg(device.modbus.setPoints.size()));
+        }
+        return;
+    }
+
     m_updatingDeviceBindingsTable = true;
+    m_deviceBindingsTable->clear();
+    m_deviceBindingsTable->setColumnCount(Iec104BindingColumnCount);
+    m_deviceBindingsTable->setHorizontalHeaderLabels({
+        QStringLiteral("启用"),
+        QStringLiteral("DataRef"),
+        QStringLiteral("描述"),
+        QStringLiteral("地址"),
+        QStringLiteral("初值"),
+        QStringLiteral("自发标志")
+    });
     m_deviceBindingsTable->setRowCount(device.bindings.size());
     for (int row = 0; row < device.bindings.size(); ++row) {
         const configtool::PointBinding &binding = device.bindings.at(row);
