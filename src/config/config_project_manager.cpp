@@ -680,6 +680,28 @@ bool writeJsonFile(const QString &filePath,
     return true;
 }
 
+bool removeJsonFilesInDirectory(const QString &dirPath,
+                                QString &errorMessage)
+{
+    QDir dir(dirPath);
+    if (!dir.exists()) {
+        return true;
+    }
+
+    const QFileInfoList files = dir.entryInfoList(
+        QStringList() << QStringLiteral("*.json"),
+        QDir::Files | QDir::NoDotAndDotDot,
+        QDir::Name);
+    for (const QFileInfo &file : files) {
+        if (!QFile::remove(file.absoluteFilePath())) {
+            errorMessage = QStringLiteral("无法删除旧文件: %1").arg(file.absoluteFilePath());
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool writeTextFile(const QString &filePath,
                    const QString &content,
                    QString &errorMessage)
@@ -1638,6 +1660,16 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return false;
     }
 
+    QString cleanupErrorMessage;
+    if (!removeJsonFilesInDirectory(modelDirPath, cleanupErrorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, modelDirPath, cleanupErrorMessage);
+        return false;
+    }
+    if (!removeJsonFilesInDirectory(deviceDirPath, cleanupErrorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, deviceDirPath, cleanupErrorMessage);
+        return false;
+    }
+
     for (const ModelTemplate &model : exportModels) {
         const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
         QString errorMessage;
@@ -1770,6 +1802,16 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     }
     if (!mutableAppDir.mkpath(QStringLiteral("etc"))) {
         report.addIssue(ImportIssueSeverity::Error, etcDirPath, QStringLiteral("无法创建 etc 目录"));
+        return false;
+    }
+
+    QString cleanupErrorMessage;
+    if (!removeJsonFilesInDirectory(modelDirPath, cleanupErrorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, modelDirPath, cleanupErrorMessage);
+        return false;
+    }
+    if (!removeJsonFilesInDirectory(deviceDirPath, cleanupErrorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, deviceDirPath, cleanupErrorMessage);
         return false;
     }
 
