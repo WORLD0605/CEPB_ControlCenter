@@ -109,6 +109,7 @@ private:
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
     QString resolveIec104AppDir(const QString &projectRoot) const;
+    QString resolveModbusAppDir(const QString &projectRoot) const;
     QString configBrowseStartDir() const;
     void refreshConfigImportSummary(const configtool::ImportReport &report);
     void refreshConfigObjectViews();

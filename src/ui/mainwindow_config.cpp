@@ -131,9 +131,10 @@ void MainWindow::onImportIec104ConfigClicked()
         return;
     }
 
-    const QString appDir = resolveIec104AppDir(projectRoot);
-    if (appDir.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104 子目录"));
+    const QString iec104AppDir = resolveIec104AppDir(projectRoot);
+    const QString modbusAppDir = resolveModbusAppDir(projectRoot);
+    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104 或 cepmodbus 子目录"));
         return;
     }
 
@@ -144,7 +145,13 @@ void MainWindow::onImportIec104ConfigClicked()
         ? QStringLiteral("配置工程")
         : QFileInfo(projectRoot).fileName();
     m_configProjectManager.createEmptyProject(projectName, projectRoot);
-    const bool ok = m_configProjectManager.importIec104AppDirectory(appDir, report);
+    bool ok = true;
+    if (!iec104AppDir.isEmpty()) {
+        ok = m_configProjectManager.importIec104AppDirectory(iec104AppDir, report) && ok;
+    }
+    if (!modbusAppDir.isEmpty()) {
+        ok = m_configProjectManager.importModbusAppDirectory(modbusAppDir, report) && ok;
+    }
     refreshConfigImportSummary(report);
 
     if (!ok && report.hasErrors()) {
@@ -216,6 +223,9 @@ QString MainWindow::normalizedConfigProjectRoot(const QString &selectedPath) con
     if (folderName.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0) {
         return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));
     }
+    if (folderName.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0) {
+        return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));
+    }
 
     return absolutePath;
 }
@@ -233,6 +243,22 @@ QString MainWindow::resolveIec104AppDir(const QString &projectRoot) const
     }
 
     const QString appDir = QDir(projectRoot).filePath(QStringLiteral("cepiec104"));
+    return QDir(appDir).exists() ? appDir : QString();
+}
+
+QString MainWindow::resolveModbusAppDir(const QString &projectRoot) const
+{
+    if (projectRoot.trimmed().isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo rootInfo(projectRoot);
+    if (rootInfo.fileName().compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0
+        && rootInfo.isDir()) {
+        return rootInfo.absoluteFilePath();
+    }
+
+    const QString appDir = QDir(projectRoot).filePath(QStringLiteral("cepmodbus"));
     return QDir(appDir).exists() ? appDir : QString();
 }
 

@@ -63,6 +63,34 @@ private:
                           ImportReport &report) const;
 };
 
+class ModbusConfigImporter
+{
+public:
+    bool importAppDirectory(const QString &appDir,
+                            ConfigProject &project,
+                            ImportReport &report) const;
+
+private:
+    bool importModelDirectory(const QString &modelDir,
+                              ConfigProject &project,
+                              ImportReport &report) const;
+    bool importDeviceDirectory(const QString &deviceDir,
+                               const QString &iniPath,
+                               ConfigProject &project,
+                               ImportReport &report) const;
+    bool importModelFile(const QString &filePath,
+                         ConfigProject &project,
+                         ImportReport &report) const;
+    bool importDeviceFile(const QString &filePath,
+                          const QString &iniPath,
+                          ConfigProject &project,
+                          ImportReport &report) const;
+    ModbusGlobalConfig importGlobalIniConfig(const QString &iniPath) const;
+    ModbusDeviceConfig importDeviceIniConfig(const QString &iniPath,
+                                             const QString &deviceId,
+                                             ImportReport &report) const;
+};
+
 class ConfigProjectManager
 {
 public:
@@ -71,6 +99,8 @@ public:
     void createEmptyProject(const QString &projectName,
                             const QString &sourceRoot);
     bool importIec104AppDirectory(const QString &appDir,
+                                  ImportReport &report);
+    bool importModbusAppDirectory(const QString &appDir,
                                   ImportReport &report);
     bool exportIec104AppDirectory(const QString &appDir,
                                   ExportReport &report) const;
@@ -81,6 +111,7 @@ public:
 private:
     ConfigProject m_project;
     Iec104ConfigImporter m_iec104Importer;
+    ModbusConfigImporter m_modbusImporter;
 };
 
 } // namespace configtool

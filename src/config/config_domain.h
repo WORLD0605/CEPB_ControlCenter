@@ -32,6 +32,56 @@ enum class ProtocolType {
     Modbus
 };
 
+enum class ModbusPointKind {
+    Yx,
+    Yc,
+    Yk,
+    Yt
+};
+
+struct ModbusGlobalConfig {
+    QString frameInterval;
+    QString hwVariant;
+    QString yxUploadPeriod;
+    QString ycUploadPeriod;
+    QJsonObject rawExtra;
+};
+
+struct ModbusPollGroup {
+    ModbusPointKind kind = ModbusPointKind::Yc;
+    int order = 0;
+    int groupNo = 0;
+    int funCode = 0;
+    int startAddr = 0;
+    int regNum = 0;
+    QString dataType;
+    QString scale;
+    QJsonObject rawExtra;
+};
+
+struct ModbusSetPoint {
+    ModbusPointKind kind = ModbusPointKind::Yt;
+    int order = 0;
+    int groupNo = 0;
+    int entryNo = 0;
+    int funCode = 0;
+    int regAddr = 0;
+    QString dataType;
+    QString scale;
+    QJsonObject rawExtra;
+};
+
+struct ModbusDeviceConfig {
+    QString yxType;
+    QString ycType;
+    QString ytType;
+    QString ycScale;
+    QString ytScale;
+    QList<ModbusPollGroup> pollGroups;
+    QList<ModbusSetPoint> setPoints;
+    QJsonObject rawExtra;
+};
+
 struct SourceInfo {
     QString filePath;
     QString fileName;
@@ -125,6 +175,7 @@ struct ProtocolDeviceInstance {
     QString modelId;
     DeviceTransportConfig transport;
     QList<PointBinding> bindings;
+    ModbusDeviceConfig modbus;
     QJsonObject extensions;
     SourceInfo source;
 
@@ -140,6 +191,7 @@ struct ConfigProject {
     QList<QString> southApps;
     QList<ModelTemplate> models;
     QList<ProtocolDeviceInstance> devices;
+    ModbusGlobalConfig modbus;
     QJsonObject logic;
     QJsonObject metadata;
 };
@@ -154,6 +206,7 @@ QString modelServiceTypeDisplayName(ModelServiceType type);
 QString pointSignalTypeId(PointSignalType type);
 QString controlKindId(ControlKind kind);
 QString protocolTypeId(ProtocolType type);
+QString modbusPointKindId(ModbusPointKind kind);
 
 QList<ServiceTemplate> createDefaultModelServices();
 

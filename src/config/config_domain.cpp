@@ -167,6 +167,22 @@ QString protocolTypeId(ProtocolType type)
     return QStringLiteral("unknown");
 }
 
+QString modbusPointKindId(ModbusPointKind kind)
+{
+    switch (kind) {
+    case ModbusPointKind::Yx:
+        return QStringLiteral("yx");
+    case ModbusPointKind::Yc:
+        return QStringLiteral("yc");
+    case ModbusPointKind::Yk:
+        return QStringLiteral("yk");
+    case ModbusPointKind::Yt:
+        return QStringLiteral("yt");
+    }
+
+    return QStringLiteral("yc");
+}
+
 QList<ServiceTemplate> createDefaultModelServices()
 {
     QList<ServiceTemplate> services;
