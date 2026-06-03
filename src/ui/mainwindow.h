@@ -118,6 +118,7 @@ private:
     QString configBrowseStartDir() const;
     void refreshConfigImportSummary(const configtool::ImportReport &report);
     void refreshConfigObjectViews();
+    void refreshLogicCenterOverview();
     void refreshSelectionOverview();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
@@ -178,6 +179,7 @@ private:
     QTabWidget *m_mainTabWidget = nullptr;
     QTabBar *m_modelPointFilterTabBar = nullptr;
     QWidget *m_configPage = nullptr;
+    QWidget *m_logicCenterPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -187,6 +189,14 @@ private:
     QLabel *m_configModelCountValueLabel = nullptr;
     QLabel *m_configDeviceCountValueLabel = nullptr;
     QLabel *m_configIssueCountValueLabel = nullptr;
+    QLabel *m_logicComputationPointCountLabel = nullptr;
+    QLabel *m_logicControlRuleCountLabel = nullptr;
+    QLabel *m_logicAgcAvcGroupCountLabel = nullptr;
+    QLabel *m_logicOnlineLinkCountLabel = nullptr;
+    QLabel *m_logicDerivedDeviceCountLabel = nullptr;
+    QLabel *m_logicIssueCountLabel = nullptr;
+    QLabel *m_logicExportPathLabel = nullptr;
+    QTableWidget *m_logicIssueTable = nullptr;
     QLabel *m_modelOverviewIdLabel = nullptr;
     QLabel *m_modelOverviewDisplayNameLabel = nullptr;
     QLabel *m_modelOverviewDeviceTypeLabel = nullptr;

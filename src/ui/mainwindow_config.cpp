@@ -162,6 +162,34 @@ QModelIndexList sortedEditableTargetIndexes(QTableWidget *table)
     return indexes;
 }
 
+QString configIssueSeverityText(configtool::ConfigIssueSeverity severity)
+{
+    switch (severity) {
+    case configtool::ConfigIssueSeverity::Info:
+        return QStringLiteral("提示");
+    case configtool::ConfigIssueSeverity::Warning:
+        return QStringLiteral("警告");
+    case configtool::ConfigIssueSeverity::Error:
+        return QStringLiteral("错误");
+    }
+
+    return QStringLiteral("错误");
+}
+
+QColor configIssueSeverityColor(configtool::ConfigIssueSeverity severity)
+{
+    switch (severity) {
+    case configtool::ConfigIssueSeverity::Info:
+        return QColor(QStringLiteral("#2f6f9f"));
+    case configtool::ConfigIssueSeverity::Warning:
+        return QColor(QStringLiteral("#b9770e"));
+    case configtool::ConfigIssueSeverity::Error:
+        return QColor(QStringLiteral("#c0392b"));
+    }
+
+    return QColor(QStringLiteral("#c0392b"));
+}
+
 } // namespace
 
 void MainWindow::onBrowseConfigImportDirClicked()
@@ -1619,6 +1647,7 @@ void MainWindow::refreshConfigObjectViews()
     }
 
     refreshSelectionOverview();
+    refreshLogicCenterOverview();
 }
 
 void MainWindow::refreshSelectionOverview()
@@ -2128,6 +2157,83 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     } else {
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
         m_deviceValidationLabel->setText(QStringLiteral("当前设备地址分配未发现重复。"));
+    }
+}
+
+void MainWindow::refreshLogicCenterOverview()
+{
+    if (!m_logicCenterPage) {
+        return;
+    }
+
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const configtool::LogicCenterConfig &logic = project.logicCenter;
+    const QList<configtool::ConfigIssue> issues = configtool::validateLogicCenterConfig(logic, &project);
+
+    if (m_logicAgcAvcGroupCountLabel) {
+        m_logicAgcAvcGroupCountLabel->setText(QString::number(logic.agcAvcGroups.size()));
+    }
+    if (m_logicComputationPointCountLabel) {
+        m_logicComputationPointCountLabel->setText(QString::number(logic.computationPoints.size()));
+    }
+    if (m_logicControlRuleCountLabel) {
+        m_logicControlRuleCountLabel->setText(QString::number(logic.controlRules.size()));
+    }
+    if (m_logicOnlineLinkCountLabel) {
+        m_logicOnlineLinkCountLabel->setText(QString::number(logic.onlineStatusLinks.size()));
+    }
+    if (m_logicDerivedDeviceCountLabel) {
+        m_logicDerivedDeviceCountLabel->setText(QStringLiteral("0"));
+    }
+    if (m_logicIssueCountLabel) {
+        int errorCount = 0;
+        int warningCount = 0;
+        int infoCount = 0;
+        for (const configtool::ConfigIssue &issue : issues) {
+            if (issue.severity == configtool::ConfigIssueSeverity::Error) {
+                ++errorCount;
+            } else if (issue.severity == configtool::ConfigIssueSeverity::Warning) {
+                ++warningCount;
+            } else {
+                ++infoCount;
+            }
+        }
+        m_logicIssueCountLabel->setText(QStringLiteral("%1 项（错误 %2，警告 %3，提示 %4）")
+            .arg(issues.size())
+            .arg(errorCount)
+            .arg(warningCount)
+            .arg(infoCount));
+    }
+    if (m_logicExportPathLabel) {
+        const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
+        const QString appDir = resolveLogicCenterAppDir(projectRoot).isEmpty()
+            ? QDir(projectRoot).filePath(QStringLiteral("cepLogicCenter"))
+            : resolveLogicCenterAppDir(projectRoot);
+        const QString exportPath = projectRoot.trimmed().isEmpty()
+            ? QStringLiteral("cepLogicCenter/etc/LogicCenter_Config.json")
+            : QDir(appDir).filePath(QStringLiteral("etc/LogicCenter_Config.json"));
+        m_logicExportPathLabel->setText(exportPath);
+    }
+
+    if (!m_logicIssueTable) {
+        return;
+    }
+
+    m_logicIssueTable->setRowCount(issues.size());
+    for (int row = 0; row < issues.size(); ++row) {
+        const configtool::ConfigIssue &issue = issues.at(row);
+        const QColor color = configIssueSeverityColor(issue.severity);
+        auto *severityItem = new QTableWidgetItem(configIssueSeverityText(issue.severity));
+        auto *moduleItem = new QTableWidgetItem(issue.module);
+        auto *objectItem = new QTableWidgetItem(issue.objectId);
+        auto *messageItem = new QTableWidgetItem(issue.message);
+        for (QTableWidgetItem *item : {severityItem, moduleItem, objectItem, messageItem}) {
+            item->setForeground(color);
+        }
+        m_logicIssueTable->setItem(row, 0, severityItem);
+        m_logicIssueTable->setItem(row, 1, moduleItem);
+        m_logicIssueTable->setItem(row, 2, objectItem);
+        m_logicIssueTable->setItem(row, 3, messageItem);
     }
 }
 
