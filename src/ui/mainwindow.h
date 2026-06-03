@@ -88,6 +88,12 @@ private slots:
     void onLogicAgcAvcDeviceCellDoubleClicked(int row, int column);
     void onAddLogicAgcAvcDeviceClicked();
     void onDeleteLogicAgcAvcDeviceClicked();
+    void onGenerateLogicAgcAvcTotalPClicked();
+    void onGenerateLogicAgcAvcTotalQClicked();
+    void onGenerateLogicAgcAvcCosClicked();
+    void onDeleteLogicComputationPointClicked();
+    void onLogicComputationPointItemChanged(QTableWidgetItem *item);
+    void onLogicComputationPointCellDoubleClicked(int row, int column);
 
     void onConnected();
     void onDisconnected();
@@ -127,6 +133,7 @@ private:
     void refreshConfigObjectViews();
     void refreshLogicCenterOverview();
     void refreshLogicAgcAvcPage();
+    void refreshLogicComputationPointPage();
     void refreshSelectionOverview();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
@@ -143,6 +150,22 @@ private:
     void selectLogicAgcAvcPointForColumn(int dataRefColumn,
                                          configtool::ModelServiceType preferredType,
                                          bool updateOnlineDevice);
+    QList<configtool::LogicOperand> collectLogicTemplateOperands(configtool::ModelServiceType preferredType,
+                                                                 const QString &title,
+                                                                 int minimumCount);
+    void upsertLogicTemplatePoint(const configtool::LogicComputationTemplateRequest &request);
+    void generateLogicComputationTemplate(int templateIndex);
+    void generateLogicSinglePointTemplateVisual();
+    void generateLogicSourcePointScaleTemplateVisual();
+    void generateLogicStatusOrTemplateVisual();
+    void generateLogicStatusAndTemplateVisual();
+    void generateLogicStatusTemplateVisual(configtool::LogicComputationTemplateType type,
+                                           const QString &templateName,
+                                           const QString &operatorText,
+                                           const QString &titleText,
+                                           const QString &defaultOutputDataRef);
+    void selectLogicComputationOutputPoint(int row);
+    void selectLogicComputationOperands(int row);
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -157,6 +180,7 @@ private:
     bool m_updatingModelPointCategory = false;
     bool m_updatingDeviceBindingsTable = false;
     bool m_updatingLogicAgcAvcPage = false;
+    bool m_updatingLogicComputationPointPage = false;
     bool m_restoringConfigUndo = false;
     QList<configtool::ConfigProject> m_configUndoStack;
 
@@ -195,6 +219,7 @@ private:
     QWidget *m_configPage = nullptr;
     QWidget *m_logicCenterPage = nullptr;
     QWidget *m_logicAgcAvcPage = nullptr;
+    QWidget *m_logicComputationPointPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -212,6 +237,8 @@ private:
     QLabel *m_logicIssueCountLabel = nullptr;
     QLabel *m_logicExportPathLabel = nullptr;
     QTableWidget *m_logicIssueTable = nullptr;
+    QPushButton *m_deleteLogicComputationPointBtn = nullptr;
+    QTableWidget *m_logicComputationPointTable = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;
@@ -233,6 +260,9 @@ private:
     QTableWidget *m_logicAgcAvcDeviceTable = nullptr;
     QPushButton *m_addLogicAgcAvcDeviceBtn = nullptr;
     QPushButton *m_deleteLogicAgcAvcDeviceBtn = nullptr;
+    QPushButton *m_generateLogicTotalPBtn = nullptr;
+    QPushButton *m_generateLogicTotalQBtn = nullptr;
+    QPushButton *m_generateLogicCosBtn = nullptr;
     QLabel *m_modelOverviewIdLabel = nullptr;
     QLabel *m_modelOverviewDisplayNameLabel = nullptr;
     QLabel *m_modelOverviewDeviceTypeLabel = nullptr;

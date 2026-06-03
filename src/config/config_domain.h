@@ -111,6 +111,23 @@ struct LogicComputationPoint {
     QJsonObject rawExtra;
 };
 
+enum class LogicComputationTemplateType {
+    Sum,
+    PowerFactor,
+    SinglePoint,
+    StatusOr,
+    StatusAnd
+};
+
+struct LogicComputationTemplateRequest {
+    LogicComputationTemplateType type = LogicComputationTemplateType::Sum;
+    QString outputDeviceId;
+    QString outputDataRef;
+    QList<LogicOperand> operands;
+    bool dropOperands = true;
+    QString description;
+};
+
 struct LogicControlTarget {
     QString deviceId;
     QString dataRef;
@@ -333,6 +350,8 @@ QList<ServiceTemplate> createDefaultModelServices();
 
 LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object);
 QJsonObject serializeLogicCenterConfig(const LogicCenterConfig &config);
+LogicComputationPoint buildLogicComputationPointFromTemplate(const LogicComputationTemplateRequest &request);
+bool upsertLogicComputationPoint(LogicCenterConfig &config, const LogicComputationPoint &point);
 QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
                                              const ConfigProject *project = nullptr);
 

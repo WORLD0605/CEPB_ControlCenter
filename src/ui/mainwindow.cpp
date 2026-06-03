@@ -27,6 +27,7 @@
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStringList>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTableWidget>
@@ -599,6 +600,11 @@ MainWindow::MainWindow(QWidget *parent)
                 m_mainTabWidget->setCurrentWidget(m_logicAgcAvcPage);
                 return;
             }
+            if (text.contains(QStringLiteral("算")) && m_logicComputationPointPage) {
+                refreshLogicComputationPointPage();
+                m_mainTabWidget->setCurrentWidget(m_logicComputationPointPage);
+                return;
+            }
             statusBar()->showMessage(QStringLiteral("%1 编辑器将在后续步骤接入").arg(text), 5000);
         });
         return button;
@@ -673,6 +679,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_deleteLogicAgcAvcDeviceBtn = new QPushButton(QStringLiteral("删除设备"), this);
     agcAvcDeviceToolbar->addWidget(m_addLogicAgcAvcDeviceBtn);
     agcAvcDeviceToolbar->addWidget(m_deleteLogicAgcAvcDeviceBtn);
+    m_generateLogicTotalPBtn = new QPushButton(QStringLiteral("生成 TotalP"), this);
+    m_generateLogicTotalQBtn = new QPushButton(QStringLiteral("生成 TotalQ"), this);
+    m_generateLogicCosBtn = new QPushButton(QStringLiteral("生成 Cos"), this);
+    agcAvcDeviceToolbar->addSpacing(12);
+    agcAvcDeviceToolbar->addWidget(m_generateLogicTotalPBtn);
+    agcAvcDeviceToolbar->addWidget(m_generateLogicTotalQBtn);
+    agcAvcDeviceToolbar->addWidget(m_generateLogicCosBtn);
     agcAvcDeviceToolbar->addStretch();
     agcAvcLayout->addLayout(agcAvcDeviceToolbar);
 
@@ -773,12 +786,71 @@ MainWindow::MainWindow(QWidget *parent)
                                                    &m_logicAvcFollowToleranceEdit), 1);
     agcAvcLayout->addWidget(agcAvcOptionsPanel);
 
+    m_logicComputationPointPage = new QWidget(this);
+    auto *logicComputationLayout = new QVBoxLayout(m_logicComputationPointPage);
+    logicComputationLayout->setContentsMargins(0, 0, 0, 0);
+    logicComputationLayout->setSpacing(8);
+    auto *logicComputationHint = new QLabel(
+        QStringLiteral("计算点模板生成结果会出现在这里。AGC/AVC 页可快速创建 TotalP、TotalQ 和 Cos。"),
+        this);
+    logicComputationHint->setWordWrap(true);
+    logicComputationLayout->addWidget(logicComputationHint);
+    auto *logicTemplateGroup = new QGroupBox(QStringLiteral("模板生成"), this);
+    auto *logicTemplateLayout = new QGridLayout(logicTemplateGroup);
+    logicTemplateLayout->setContentsMargins(10, 8, 10, 8);
+    logicTemplateLayout->setHorizontalSpacing(8);
+    logicTemplateLayout->setVerticalSpacing(8);
+    const QStringList logicTemplateButtons = {
+        QStringLiteral("单点映射/改名"),
+        QStringLiteral("原点缩放"),
+        QStringLiteral("遥信 OR"),
+        QStringLiteral("遥信 AND")
+    };
+    for (int index = 0; index < logicTemplateButtons.size(); ++index) {
+        auto *button = new QPushButton(logicTemplateButtons.at(index), this);
+        button->setMinimumHeight(32);
+        logicTemplateLayout->addWidget(button, index / 3, index % 3);
+        connect(button, &QPushButton::clicked,
+                this, [this, index]() { generateLogicComputationTemplate(index); });
+    }
+    logicComputationLayout->addWidget(logicTemplateGroup);
+
+    auto *logicComputationToolbar = new QHBoxLayout();
+    m_deleteLogicComputationPointBtn = new QPushButton(QStringLiteral("删除"), this);
+    logicComputationToolbar->addWidget(m_deleteLogicComputationPointBtn);
+    logicComputationToolbar->addStretch();
+    logicComputationLayout->addLayout(logicComputationToolbar);
+    m_logicComputationPointTable = new QTableWidget(0, 6, this);
+    m_logicComputationPointTable->setHorizontalHeaderLabels({
+        QStringLiteral("输出设备"),
+        QStringLiteral("输出点"),
+        QStringLiteral("公式"),
+        QStringLiteral("剔除源点"),
+        QStringLiteral("源点"),
+        QStringLiteral("说明")
+    });
+    m_logicComputationPointTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                                  | QAbstractItemView::SelectedClicked
+                                                  | QAbstractItemView::EditKeyPressed);
+    m_logicComputationPointTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_logicComputationPointTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_logicComputationPointTable->setAlternatingRowColors(true);
+    m_logicComputationPointTable->verticalHeader()->setVisible(false);
+    m_logicComputationPointTable->horizontalHeader()->setStretchLastSection(true);
+    m_logicComputationPointTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_logicComputationPointTable->setColumnWidth(0, 120);
+    m_logicComputationPointTable->setColumnWidth(1, 240);
+    m_logicComputationPointTable->setColumnWidth(2, 220);
+    m_logicComputationPointTable->setColumnWidth(4, 360);
+    logicComputationLayout->addWidget(m_logicComputationPointTable, 1);
+
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
     m_mainTabWidget->addTab(m_logicCenterPage, "逻辑中心");
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
+    m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
 
     setCentralWidget(central);
 
@@ -866,6 +938,18 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAddLogicAgcAvcDeviceClicked);
     connect(m_deleteLogicAgcAvcDeviceBtn, &QPushButton::clicked,
             this, &MainWindow::onDeleteLogicAgcAvcDeviceClicked);
+    connect(m_generateLogicTotalPBtn, &QPushButton::clicked,
+            this, &MainWindow::onGenerateLogicAgcAvcTotalPClicked);
+    connect(m_generateLogicTotalQBtn, &QPushButton::clicked,
+            this, &MainWindow::onGenerateLogicAgcAvcTotalQClicked);
+    connect(m_generateLogicCosBtn, &QPushButton::clicked,
+            this, &MainWindow::onGenerateLogicAgcAvcCosClicked);
+    connect(m_deleteLogicComputationPointBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteLogicComputationPointClicked);
+    connect(m_logicComputationPointTable, &QTableWidget::itemChanged,
+            this, &MainWindow::onLogicComputationPointItemChanged);
+    connect(m_logicComputationPointTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onLogicComputationPointCellDoubleClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceFromModelBtn, &QPushButton::clicked,

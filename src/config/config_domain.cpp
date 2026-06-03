@@ -161,6 +161,29 @@ QJsonObject serializeLogicComputationPoint(const LogicComputationPoint &point)
     return object;
 }
 
+QString logicOperandPlaceholder(int index)
+{
+    return QStringLiteral("{%1}").arg(index + 1);
+}
+
+QString joinLogicOperandPlaceholders(int count, const QString &op)
+{
+    QStringList parts;
+    for (int index = 0; index < count; ++index) {
+        parts.append(logicOperandPlaceholder(index));
+    }
+    return parts.join(op);
+}
+
+QString buildLogicStatusOrFormula(int count)
+{
+    QString formula = QStringLiteral("1");
+    for (int index = 0; index < count; ++index) {
+        formula += QStringLiteral("*(1-%1)").arg(logicOperandPlaceholder(index));
+    }
+    return QStringLiteral("1-(%1)").arg(formula);
+}
+
 LogicControlTarget parseLogicControlTarget(const QJsonObject &object)
 {
     LogicControlTarget target;
@@ -622,6 +645,53 @@ bool projectPointExists(const QSet<QString> &pointKeys, const QString &deviceId,
 }
 
 } // namespace
+
+LogicComputationPoint buildLogicComputationPointFromTemplate(const LogicComputationTemplateRequest &request)
+{
+    LogicComputationPoint point;
+    point.deviceId = request.outputDeviceId.trimmed();
+    point.dataRef = request.outputDataRef.trimmed();
+    point.description = request.description;
+    point.dropOperands = request.dropOperands;
+    point.operands = request.operands;
+
+    switch (request.type) {
+    case LogicComputationTemplateType::Sum:
+        point.formula = joinLogicOperandPlaceholders(point.operands.size(), QStringLiteral("+"));
+        break;
+    case LogicComputationTemplateType::PowerFactor:
+        if (point.operands.size() >= 2) {
+            point.formula = QStringLiteral("{1}/sqrt(sqr({1})+sqr({2}))");
+        }
+        break;
+    case LogicComputationTemplateType::SinglePoint:
+        point.formula = point.operands.isEmpty() ? QString() : QStringLiteral("{1}");
+        break;
+    case LogicComputationTemplateType::StatusOr:
+        point.formula = buildLogicStatusOrFormula(point.operands.size());
+        break;
+    case LogicComputationTemplateType::StatusAnd:
+        point.formula = joinLogicOperandPlaceholders(point.operands.size(), QStringLiteral("*"));
+        break;
+    }
+
+    return point;
+}
+
+bool upsertLogicComputationPoint(LogicCenterConfig &config, const LogicComputationPoint &point)
+{
+    const QString deviceId = point.deviceId.trimmed();
+    const QString dataRef = point.dataRef.trimmed();
+    for (LogicComputationPoint &existing : config.computationPoints) {
+        if (existing.deviceId.trimmed() == deviceId && existing.dataRef.trimmed() == dataRef) {
+            existing = point;
+            return false;
+        }
+    }
+
+    config.computationPoints.append(point);
+    return true;
+}
 
 QString PointTemplate::dataRef() const
 {
