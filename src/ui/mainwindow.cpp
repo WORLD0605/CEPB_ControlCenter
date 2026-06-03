@@ -392,6 +392,10 @@ MainWindow::MainWindow(QWidget *parent)
     auto *deviceEditorLayout = new QVBoxLayout(m_deviceEditorPage);
     deviceEditorLayout->setContentsMargins(0, 0, 0, 0);
     deviceEditorLayout->setSpacing(8);
+    auto *deviceTopPanel = new QWidget(this);
+    auto *deviceTopLayout = new QHBoxLayout(deviceTopPanel);
+    deviceTopLayout->setContentsMargins(0, 0, 0, 0);
+    deviceTopLayout->setSpacing(8);
     auto *deviceFormFrame = new QFrame(this);
     deviceFormFrame->setFrameShape(QFrame::StyledPanel);
     deviceFormFrame->setMaximumHeight(220);
@@ -405,18 +409,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceStationAddressEdit = new QLineEdit(this);
     m_deviceIpEdit = new QLineEdit(this);
     m_devicePortEdit = new QLineEdit(this);
-    m_deviceChannelEdit = new QLineEdit(this);
-    m_deviceCompatIpbLabel = new QLabel(QStringLiteral("-"), this);
     deviceFormLayout->addRow("DeviceId:", m_deviceIdEdit);
     deviceFormLayout->addRow("设备描述:", m_deviceDescEdit);
     deviceFormLayout->addRow("模型:", m_deviceModelEdit);
     deviceFormLayout->addRow("站地址:", m_deviceStationAddressEdit);
     deviceFormLayout->addRow("IP:", m_deviceIpEdit);
     deviceFormLayout->addRow("端口:", m_devicePortEdit);
-    deviceFormLayout->addRow("通道:", m_deviceChannelEdit);
-    deviceFormLayout->addRow("兼容 ipb:", m_deviceCompatIpbLabel);
-    deviceEditorLayout->addWidget(deviceFormFrame);
+    deviceTopLayout->addWidget(deviceFormFrame, 1);
     m_modbusParamsGroupBox = new QGroupBox(QStringLiteral("Modbus 参数"), this);
+    m_modbusParamsGroupBox->setMaximumHeight(220);
     auto *modbusParamsLayout = new QGridLayout(m_modbusParamsGroupBox);
     modbusParamsLayout->setContentsMargins(10, 8, 10, 8);
     modbusParamsLayout->setHorizontalSpacing(8);
@@ -424,26 +425,51 @@ MainWindow::MainWindow(QWidget *parent)
     m_modbusTypeCombo = new QComboBox(this);
     m_modbusTypeCombo->addItem(QStringLiteral("TCP"));
     m_modbusTypeCombo->addItem(QStringLiteral("RTU"));
-    m_modbusSerialPortEdit = new QLineEdit(this);
-    m_modbusBaudEdit = new QLineEdit(this);
-    m_modbusDataBitsEdit = new QLineEdit(this);
-    m_modbusStopBitsEdit = new QLineEdit(this);
-    m_modbusParityEdit = new QLineEdit(this);
+    m_modbusSerialPortCombo = new QComboBox(this);
+    for (int i = 1; i <= 8; ++i) {
+        m_modbusSerialPortCombo->addItem(QStringLiteral("RS485_%1").arg(i));
+    }
+    m_modbusHwVariantCombo = new QComboBox(this);
+    m_modbusHwVariantCombo->addItem(QStringLiteral("使用RS485_4时才需要选择，否则不需要选择"), QString());
+    m_modbusHwVariantCombo->addItem(QStringLiteral("myir"), QStringLiteral("myir"));
+    m_modbusHwVariantCombo->addItem(QStringLiteral("talowe"), QStringLiteral("talowe"));
+    m_modbusBaudCombo = new QComboBox(this);
+    for (const QString &baud : {QStringLiteral("600"), QStringLiteral("1200"), QStringLiteral("2400"),
+                                QStringLiteral("4800"), QStringLiteral("9600"), QStringLiteral("19200"),
+                                QStringLiteral("38400"), QStringLiteral("57600"), QStringLiteral("115200"),
+                                QStringLiteral("230400")}) {
+        m_modbusBaudCombo->addItem(baud);
+    }
+    m_modbusDataBitsCombo = new QComboBox(this);
+    for (const QString &dataBits : {QStringLiteral("5"), QStringLiteral("6"), QStringLiteral("7"), QStringLiteral("8")}) {
+        m_modbusDataBitsCombo->addItem(dataBits);
+    }
+    m_modbusStopBitsCombo = new QComboBox(this);
+    for (const QString &stopBits : {QStringLiteral("1"), QStringLiteral("2")}) {
+        m_modbusStopBitsCombo->addItem(stopBits);
+    }
+    m_modbusParityCombo = new QComboBox(this);
+    for (const QString &parity : {QStringLiteral("N"), QStringLiteral("E"), QStringLiteral("O")}) {
+        m_modbusParityCombo->addItem(parity);
+    }
     m_modbusDebugCheck = new QCheckBox(QStringLiteral("debug"), this);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("类型:"), this), 0, 0);
     modbusParamsLayout->addWidget(m_modbusTypeCombo, 0, 1);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("串口:"), this), 0, 2);
-    modbusParamsLayout->addWidget(m_modbusSerialPortEdit, 0, 3);
+    modbusParamsLayout->addWidget(m_modbusSerialPortCombo, 0, 3);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("波特率:"), this), 0, 4);
-    modbusParamsLayout->addWidget(m_modbusBaudEdit, 0, 5);
+    modbusParamsLayout->addWidget(m_modbusBaudCombo, 0, 5);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("数据位:"), this), 1, 0);
-    modbusParamsLayout->addWidget(m_modbusDataBitsEdit, 1, 1);
+    modbusParamsLayout->addWidget(m_modbusDataBitsCombo, 1, 1);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("停止位:"), this), 1, 2);
-    modbusParamsLayout->addWidget(m_modbusStopBitsEdit, 1, 3);
+    modbusParamsLayout->addWidget(m_modbusStopBitsCombo, 1, 3);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("校验:"), this), 1, 4);
-    modbusParamsLayout->addWidget(m_modbusParityEdit, 1, 5);
+    modbusParamsLayout->addWidget(m_modbusParityCombo, 1, 5);
     modbusParamsLayout->addWidget(m_modbusDebugCheck, 1, 6);
-    deviceEditorLayout->addWidget(m_modbusParamsGroupBox);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("硬件型号:"), this), 2, 0);
+    modbusParamsLayout->addWidget(m_modbusHwVariantCombo, 2, 1, 1, 6);
+    deviceTopLayout->addWidget(m_modbusParamsGroupBox, 1);
+    deviceEditorLayout->addWidget(deviceTopPanel);
     m_deviceValidationLabel = new QLabel(this);
     m_deviceValidationLabel->setWordWrap(true);
     deviceEditorLayout->addWidget(m_deviceValidationLabel);
@@ -476,8 +502,7 @@ MainWindow::MainWindow(QWidget *parent)
     deviceEditorLayout->setStretch(0, 0);
     deviceEditorLayout->setStretch(1, 0);
     deviceEditorLayout->setStretch(2, 0);
-    deviceEditorLayout->setStretch(3, 0);
-    deviceEditorLayout->setStretch(4, 1);
+    deviceEditorLayout->setStretch(3, 1);
 
     auto *deviceDetailPage = new QWidget(this);
     auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
@@ -593,19 +618,19 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_devicePortEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_deviceChannelEdit, &QLineEdit::textEdited,
-            this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_modbusSerialPortEdit, &QLineEdit::textEdited,
+    connect(m_modbusSerialPortCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_modbusBaudEdit, &QLineEdit::textEdited,
+    connect(m_modbusHwVariantCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_modbusDataBitsEdit, &QLineEdit::textEdited,
+    connect(m_modbusBaudCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_modbusStopBitsEdit, &QLineEdit::textEdited,
+    connect(m_modbusDataBitsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_modbusParityEdit, &QLineEdit::textEdited,
+    connect(m_modbusStopBitsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusParityCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusDebugCheck, &QCheckBox::toggled,
             this, &MainWindow::onDeviceFieldEdited);

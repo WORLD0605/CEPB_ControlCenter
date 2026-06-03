@@ -60,6 +60,17 @@ int modbusTypeRegisterCount(const QString &dataType)
     return 1;
 }
 
+int modbusMaxReadQuantity(int funCode)
+{
+    if (funCode == 1 || funCode == 2) {
+        return 2000;
+    }
+    if (funCode == 3 || funCode == 4) {
+        return 125;
+    }
+    return 125;
+}
+
 QString normalizedModbusKind(const QString &value,
                              const QString &fallback = QStringLiteral("yc"))
 {
@@ -69,6 +80,15 @@ QString normalizedModbusKind(const QString &value,
         return lower;
     }
     return fallback;
+}
+
+bool selfSignalFlagChecked(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    return normalized == QStringLiteral("1")
+        || normalized == QStringLiteral("true")
+        || normalized == QStringLiteral("yes")
+        || normalized == QStringLiteral("on");
 }
 
 configtool::ModbusPointKind modbusKindFromString(const QString &value)
@@ -725,25 +745,11 @@ void MainWindow::onCreateDeviceFromModelClicked()
     }
 
     const configtool::ModelTemplate &model = project.models.at(modelIndex);
-    const QString suggestedDeviceId = QStringLiteral("DEV_%1_%2")
-        .arg(model.modelId.isEmpty() ? QStringLiteral("new") : model.modelId)
-        .arg(project.devices.size() + 1);
     bool accepted = false;
-    const QString deviceId = QInputDialog::getText(
-        this,
-        QStringLiteral("创建设备骨架"),
-        QStringLiteral("请输入 DeviceId:"),
-        QLineEdit::Normal,
-        suggestedDeviceId,
-        &accepted).trimmed();
-    if (!accepted || deviceId.isEmpty()) {
-        return;
-    }
-
     const QString protocolName = QInputDialog::getItem(
         this,
-        QStringLiteral("选择协议"),
-        QStringLiteral("请选择设备协议:"),
+        QStringLiteral("选择协议设备"),
+        QStringLiteral("请选择要创建的协议设备:"),
         {QStringLiteral("104"), QStringLiteral("Modbus")},
         0,
         false,
@@ -752,6 +758,17 @@ void MainWindow::onCreateDeviceFromModelClicked()
         return;
     }
     const bool createModbus = protocolName.compare(QStringLiteral("Modbus"), Qt::CaseInsensitive) == 0;
+
+    const QString deviceId = QInputDialog::getText(
+        this,
+        createModbus ? QStringLiteral("创建 Modbus 设备") : QStringLiteral("创建 104 设备"),
+        QStringLiteral("请输入 DeviceId:"),
+        QLineEdit::Normal,
+        QStringLiteral("1"),
+        &accepted).trimmed();
+    if (!accepted || deviceId.isEmpty()) {
+        return;
+    }
 
     configtool::ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -823,7 +840,6 @@ void MainWindow::onDeviceFieldEdited()
     device.transport.stationAddress = m_deviceStationAddressEdit->text().trimmed();
     device.transport.ip = m_deviceIpEdit->text().trimmed();
     device.transport.port = m_devicePortEdit->text().trimmed();
-    device.transport.channel = m_deviceChannelEdit->text().trimmed();
     if (isModbusDevice(device)) {
         const QString type = m_modbusTypeCombo && m_modbusTypeCombo->currentIndex() >= 0
             ? m_modbusTypeCombo->currentText().trimmed().toUpper()
@@ -832,13 +848,26 @@ void MainWindow::onDeviceFieldEdited()
         device.transport.protocolOptions.insert(QStringLiteral("debug"), m_modbusDebugCheck && m_modbusDebugCheck->isChecked()
             ? QStringLiteral("on")
             : QStringLiteral("off"));
+        if (m_modbusHwVariantCombo) {
+            project.modbus.hwVariant = m_modbusHwVariantCombo->currentData().toString().trimmed();
+        }
 
         QJsonObject rtu;
-        rtu.insert(QStringLiteral("serialPort"), m_modbusSerialPortEdit->text().trimmed());
-        rtu.insert(QStringLiteral("baud"), m_modbusBaudEdit->text().trimmed());
-        rtu.insert(QStringLiteral("dataBits"), m_modbusDataBitsEdit->text().trimmed());
-        rtu.insert(QStringLiteral("stopBits"), m_modbusStopBitsEdit->text().trimmed());
-        rtu.insert(QStringLiteral("parity"), m_modbusParityEdit->text().trimmed());
+        rtu.insert(QStringLiteral("serialPort"), m_modbusSerialPortCombo && m_modbusSerialPortCombo->currentIndex() >= 0
+            ? m_modbusSerialPortCombo->currentText().trimmed()
+            : QString());
+        rtu.insert(QStringLiteral("baud"), m_modbusBaudCombo && m_modbusBaudCombo->currentIndex() >= 0
+            ? m_modbusBaudCombo->currentText().trimmed()
+            : QString());
+        rtu.insert(QStringLiteral("dataBits"), m_modbusDataBitsCombo && m_modbusDataBitsCombo->currentIndex() >= 0
+            ? m_modbusDataBitsCombo->currentText().trimmed()
+            : QString());
+        rtu.insert(QStringLiteral("stopBits"), m_modbusStopBitsCombo && m_modbusStopBitsCombo->currentIndex() >= 0
+            ? m_modbusStopBitsCombo->currentText().trimmed()
+            : QString());
+        rtu.insert(QStringLiteral("parity"), m_modbusParityCombo && m_modbusParityCombo->currentIndex() >= 0
+            ? m_modbusParityCombo->currentText().trimmed()
+            : QString());
         device.transport.serial = rtu;
     }
 
@@ -879,18 +908,28 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
 
     pushConfigUndoSnapshot();
     configtool::PointBinding &binding = device.bindings[bindingIndex];
+    const bool modbusDevice = isModbusDevice(device);
+    const int editedRow = item->row();
+    const int editedColumn = item->column();
+    bool refreshEditor = true;
     if (item->column() == 0) {
         binding.enabled = item->checkState() == Qt::Checked;
+    } else if ((modbusDevice && item->column() == ModbusColumnSelfSignal)
+               || (!modbusDevice && item->column() == 5)) {
+        binding.selfSignalFlag = item->checkState() == Qt::Checked ? QStringLiteral("1") : QString();
+        refreshEditor = false;
     } else {
         applyDeviceBindingCellText(item->row(), item->column(), item->text());
     }
-    if (isModbusDevice(device)) {
+    if (modbusDevice && refreshEditor) {
         rebuildModbusDeviceConfig(device);
     }
 
-    refreshDeviceDetail(deviceIndex);
-    refreshDeviceEditor(deviceIndex);
-    m_deviceBindingsTable->setCurrentCell(item->row(), item->column());
+    if (refreshEditor) {
+        refreshDeviceDetail(deviceIndex);
+        refreshDeviceEditor(deviceIndex);
+        m_deviceBindingsTable->setCurrentCell(editedRow, editedColumn);
+    }
 }
 
 void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
@@ -1048,7 +1087,7 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             binding.extensions.insert(QStringLiteral("modbusScale"), value);
             break;
         case ModbusColumnSelfSignal:
-            binding.selfSignalFlag = value;
+            binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
             break;
         default:
             break;
@@ -1068,7 +1107,7 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         binding.initValue = value;
         break;
     case 5:
-        binding.selfSignalFlag = value;
+        binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
         break;
     default:
         break;
@@ -1158,35 +1197,72 @@ void MainWindow::rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &d
             continue;
         }
 
-        configtool::PointBinding &firstBinding = device.bindings[indexes.first()];
-        const QString kind = modbusBindingKind(firstBinding);
-        const QString dataType = modbusBindingString(firstBinding, QStringLiteral("modbusDataType"), QStringLiteral("WORD"));
-        const QString scale = modbusBindingString(firstBinding, QStringLiteral("modbusScale"), QStringLiteral("1.0"));
-        const int funCode = modbusBindingInt(firstBinding, QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : 3);
-        const int startAddr = modbusBindingInt(firstBinding, QStringLiteral("modbusRegisterAddress"));
-        const int regStep = modbusTypeRegisterCount(dataType);
-        int maxRegisterEnd = startAddr;
+        QList<int> runIndexes;
+        int runStartAddr = 0;
+        int runRegisterEnd = 0;
+
+        auto flushRun = [&]() {
+            if (runIndexes.isEmpty()) {
+                return;
+            }
+
+            configtool::PointBinding &firstBinding = device.bindings[runIndexes.first()];
+            const QString kind = modbusBindingKind(firstBinding);
+            const QString dataType = modbusBindingString(firstBinding, QStringLiteral("modbusDataType"), QStringLiteral("WORD"));
+            const QString scale = modbusBindingString(firstBinding, QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+            const int funCode = modbusBindingInt(firstBinding, QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : 3);
+            const int groupNo = nextGroupNo++;
+
+            int entryNo = 1;
+            for (int bindingIndex : runIndexes) {
+                configtool::PointBinding &binding = device.bindings[bindingIndex];
+                binding.extensions.insert(QStringLiteral("modbusGroupNo"), groupNo);
+                binding.extensions.insert(QStringLiteral("modbusEntryNo"), entryNo);
+                binding.address = QString::number(buildModbusDataIndex(groupNo, entryNo));
+                ++entryNo;
+            }
+
+            configtool::ModbusPollGroup group;
+            group.kind = modbusKindFromString(kind);
+            group.order = kind == QStringLiteral("yx") ? yxOrder++ : ycOrder++;
+            group.groupNo = groupNo;
+            group.funCode = funCode;
+            group.startAddr = runStartAddr;
+            group.regNum = qMax(modbusTypeRegisterCount(dataType), runRegisterEnd - runStartAddr);
+            group.dataType = dataType;
+            group.scale = kind == QStringLiteral("yc") ? scale : QStringLiteral("1.0");
+            device.modbus.pollGroups.append(group);
+
+            runIndexes.clear();
+            runStartAddr = 0;
+            runRegisterEnd = 0;
+        };
 
         for (int bindingIndex : indexes) {
-            configtool::PointBinding &binding = device.bindings[bindingIndex];
+            const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
+            const QString kind = modbusBindingKind(binding);
+            const QString dataType = modbusBindingString(binding, QStringLiteral("modbusDataType"), QStringLiteral("WORD"));
+            const int funCode = modbusBindingInt(binding, QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : 3);
+            const int regStep = qMax(1, modbusTypeRegisterCount(dataType));
             const int regAddr = modbusBindingInt(binding, QStringLiteral("modbusRegisterAddress"));
-            const int entryNo = ((regAddr - startAddr) / qMax(1, regStep)) + 1;
-            binding.extensions.insert(QStringLiteral("modbusGroupNo"), nextGroupNo);
-            binding.extensions.insert(QStringLiteral("modbusEntryNo"), entryNo);
-            binding.address = QString::number(buildModbusDataIndex(nextGroupNo, entryNo));
-            maxRegisterEnd = qMax(maxRegisterEnd, regAddr + regStep);
-        }
+            const int nextRegisterEnd = regAddr + regStep;
+            const bool continuous = runIndexes.isEmpty() || regAddr == runRegisterEnd;
+            const bool withinFrameLimit = runIndexes.isEmpty()
+                || (nextRegisterEnd - runStartAddr) <= modbusMaxReadQuantity(funCode);
 
-        configtool::ModbusPollGroup group;
-        group.kind = modbusKindFromString(kind);
-        group.order = kind == QStringLiteral("yx") ? yxOrder++ : ycOrder++;
-        group.groupNo = nextGroupNo++;
-        group.funCode = funCode;
-        group.startAddr = startAddr;
-        group.regNum = qMax(regStep, maxRegisterEnd - startAddr);
-        group.dataType = dataType;
-        group.scale = kind == QStringLiteral("yc") ? scale : QStringLiteral("1.0");
-        device.modbus.pollGroups.append(group);
+            if (!runIndexes.isEmpty() && (!continuous || !withinFrameLimit)) {
+                flushRun();
+            }
+
+            if (runIndexes.isEmpty()) {
+                runStartAddr = regAddr;
+                runRegisterEnd = nextRegisterEnd;
+            } else {
+                runRegisterEnd = qMax(runRegisterEnd, nextRegisterEnd);
+            }
+            runIndexes.append(bindingIndex);
+        }
+        flushRun();
     }
 
     for (const QString &groupKey : setGroupIndexes.keys()) {
@@ -1687,7 +1763,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
         for (QLineEdit *edit : {m_deviceIdEdit, m_deviceDescEdit, m_deviceModelEdit,
                                 m_deviceStationAddressEdit, m_deviceIpEdit,
-                                m_devicePortEdit, m_deviceChannelEdit}) {
+                                m_devicePortEdit}) {
             if (edit) {
                 edit->clear();
             }
@@ -1695,7 +1771,22 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         if (m_modbusParamsGroupBox) {
             m_modbusParamsGroupBox->setVisible(false);
         }
-        m_deviceCompatIpbLabel->setText(QStringLiteral("-"));
+        if (m_modbusSerialPortCombo) {
+            QSignalBlocker blocker(m_modbusSerialPortCombo);
+            m_modbusSerialPortCombo->setCurrentIndex(0);
+        }
+        if (m_modbusHwVariantCombo) {
+            QSignalBlocker blocker(m_modbusHwVariantCombo);
+            m_modbusHwVariantCombo->setCurrentIndex(0);
+        }
+        for (auto pair : {qMakePair(m_modbusBaudCombo, QStringLiteral("9600")),
+                          qMakePair(m_modbusDataBitsCombo, QStringLiteral("8")),
+                          qMakePair(m_modbusStopBitsCombo, QStringLiteral("1")),
+                          qMakePair(m_modbusParityCombo, QStringLiteral("N"))}) {
+            QSignalBlocker blocker(pair.first);
+            const int index = pair.first->findText(pair.second);
+            pair.first->setCurrentIndex(index >= 0 ? index : 0);
+        }
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #666666; }");
         m_deviceValidationLabel->setText(QStringLiteral("请选择一个 104 设备。"));
         m_deviceBindingsTable->setRowCount(0);
@@ -1708,8 +1799,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                       qMakePair(m_deviceModelEdit, device.modelId),
                       qMakePair(m_deviceStationAddressEdit, device.transport.stationAddress),
                       qMakePair(m_deviceIpEdit, device.transport.ip),
-                      qMakePair(m_devicePortEdit, device.transport.port),
-                      qMakePair(m_deviceChannelEdit, device.transport.channel)}) {
+                      qMakePair(m_devicePortEdit, device.transport.port)}) {
         QSignalBlocker blocker(pair.first);
         pair.first->setText(pair.second);
     }
@@ -1726,13 +1816,25 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_modbusTypeCombo->setCurrentIndex(typeIndex >= 0 ? typeIndex : 0);
         }
         const QJsonObject rtu = device.transport.serial;
-        for (auto pair : {qMakePair(m_modbusSerialPortEdit, uiJsonValueToString(rtu.value(QStringLiteral("serialPort")))),
-                          qMakePair(m_modbusBaudEdit, uiJsonValueToString(rtu.value(QStringLiteral("baud")))),
-                          qMakePair(m_modbusDataBitsEdit, uiJsonValueToString(rtu.value(QStringLiteral("dataBits")))),
-                          qMakePair(m_modbusStopBitsEdit, uiJsonValueToString(rtu.value(QStringLiteral("stopBits")))),
-                          qMakePair(m_modbusParityEdit, uiJsonValueToString(rtu.value(QStringLiteral("parity"))))}) {
+        {
+            QSignalBlocker blocker(m_modbusSerialPortCombo);
+            const QString serialPort = uiJsonValueToString(rtu.value(QStringLiteral("serialPort")));
+            const int serialIndex = m_modbusSerialPortCombo->findText(serialPort);
+            m_modbusSerialPortCombo->setCurrentIndex(serialIndex >= 0 ? serialIndex : 0);
+        }
+        {
+            QSignalBlocker blocker(m_modbusHwVariantCombo);
+            const QString hwVariant = project.modbus.hwVariant.trimmed();
+            const int hwIndex = m_modbusHwVariantCombo->findData(hwVariant);
+            m_modbusHwVariantCombo->setCurrentIndex(hwIndex >= 0 ? hwIndex : 0);
+        }
+        for (auto pair : {qMakePair(m_modbusBaudCombo, uiJsonValueToString(rtu.value(QStringLiteral("baud")))),
+                          qMakePair(m_modbusDataBitsCombo, uiJsonValueToString(rtu.value(QStringLiteral("dataBits")))),
+                          qMakePair(m_modbusStopBitsCombo, uiJsonValueToString(rtu.value(QStringLiteral("stopBits")))),
+                          qMakePair(m_modbusParityCombo, uiJsonValueToString(rtu.value(QStringLiteral("parity"))))}) {
             QSignalBlocker blocker(pair.first);
-            pair.first->setText(pair.second);
+            const int index = pair.first->findText(pair.second);
+            pair.first->setCurrentIndex(index >= 0 ? index : 0);
         }
         QSignalBlocker debugBlocker(m_modbusDebugCheck);
         const QString debug = device.transport.protocolOptions.value(QStringLiteral("debug")).toString().toLower();
@@ -1740,17 +1842,6 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             || debug == QStringLiteral("1")
             || debug == QStringLiteral("true")
             || debug == QStringLiteral("yes"));
-    }
-
-    const QJsonValue ipbValue = device.transport.source.rawExtra.value(QStringLiteral("ipb"));
-    if (ipbValue.isUndefined() || ipbValue.isNull()) {
-        m_deviceCompatIpbLabel->setText(QStringLiteral("-"));
-    } else if (ipbValue.isString()) {
-        m_deviceCompatIpbLabel->setText(ipbValue.toString());
-    } else if (ipbValue.isDouble()) {
-        m_deviceCompatIpbLabel->setText(QString::number(ipbValue.toInt()));
-    } else {
-        m_deviceCompatIpbLabel->setText(QString::fromUtf8(QJsonDocument(ipbValue.toObject()).toJson(QJsonDocument::Compact)));
     }
 
     const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
@@ -1826,7 +1917,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *groupItem = new QTableWidgetItem(groupNo);
             auto *entryItem = new QTableWidgetItem(entryNo);
             auto *dataIndexItem = new QTableWidgetItem(binding.address);
-            auto *selfSignalItem = new QTableWidgetItem(binding.selfSignalFlag);
+            auto *selfSignalItem = new QTableWidgetItem();
+            selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+            selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
 
             dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
             groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
@@ -1890,7 +1983,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         auto *descriptionItem = new QTableWidgetItem(binding.descriptionOverride);
         auto *addressItem = new QTableWidgetItem(binding.address);
         auto *initValueItem = new QTableWidgetItem(binding.initValue);
-        auto *selfSignalItem = new QTableWidgetItem(binding.selfSignalFlag);
+        auto *selfSignalItem = new QTableWidgetItem();
+        selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+        selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
         dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
 
         if (binding.enabled && duplicateAddresses.contains(binding.address.trimmed())) {

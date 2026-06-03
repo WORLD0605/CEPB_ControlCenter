@@ -194,7 +194,6 @@ private:
     QLabel *m_deviceDetailBindingCountLabel = nullptr;
     QLabel *m_modelValidationLabel = nullptr;
     QLabel *m_deviceValidationLabel = nullptr;
-    QLabel *m_deviceCompatIpbLabel = nullptr;
     QLineEdit *m_modelIdEdit = nullptr;
     QComboBox *m_newPointCategoryCombo = nullptr;
     QLineEdit *m_modelDisplayNameEdit = nullptr;
@@ -209,13 +208,13 @@ private:
     QLineEdit *m_deviceStationAddressEdit = nullptr;
     QLineEdit *m_deviceIpEdit = nullptr;
     QLineEdit *m_devicePortEdit = nullptr;
-    QLineEdit *m_deviceChannelEdit = nullptr;
     QComboBox *m_modbusTypeCombo = nullptr;
-    QLineEdit *m_modbusSerialPortEdit = nullptr;
-    QLineEdit *m_modbusBaudEdit = nullptr;
-    QLineEdit *m_modbusDataBitsEdit = nullptr;
-    QLineEdit *m_modbusStopBitsEdit = nullptr;
-    QLineEdit *m_modbusParityEdit = nullptr;
+    QComboBox *m_modbusSerialPortCombo = nullptr;
+    QComboBox *m_modbusHwVariantCombo = nullptr;
+    QComboBox *m_modbusBaudCombo = nullptr;
+    QComboBox *m_modbusDataBitsCombo = nullptr;
+    QComboBox *m_modbusStopBitsCombo = nullptr;
+    QComboBox *m_modbusParityCombo = nullptr;
     QCheckBox *m_modbusDebugCheck = nullptr;
     QGroupBox *m_modbusParamsGroupBox = nullptr;
     QLabel *m_statusLabel = nullptr;
