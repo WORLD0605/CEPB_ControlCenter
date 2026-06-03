@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 
+#include <algorithm>
+#include <QApplication>
+#include <QClipboard>
 #include <QColor>
 #include <QComboBox>
 #include <QDir>
@@ -60,6 +63,46 @@ configtool::PointSignalType signalTypeForModelService(configtool::ModelServiceTy
     }
 
     return configtool::PointSignalType::Yc;
+}
+
+QStringList splitClipboardLine(const QString &line)
+{
+    return line.split('\t');
+}
+
+QList<QStringList> parseClipboardTable(const QString &text)
+{
+    QList<QStringList> table;
+    QString normalized = text;
+    normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    normalized.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+
+    const QStringList lines = normalized.split('\n');
+    for (int index = 0; index < lines.size(); ++index) {
+        if (index == lines.size() - 1 && lines.at(index).isEmpty()) {
+            continue;
+        }
+        table.append(splitClipboardLine(lines.at(index)));
+    }
+
+    return table;
+}
+
+QModelIndexList sortedEditableTargetIndexes(QTableWidget *table)
+{
+    QModelIndexList indexes;
+    if (table && table->selectionModel()) {
+        indexes = table->selectionModel()->selectedIndexes();
+    }
+
+    std::sort(indexes.begin(), indexes.end(), [](const QModelIndex &left, const QModelIndex &right) {
+        if (left.row() != right.row()) {
+            return left.row() < right.row();
+        }
+        return left.column() < right.column();
+    });
+
+    return indexes;
 }
 
 } // namespace
@@ -597,7 +640,7 @@ void MainWindow::onDeviceFieldEdited()
 
 void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
 {
-    if (!item || m_updatingDeviceBindingsTable) {
+    if (!item || m_updatingDeviceBindingsTable || m_restoringConfigUndo) {
         return;
     }
 
@@ -622,35 +665,22 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
         return;
     }
 
+    pushConfigUndoSnapshot();
     configtool::PointBinding &binding = device.bindings[bindingIndex];
-    switch (item->column()) {
-    case 0:
+    if (item->column() == 0) {
         binding.enabled = item->checkState() == Qt::Checked;
-        break;
-    case 2:
-        binding.descriptionOverride = item->text().trimmed();
-        break;
-    case 3:
-        binding.address = item->text().trimmed();
-        break;
-    case 4:
-        binding.initValue = item->text().trimmed();
-        break;
-    case 5:
-        binding.selfSignalFlag = item->text().trimmed();
-        break;
-    default:
-        break;
+    } else {
+        applyDeviceBindingCellText(item->row(), item->column(), item->text());
     }
 
     refreshDeviceDetail(deviceIndex);
     refreshDeviceEditor(deviceIndex);
-    m_deviceBindingsTable->selectRow(item->row());
+    m_deviceBindingsTable->setCurrentCell(item->row(), item->column());
 }
 
 void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
 {
-    if (!item || m_updatingModelPointsTable) {
+    if (!item || m_updatingModelPointsTable || m_restoringConfigUndo) {
         return;
     }
 
@@ -682,33 +712,9 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
         return;
     }
 
+    pushConfigUndoSnapshot();
     configtool::PointTemplate &point = service.points[pointIndex];
-    switch (item->column()) {
-    case 1:
-        point.name = item->text().trimmed();
-        point.doName = point.name;
-        break;
-    case 2:
-        point.description = item->text().trimmed();
-        break;
-    case 3:
-        point.ldName = item->text().trimmed();
-        break;
-    case 4:
-        point.lnType = item->text().trimmed();
-        break;
-    case 5:
-        point.lnInst = item->text().trimmed();
-        break;
-    case 7:
-        point.dataType = item->text().trimmed();
-        break;
-    case 8:
-        point.unit = item->text().trimmed();
-        break;
-    default:
-        break;
-    }
+    applyModelPointCellText(item->row(), item->column(), item->text());
 
     m_updatingModelPointsTable = true;
     if (QTableWidgetItem *nameItem = m_modelPointsTable->item(item->row(), 1)) {
@@ -723,7 +729,283 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
     }
-    m_modelPointsTable->selectRow(item->row());
+    m_modelPointsTable->setCurrentCell(item->row(), item->column());
+}
+
+void MainWindow::applyModelPointCellText(int row, int column, const QString &text)
+{
+    QTableWidgetItem *categoryItem = m_modelPointsTable->item(row, 0);
+    if (!categoryItem) {
+        return;
+    }
+
+    const int modelIndex = currentConfigModelIndex();
+    const int serviceIndex = categoryItem->data(Qt::UserRole).toInt();
+    const int pointIndex = categoryItem->data(Qt::UserRole + 1).toInt();
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex < 0 || modelIndex >= project.models.size()) {
+        return;
+    }
+
+    configtool::ModelTemplate &model = project.models[modelIndex];
+    if (serviceIndex < 0 || serviceIndex >= model.services.size()) {
+        return;
+    }
+
+    configtool::ServiceTemplate &service = model.services[serviceIndex];
+    if (pointIndex < 0 || pointIndex >= service.points.size()) {
+        return;
+    }
+
+    configtool::PointTemplate &point = service.points[pointIndex];
+    const QString value = text.trimmed();
+    switch (column) {
+    case 1:
+        point.name = value;
+        point.doName = point.name;
+        break;
+    case 2:
+        point.description = value;
+        break;
+    case 3:
+        point.ldName = value;
+        break;
+    case 4:
+        point.lnType = value;
+        break;
+    case 5:
+        point.lnInst = value;
+        break;
+    case 7:
+        point.dataType = value;
+        break;
+    case 8:
+        point.unit = value;
+        break;
+    default:
+        break;
+    }
+}
+
+void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &text)
+{
+    QTableWidgetItem *enabledItem = m_deviceBindingsTable->item(row, 0);
+    if (!enabledItem) {
+        return;
+    }
+
+    const int deviceIndex = currentConfigDeviceIndex();
+    const int bindingIndex = enabledItem->data(Qt::UserRole).toInt();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        return;
+    }
+
+    configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+    if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+        return;
+    }
+
+    configtool::PointBinding &binding = device.bindings[bindingIndex];
+    const QString value = text.trimmed();
+    switch (column) {
+    case 2:
+        binding.descriptionOverride = value;
+        break;
+    case 3:
+        binding.address = value;
+        break;
+    case 4:
+        binding.initValue = value;
+        break;
+    case 5:
+        binding.selfSignalFlag = value;
+        break;
+    default:
+        break;
+    }
+}
+
+void MainWindow::pasteClipboardIntoModelPointsTable()
+{
+    const QList<QStringList> clipboardRows = parseClipboardTable(QApplication::clipboard()->text());
+    if (clipboardRows.isEmpty()) {
+        return;
+    }
+
+    QModelIndexList targets = sortedEditableTargetIndexes(m_modelPointsTable);
+    const bool useSelectedCells = targets.size() > 1;
+    const int startRow = useSelectedCells ? targets.first().row() : m_modelPointsTable->currentRow();
+    const int startColumn = useSelectedCells ? targets.first().column() : m_modelPointsTable->currentColumn();
+    if (startRow < 0 || startColumn < 0) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    m_updatingModelPointsTable = true;
+    if (useSelectedCells && clipboardRows.size() == 1 && clipboardRows.first().size() == 1) {
+        const QString value = clipboardRows.first().first();
+        for (const QModelIndex &target : targets) {
+            if (QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
+                item && (item->flags() & Qt::ItemIsEditable)) {
+                item->setText(value);
+                applyModelPointCellText(target.row(), target.column(), value);
+            }
+        }
+    } else if (useSelectedCells && clipboardRows.size() * clipboardRows.first().size() == targets.size()) {
+        int valueIndex = 0;
+        for (const QStringList &clipboardRow : clipboardRows) {
+            for (const QString &value : clipboardRow) {
+                const QModelIndex target = targets.at(valueIndex++);
+                if (QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
+                    item && (item->flags() & Qt::ItemIsEditable)) {
+                    item->setText(value);
+                    applyModelPointCellText(target.row(), target.column(), value);
+                }
+            }
+        }
+    } else {
+        for (int rowOffset = 0; rowOffset < clipboardRows.size(); ++rowOffset) {
+            const int row = startRow + rowOffset;
+            if (row >= m_modelPointsTable->rowCount()) {
+                break;
+            }
+            for (int columnOffset = 0; columnOffset < clipboardRows.at(rowOffset).size(); ++columnOffset) {
+                const int column = startColumn + columnOffset;
+                if (column >= m_modelPointsTable->columnCount()) {
+                    break;
+                }
+                if (QTableWidgetItem *item = m_modelPointsTable->item(row, column);
+                    item && (item->flags() & Qt::ItemIsEditable)) {
+                    const QString value = clipboardRows.at(rowOffset).at(columnOffset);
+                    item->setText(value);
+                    applyModelPointCellText(row, column, value);
+                }
+            }
+        }
+    }
+    m_updatingModelPointsTable = false;
+
+    const int modelIndex = currentConfigModelIndex();
+    refreshConfigObjectViews();
+    if (modelIndex < m_configModelTable->rowCount()) {
+        m_configModelTable->selectRow(modelIndex);
+    }
+    refreshModelDetail(modelIndex);
+    m_modelPointsTable->setCurrentCell(startRow, startColumn);
+}
+
+void MainWindow::pasteClipboardIntoDeviceBindingsTable()
+{
+    const QList<QStringList> clipboardRows = parseClipboardTable(QApplication::clipboard()->text());
+    if (clipboardRows.isEmpty()) {
+        return;
+    }
+
+    QModelIndexList targets = sortedEditableTargetIndexes(m_deviceBindingsTable);
+    const bool useSelectedCells = targets.size() > 1;
+    const int startRow = useSelectedCells ? targets.first().row() : m_deviceBindingsTable->currentRow();
+    const int startColumn = useSelectedCells ? targets.first().column() : m_deviceBindingsTable->currentColumn();
+    if (startRow < 0 || startColumn < 0) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    m_updatingDeviceBindingsTable = true;
+    if (useSelectedCells && clipboardRows.size() == 1 && clipboardRows.first().size() == 1) {
+        const QString value = clipboardRows.first().first();
+        for (const QModelIndex &target : targets) {
+            if (QTableWidgetItem *item = m_deviceBindingsTable->item(target.row(), target.column());
+                item && (item->flags() & Qt::ItemIsEditable)) {
+                item->setText(value);
+                applyDeviceBindingCellText(target.row(), target.column(), value);
+            }
+        }
+    } else if (useSelectedCells && clipboardRows.size() * clipboardRows.first().size() == targets.size()) {
+        int valueIndex = 0;
+        for (const QStringList &clipboardRow : clipboardRows) {
+            for (const QString &value : clipboardRow) {
+                const QModelIndex target = targets.at(valueIndex++);
+                if (QTableWidgetItem *item = m_deviceBindingsTable->item(target.row(), target.column());
+                    item && (item->flags() & Qt::ItemIsEditable)) {
+                    item->setText(value);
+                    applyDeviceBindingCellText(target.row(), target.column(), value);
+                }
+            }
+        }
+    } else {
+        for (int rowOffset = 0; rowOffset < clipboardRows.size(); ++rowOffset) {
+            const int row = startRow + rowOffset;
+            if (row >= m_deviceBindingsTable->rowCount()) {
+                break;
+            }
+            for (int columnOffset = 0; columnOffset < clipboardRows.at(rowOffset).size(); ++columnOffset) {
+                const int column = startColumn + columnOffset;
+                if (column >= m_deviceBindingsTable->columnCount()) {
+                    break;
+                }
+                if (QTableWidgetItem *item = m_deviceBindingsTable->item(row, column);
+                    item && (item->flags() & Qt::ItemIsEditable)) {
+                    const QString value = clipboardRows.at(rowOffset).at(columnOffset);
+                    item->setText(value);
+                    applyDeviceBindingCellText(row, column, value);
+                }
+            }
+        }
+    }
+    m_updatingDeviceBindingsTable = false;
+
+    const int deviceIndex = currentConfigDeviceIndex();
+    refreshDeviceDetail(deviceIndex);
+    refreshDeviceEditor(deviceIndex);
+    m_deviceBindingsTable->setCurrentCell(startRow, startColumn);
+}
+
+void MainWindow::pushConfigUndoSnapshot()
+{
+    if (m_restoringConfigUndo) {
+        return;
+    }
+
+    m_configUndoStack.append(m_configProjectManager.project());
+    constexpr int maxUndoSnapshots = 50;
+    while (m_configUndoStack.size() > maxUndoSnapshots) {
+        m_configUndoStack.removeFirst();
+    }
+}
+
+void MainWindow::undoLastConfigEdit()
+{
+    if (m_configUndoStack.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("没有可撤回的编辑"), 2000);
+        return;
+    }
+
+    const int modelIndex = currentConfigModelIndex();
+    const int deviceIndex = currentConfigDeviceIndex();
+    const QWidget *currentPage = m_mainTabWidget ? m_mainTabWidget->currentWidget() : nullptr;
+
+    m_restoringConfigUndo = true;
+    m_configProjectManager.project() = m_configUndoStack.takeLast();
+    m_restoringConfigUndo = false;
+
+    refreshConfigObjectViews();
+    if (modelIndex >= 0 && modelIndex < m_configModelTable->rowCount()) {
+        m_configModelTable->selectRow(modelIndex);
+    }
+    if (deviceIndex >= 0 && deviceIndex < m_configDeviceTable->rowCount()) {
+        m_configDeviceTable->selectRow(deviceIndex);
+    }
+
+    if (currentPage == m_modelEditorPage) {
+        refreshModelDetail(currentConfigModelIndex());
+        m_mainTabWidget->setCurrentWidget(m_modelEditorPage);
+    } else if (currentPage == m_deviceEditorPage) {
+        refreshDeviceEditor(currentConfigDeviceIndex());
+        m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
+    }
+    statusBar()->showMessage(QStringLiteral("已撤回上一步编辑"), 2000);
 }
 
 void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &report)
@@ -1132,12 +1414,17 @@ QPair<int, int> MainWindow::currentModelPointLocation() const
         return qMakePair(-1, -1);
     }
 
-    const QModelIndexList rows = m_modelPointsTable->selectionModel()->selectedRows();
-    if (rows.isEmpty()) {
+    int selectedRow = m_modelPointsTable->currentRow();
+    const QModelIndexList indexes = m_modelPointsTable->selectionModel()->selectedIndexes();
+    if (!indexes.isEmpty()) {
+        selectedRow = indexes.first().row();
+    }
+
+    if (selectedRow < 0) {
         return qMakePair(-1, -1);
     }
 
-    QTableWidgetItem *categoryItem = m_modelPointsTable->item(rows.first().row(), 0);
+    QTableWidgetItem *categoryItem = m_modelPointsTable->item(selectedRow, 0);
     if (!categoryItem) {
         return qMakePair(-1, -1);
     }

@@ -100,6 +100,12 @@ private:
     void updateAutoRefreshTimer();
     void updateHighlightRefreshTimer();
     void copySelectedTableCells();
+    void pasteClipboardIntoModelPointsTable();
+    void pasteClipboardIntoDeviceBindingsTable();
+    void applyModelPointCellText(int row, int column, const QString &text);
+    void applyDeviceBindingCellText(int row, int column, const QString &text);
+    void pushConfigUndoSnapshot();
+    void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
     QString resolveIec104AppDir(const QString &projectRoot) const;
@@ -130,6 +136,8 @@ private:
     bool m_updatingModelPointsTable = false;
     bool m_updatingModelPointCategory = false;
     bool m_updatingDeviceBindingsTable = false;
+    bool m_restoringConfigUndo = false;
+    QList<configtool::ConfigProject> m_configUndoStack;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;

@@ -370,8 +370,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->setColumnCount(9);
     m_modelPointsTable->setHorizontalHeaderLabels({"类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
     m_modelPointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
-    m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_modelPointsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_modelPointsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_modelPointsTable->verticalHeader()->setVisible(false);
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
     m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -426,8 +426,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingsTable = new QTableWidget(0, 7, this);
     m_deviceBindingsTable->setHorizontalHeaderLabels({"启用", "DataRef", "描述", "地址", "初值", "自发标志", "PointRef"});
     m_deviceBindingsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
-    m_deviceBindingsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_deviceBindingsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_deviceBindingsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_deviceBindingsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_deviceBindingsTable->verticalHeader()->setVisible(false);
     m_deviceBindingsTable->horizontalHeader()->setStretchLastSection(true);
     m_deviceBindingsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -567,6 +567,14 @@ MainWindow::MainWindow(QWidget *parent)
             });
     connect(new QShortcut(QKeySequence::Copy, m_dataTable), &QShortcut::activated,
             this, [this]() { copySelectedTableCells(); });
+    connect(new QShortcut(QKeySequence::Paste, m_modelPointsTable), &QShortcut::activated,
+            this, [this]() { pasteClipboardIntoModelPointsTable(); });
+    connect(new QShortcut(QKeySequence::Paste, m_deviceBindingsTable), &QShortcut::activated,
+            this, [this]() { pasteClipboardIntoDeviceBindingsTable(); });
+    connect(new QShortcut(QKeySequence::Undo, m_modelPointsTable), &QShortcut::activated,
+            this, [this]() { undoLastConfigEdit(); });
+    connect(new QShortcut(QKeySequence::Undo, m_deviceBindingsTable), &QShortcut::activated,
+            this, [this]() { undoLastConfigEdit(); });
     connect(m_dataTable, &QWidget::customContextMenuRequested, this,
             [this](const QPoint &position) {
                 QMenu menu(this);
