@@ -209,6 +209,7 @@ private:
     QLineEdit *m_devicePortEdit = nullptr;
     QLineEdit *m_deviceChannelEdit = nullptr;
     QLabel *m_statusLabel = nullptr;
+    QLabel *m_versionLabel = nullptr;
 };
 
 #endif

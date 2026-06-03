@@ -481,6 +481,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_statusLabel = new QLabel("未连接");
     statusBar()->addWidget(m_statusLabel);
 
+    m_versionLabel = new QLabel(QStringLiteral("v") + QStringLiteral(APP_VERSION), this);
+    m_versionLabel->setStyleSheet(QStringLiteral("color: #888888; font-size: 11px;"));
+    statusBar()->addPermanentWidget(m_versionLabel);
+
     connect(m_connectBtn, &QPushButton::clicked,
             this, &MainWindow::onConnectClicked);
     connect(m_disconnectBtn, &QPushButton::clicked,
