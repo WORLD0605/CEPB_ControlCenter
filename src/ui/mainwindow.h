@@ -101,6 +101,19 @@ private slots:
     void onDeleteLogicComputationPointClicked();
     void onLogicComputationPointItemChanged(QTableWidgetItem *item);
     void onLogicComputationPointCellDoubleClicked(int row, int column);
+    void onAddLogicControlRuleClicked();
+    void onCopyLogicControlRuleClicked();
+    void onDeleteLogicControlRuleClicked();
+    void onAddLogicControlTargetClicked();
+    void onDeleteLogicControlTargetClicked();
+    void onLogicControlRuleSelectionChanged();
+    void onLogicControlRuleItemChanged(QTableWidgetItem *item);
+    void onLogicControlTargetItemChanged(QTableWidgetItem *item);
+    void onLogicControlRuleCellDoubleClicked(int row, int column);
+    void onLogicControlTargetCellDoubleClicked(int row, int column);
+    void onLogicControlPreviewEdited();
+    void onLogicControlTemplateClicked();
+    void onInsertLogicControlRealtimeRefClicked();
 
     void onConnected();
     void onDisconnected();
@@ -141,6 +154,7 @@ private:
     void refreshLogicCenterOverview();
     void refreshLogicAgcAvcPage();
     void refreshLogicComputationPointPage();
+    void refreshLogicControlRulePage();
     void refreshSelectionOverview();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
@@ -176,6 +190,11 @@ private:
                                       QList<configtool::LogicOperand> &operands);
     void selectLogicComputationOutputPoint(int row);
     void selectLogicComputationOperands(int row);
+    void selectLogicControlMatchPoint(int row);
+    void selectLogicControlTargetPoint(int row);
+    int currentLogicControlRuleIndex() const;
+    void refreshLogicControlTargetTable();
+    void refreshLogicControlPreview();
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -191,6 +210,7 @@ private:
     bool m_updatingDeviceBindingsTable = false;
     bool m_updatingLogicAgcAvcPage = false;
     bool m_updatingLogicComputationPointPage = false;
+    bool m_updatingLogicControlRulePage = false;
     bool m_restoringConfigUndo = false;
     int m_logicComputationDragRow = -1;
     int m_modelPointDragRow = -1;
@@ -234,6 +254,7 @@ private:
     QWidget *m_logicCenterPage = nullptr;
     QWidget *m_logicAgcAvcPage = nullptr;
     QWidget *m_logicComputationPointPage = nullptr;
+    QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -255,6 +276,20 @@ private:
     QPushButton *m_copyLogicComputationPointBtn = nullptr;
     QPushButton *m_deleteLogicComputationPointBtn = nullptr;
     QTableWidget *m_logicComputationPointTable = nullptr;
+    QPushButton *m_addLogicControlRuleBtn = nullptr;
+    QPushButton *m_copyLogicControlRuleBtn = nullptr;
+    QPushButton *m_deleteLogicControlRuleBtn = nullptr;
+    QPushButton *m_addLogicControlTargetBtn = nullptr;
+    QPushButton *m_deleteLogicControlTargetBtn = nullptr;
+    QPushButton *m_logicControlTemplateOriginalBtn = nullptr;
+    QPushButton *m_logicControlTemplateInvertBtn = nullptr;
+    QPushButton *m_logicControlTemplateScaleBtn = nullptr;
+    QPushButton *m_logicControlTemplateFixedBtn = nullptr;
+    QPushButton *m_insertLogicControlRealtimeRefBtn = nullptr;
+    QTableWidget *m_logicControlRuleTable = nullptr;
+    QTableWidget *m_logicControlTargetTable = nullptr;
+    QLineEdit *m_logicControlPreviewValueEdit = nullptr;
+    QLabel *m_logicControlPreviewLabel = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

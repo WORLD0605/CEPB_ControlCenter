@@ -62,7 +62,9 @@
 | --- | --- | --- |
 | `DeviceId` | string | 源控制设备 ID，必填。 |
 | `dataRef` | string | 源控制点号，必填。 |
-| `CtrlType` | string | 当前仅保存，不参与规则查找。 |
+| `Description` | string | 控制转换规则说明，可选。 |
+
+`CtrlType` 不再作为 `match` 配置字段；运行时复用北向原始 `CtrlCmd` 帧中的 `CtrlType`。
 
 `targets` 子项：
 

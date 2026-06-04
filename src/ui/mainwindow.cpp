@@ -870,6 +870,102 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicComputationPointTable->setColumnWidth(4, 360);
     logicComputationLayout->addWidget(m_logicComputationPointTable, 1);
 
+    m_logicControlRulePage = new QWidget(this);
+    auto *logicControlLayout = new QVBoxLayout(m_logicControlRulePage);
+    logicControlLayout->setContentsMargins(0, 0, 0, 0);
+    logicControlLayout->setSpacing(8);
+    auto *logicControlHint = new QLabel(
+        QStringLiteral("控制转换只面向遥控/遥调下发点位。规则仅按源设备和源控制点匹配，CtrlType 随北向 CtrlCmd 原样复用。"),
+        this);
+    logicControlHint->setWordWrap(true);
+    logicControlLayout->addWidget(logicControlHint);
+
+    auto *logicControlRuleToolbar = new QHBoxLayout();
+    m_addLogicControlRuleBtn = new QPushButton(QStringLiteral("新增规则"), this);
+    m_copyLogicControlRuleBtn = new QPushButton(QStringLiteral("复制规则"), this);
+    m_deleteLogicControlRuleBtn = new QPushButton(QStringLiteral("删除规则"), this);
+    logicControlRuleToolbar->addWidget(m_addLogicControlRuleBtn);
+    logicControlRuleToolbar->addWidget(m_copyLogicControlRuleBtn);
+    logicControlRuleToolbar->addWidget(m_deleteLogicControlRuleBtn);
+    logicControlRuleToolbar->addStretch();
+    logicControlLayout->addLayout(logicControlRuleToolbar);
+
+    m_logicControlRuleTable = new QTableWidget(0, 4, this);
+    m_logicControlRuleTable->setHorizontalHeaderLabels({
+        QStringLiteral("源设备"),
+        QStringLiteral("源控制点"),
+        QStringLiteral("目标数"),
+        QStringLiteral("说明")
+    });
+    m_logicControlRuleTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                             | QAbstractItemView::SelectedClicked
+                                             | QAbstractItemView::EditKeyPressed);
+    m_logicControlRuleTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_logicControlRuleTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_logicControlRuleTable->setAlternatingRowColors(true);
+    m_logicControlRuleTable->verticalHeader()->setVisible(false);
+    m_logicControlRuleTable->horizontalHeader()->setStretchLastSection(true);
+    m_logicControlRuleTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_logicControlRuleTable->setColumnWidth(0, 120);
+    m_logicControlRuleTable->setColumnWidth(1, 300);
+    m_logicControlRuleTable->setColumnWidth(2, 80);
+    logicControlLayout->addWidget(m_logicControlRuleTable, 1);
+
+    auto *logicControlTargetGroup = new QGroupBox(QStringLiteral("目标动作"), this);
+    auto *logicControlTargetLayout = new QVBoxLayout(logicControlTargetGroup);
+    auto *logicControlTargetToolbar = new QHBoxLayout();
+    m_addLogicControlTargetBtn = new QPushButton(QStringLiteral("新增目标"), this);
+    m_deleteLogicControlTargetBtn = new QPushButton(QStringLiteral("删除目标"), this);
+    m_logicControlTemplateOriginalBtn = new QPushButton(QStringLiteral("原值 {x}"), this);
+    m_logicControlTemplateInvertBtn = new QPushButton(QStringLiteral("取反"), this);
+    m_logicControlTemplateScaleBtn = new QPushButton(QStringLiteral("比例换算"), this);
+    m_logicControlTemplateFixedBtn = new QPushButton(QStringLiteral("固定值"), this);
+    m_insertLogicControlRealtimeRefBtn = new QPushButton(QStringLiteral("插入实时值"), this);
+    logicControlTargetToolbar->addWidget(m_addLogicControlTargetBtn);
+    logicControlTargetToolbar->addWidget(m_deleteLogicControlTargetBtn);
+    logicControlTargetToolbar->addSpacing(16);
+    logicControlTargetToolbar->addWidget(m_logicControlTemplateOriginalBtn);
+    logicControlTargetToolbar->addWidget(m_logicControlTemplateInvertBtn);
+    logicControlTargetToolbar->addWidget(m_logicControlTemplateScaleBtn);
+    logicControlTargetToolbar->addWidget(m_logicControlTemplateFixedBtn);
+    logicControlTargetToolbar->addWidget(m_insertLogicControlRealtimeRefBtn);
+    logicControlTargetToolbar->addStretch();
+    logicControlTargetLayout->addLayout(logicControlTargetToolbar);
+
+    m_logicControlTargetTable = new QTableWidget(0, 5, this);
+    m_logicControlTargetTable->setHorizontalHeaderLabels({
+        QStringLiteral("类型"),
+        QStringLiteral("目标设备"),
+        QStringLiteral("目标点"),
+        QStringLiteral("表达式"),
+        QStringLiteral("预览")
+    });
+    m_logicControlTargetTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                               | QAbstractItemView::SelectedClicked
+                                               | QAbstractItemView::EditKeyPressed);
+    m_logicControlTargetTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_logicControlTargetTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_logicControlTargetTable->setAlternatingRowColors(true);
+    m_logicControlTargetTable->verticalHeader()->setVisible(false);
+    m_logicControlTargetTable->horizontalHeader()->setStretchLastSection(true);
+    m_logicControlTargetTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_logicControlTargetTable->setColumnWidth(0, 110);
+    m_logicControlTargetTable->setColumnWidth(1, 120);
+    m_logicControlTargetTable->setColumnWidth(2, 300);
+    m_logicControlTargetTable->setColumnWidth(3, 220);
+    logicControlTargetLayout->addWidget(m_logicControlTargetTable, 1);
+
+    auto *logicControlPreviewRow = new QHBoxLayout();
+    logicControlPreviewRow->addWidget(new QLabel(QStringLiteral("模拟 CtrlVal:"), this));
+    m_logicControlPreviewValueEdit = new QLineEdit(QStringLiteral("1"), this);
+    m_logicControlPreviewValueEdit->setMaximumWidth(160);
+    logicControlPreviewRow->addWidget(m_logicControlPreviewValueEdit);
+    m_logicControlPreviewLabel = new QLabel(QStringLiteral("选择目标动作后显示表达式展开结果。"), this);
+    m_logicControlPreviewLabel->setWordWrap(true);
+    logicControlPreviewRow->addWidget(m_logicControlPreviewLabel, 1);
+    logicControlTargetLayout->addLayout(logicControlPreviewRow);
+    logicControlLayout->addWidget(logicControlTargetGroup, 1);
+
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
@@ -877,6 +973,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(m_logicCenterPage, "逻辑中心");
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
+    m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");
 
     setCentralWidget(central);
 
@@ -980,6 +1077,39 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onLogicComputationPointItemChanged);
     connect(m_logicComputationPointTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onLogicComputationPointCellDoubleClicked);
+    connect(m_addLogicControlRuleBtn, &QPushButton::clicked,
+            this, &MainWindow::onAddLogicControlRuleClicked);
+    connect(m_copyLogicControlRuleBtn, &QPushButton::clicked,
+            this, &MainWindow::onCopyLogicControlRuleClicked);
+    connect(m_deleteLogicControlRuleBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteLogicControlRuleClicked);
+    connect(m_addLogicControlTargetBtn, &QPushButton::clicked,
+            this, &MainWindow::onAddLogicControlTargetClicked);
+    connect(m_deleteLogicControlTargetBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteLogicControlTargetClicked);
+    connect(m_logicControlRuleTable, &QTableWidget::itemSelectionChanged,
+            this, &MainWindow::onLogicControlRuleSelectionChanged);
+    connect(m_logicControlRuleTable, &QTableWidget::itemChanged,
+            this, &MainWindow::onLogicControlRuleItemChanged);
+    connect(m_logicControlRuleTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onLogicControlRuleCellDoubleClicked);
+    connect(m_logicControlTargetTable, &QTableWidget::itemChanged,
+            this, &MainWindow::onLogicControlTargetItemChanged);
+    connect(m_logicControlTargetTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onLogicControlTargetCellDoubleClicked);
+    connect(m_logicControlTargetTable, &QTableWidget::itemSelectionChanged,
+            this, &MainWindow::refreshLogicControlPreview);
+    connect(m_logicControlPreviewValueEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onLogicControlPreviewEdited);
+    for (QPushButton *button : {m_logicControlTemplateOriginalBtn,
+                                m_logicControlTemplateInvertBtn,
+                                m_logicControlTemplateScaleBtn,
+                                m_logicControlTemplateFixedBtn}) {
+        connect(button, &QPushButton::clicked,
+                this, &MainWindow::onLogicControlTemplateClicked);
+    }
+    connect(m_insertLogicControlRealtimeRefBtn, &QPushButton::clicked,
+            this, &MainWindow::onInsertLogicControlRealtimeRefClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceFromModelBtn, &QPushButton::clicked,

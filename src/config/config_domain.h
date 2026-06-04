@@ -140,6 +140,7 @@ struct LogicControlRule {
     QString matchDeviceId;
     QString matchDataRef;
     QString matchCtrlType;
+    QString description;
     QList<LogicControlTarget> targets;
     QJsonObject rawExtra;
     QJsonObject matchRawExtra;

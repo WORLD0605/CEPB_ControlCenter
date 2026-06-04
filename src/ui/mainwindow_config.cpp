@@ -76,6 +76,15 @@ constexpr int LogicComputationColumnFormula = 2;
 constexpr int LogicComputationColumnDropOperands = 3;
 constexpr int LogicComputationColumnOperands = 4;
 constexpr int LogicComputationColumnDescription = 5;
+constexpr int LogicControlRuleColumnDevice = 0;
+constexpr int LogicControlRuleColumnPoint = 1;
+constexpr int LogicControlRuleColumnTargetCount = 2;
+constexpr int LogicControlRuleColumnDescription = 3;
+constexpr int LogicControlTargetColumnType = 0;
+constexpr int LogicControlTargetColumnDevice = 1;
+constexpr int LogicControlTargetColumnPoint = 2;
+constexpr int LogicControlTargetColumnExpr = 3;
+constexpr int LogicControlTargetColumnPreview = 4;
 
 using configtool::buildModbusDataIndex;
 using configtool::isModbusDevice;
@@ -242,6 +251,23 @@ int uiTextToInt(const QString &text, int fallback)
     bool ok = false;
     const int value = text.trimmed().toInt(&ok);
     return ok ? value : fallback;
+}
+
+bool isLogicControlTotalTarget(const configtool::LogicControlTarget &target)
+{
+    if (target.targetType.trimmed().compare(QStringLiteral("ctrlcmd"), Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+    return target.dataRef.contains(QStringLiteral("TotalP_Ctrl"), Qt::CaseInsensitive)
+        || target.dataRef.contains(QStringLiteral("TotalQ_Ctrl"), Qt::CaseInsensitive);
+}
+
+QString expandedLogicControlExpression(const QString &expr, const QString &xValue)
+{
+    QString expanded = expr;
+    expanded.replace(QStringLiteral("{x}"), xValue.trimmed().isEmpty() ? QStringLiteral("0") : xValue.trimmed());
+    static const QRegularExpression realtimeRefPattern(QStringLiteral("\\{rt:([^{}]+)\\}"));
+    return expanded.replace(realtimeRefPattern, QStringLiteral("<实时:$1>"));
 }
 
 } // namespace
@@ -1704,6 +1730,7 @@ void MainWindow::refreshConfigObjectViews()
     refreshLogicCenterOverview();
     refreshLogicAgcAvcPage();
     refreshLogicComputationPointPage();
+    refreshLogicControlRulePage();
 }
 
 int formulaOperandCount(const QString &formula)
@@ -3596,6 +3623,468 @@ void MainWindow::selectLogicComputationOperands(int row)
     refreshLogicCenterOverview();
     refreshLogicComputationPointPage();
     m_logicComputationPointTable->setCurrentCell(row, LogicComputationColumnOperands);
+}
+
+int MainWindow::currentLogicControlRuleIndex() const
+{
+    if (!m_logicControlRuleTable || !m_logicControlRuleTable->selectionModel()) {
+        return -1;
+    }
+
+    const QModelIndexList rows = m_logicControlRuleTable->selectionModel()->selectedRows();
+    return rows.isEmpty() ? -1 : rows.first().row();
+}
+
+void MainWindow::refreshLogicControlRulePage()
+{
+    if (!m_logicControlRuleTable) {
+        return;
+    }
+
+    const int previousRow = currentLogicControlRuleIndex();
+    const QList<configtool::LogicControlRule> &rules =
+        m_configProjectManager.project().logicCenter.controlRules;
+
+    m_updatingLogicControlRulePage = true;
+    m_logicControlRuleTable->setRowCount(rules.size());
+    for (int row = 0; row < rules.size(); ++row) {
+        const configtool::LogicControlRule &rule = rules.at(row);
+        const QStringList values = {
+            rule.matchDeviceId,
+            rule.matchDataRef,
+            QString::number(rule.targets.size()),
+            rule.description
+        };
+        for (int column = 0; column < values.size(); ++column) {
+            auto *item = new QTableWidgetItem(values.at(column));
+            if (column == LogicControlRuleColumnTargetCount) {
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            }
+            m_logicControlRuleTable->setItem(row, column, item);
+        }
+    }
+    m_updatingLogicControlRulePage = false;
+
+    if (previousRow >= 0 && previousRow < rules.size()) {
+        m_logicControlRuleTable->selectRow(previousRow);
+    } else if (!rules.isEmpty()) {
+        m_logicControlRuleTable->selectRow(0);
+    } else {
+        refreshLogicControlTargetTable();
+    }
+    refreshLogicControlTargetTable();
+}
+
+void MainWindow::refreshLogicControlTargetTable()
+{
+    if (!m_logicControlTargetTable) {
+        return;
+    }
+
+    const int ruleIndex = currentLogicControlRuleIndex();
+    const QList<configtool::LogicControlRule> &rules =
+        m_configProjectManager.project().logicCenter.controlRules;
+
+    m_updatingLogicControlRulePage = true;
+    if (ruleIndex < 0 || ruleIndex >= rules.size()) {
+        m_logicControlTargetTable->setRowCount(0);
+        m_updatingLogicControlRulePage = false;
+        refreshLogicControlPreview();
+        return;
+    }
+
+    const QList<configtool::LogicControlTarget> &targets = rules.at(ruleIndex).targets;
+    m_logicControlTargetTable->setRowCount(targets.size());
+    for (int row = 0; row < targets.size(); ++row) {
+        const configtool::LogicControlTarget &target = targets.at(row);
+        const QString targetType = target.targetType.trimmed().isEmpty()
+            ? QStringLiteral("ctrlcmd")
+            : target.targetType.trimmed().toLower();
+        const QString preview = expandedLogicControlExpression(
+            target.expr,
+            m_logicControlPreviewValueEdit ? m_logicControlPreviewValueEdit->text() : QStringLiteral("1"));
+        const QStringList values = {
+            targetType,
+            target.deviceId,
+            target.dataRef,
+            target.expr,
+            preview
+        };
+        for (int column = 0; column < values.size(); ++column) {
+            auto *item = new QTableWidgetItem(values.at(column));
+            if (column == LogicControlTargetColumnPreview) {
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            }
+            if (isLogicControlTotalTarget(target)) {
+                item->setToolTip(QStringLiteral("该目标会进入 AGC/AVC 总控分配逻辑。"));
+            }
+            m_logicControlTargetTable->setItem(row, column, item);
+        }
+    }
+    m_updatingLogicControlRulePage = false;
+    refreshLogicControlPreview();
+}
+
+void MainWindow::onLogicControlRuleSelectionChanged()
+{
+    refreshLogicControlTargetTable();
+}
+
+void MainWindow::onAddLogicControlRuleClicked()
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    pushConfigUndoSnapshot();
+
+    configtool::LogicControlRule rule;
+    rule.matchDeviceId = QStringLiteral("device_%1").arg(logic.controlRules.size() + 1);
+    rule.matchDataRef = QStringLiteral("PROT.SlrInvCtlGGIO.1.TotalP_Ctrl");
+    rule.description = QStringLiteral("手工新增控制转换");
+
+    configtool::LogicControlTarget target;
+    target.deviceId = rule.matchDeviceId;
+    target.dataRef = rule.matchDataRef;
+    target.expr = QStringLiteral("{x}");
+    target.targetType = QStringLiteral("ctrlcmd");
+    rule.targets.append(target);
+
+    logic.controlRules.append(rule);
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(logic.controlRules.size() - 1);
+}
+
+void MainWindow::onCopyLogicControlRuleClicked()
+{
+    const int row = currentLogicControlRuleIndex();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.controlRules.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择要复制的控制转换规则。"));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicControlRule rule = logic.controlRules.at(row);
+    rule.matchDataRef += QStringLiteral("_copy");
+    rule.description = rule.description.trimmed().isEmpty()
+        ? QStringLiteral("复制的控制转换")
+        : QStringLiteral("%1 (复制)").arg(rule.description);
+    logic.controlRules.insert(row + 1, rule);
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(row + 1);
+}
+
+void MainWindow::onDeleteLogicControlRuleClicked()
+{
+    const int row = currentLogicControlRuleIndex();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.controlRules.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择要删除的控制转换规则。"));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    logic.controlRules.removeAt(row);
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    if (!logic.controlRules.isEmpty()) {
+        m_logicControlRuleTable->selectRow(qMin(row, logic.controlRules.size() - 1));
+    }
+}
+
+void MainWindow::onAddLogicControlTargetClicked()
+{
+    const int ruleIndex = currentLogicControlRuleIndex();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()) {
+        onAddLogicControlRuleClicked();
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicControlTarget target;
+    target.deviceId = logic.controlRules.at(ruleIndex).matchDeviceId;
+    target.dataRef = logic.controlRules.at(ruleIndex).matchDataRef;
+    target.expr = QStringLiteral("{x}");
+    target.targetType = QStringLiteral("ctrlcmd");
+    logic.controlRules[ruleIndex].targets.append(target);
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(ruleIndex);
+    m_logicControlTargetTable->selectRow(logic.controlRules.at(ruleIndex).targets.size() - 1);
+}
+
+void MainWindow::onDeleteLogicControlTargetClicked()
+{
+    const int ruleIndex = currentLogicControlRuleIndex();
+    const int targetRow = m_logicControlTargetTable ? m_logicControlTargetTable->currentRow() : -1;
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
+        || targetRow < 0 || targetRow >= logic.controlRules.at(ruleIndex).targets.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择要删除的目标动作。"));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    logic.controlRules[ruleIndex].targets.removeAt(targetRow);
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(ruleIndex);
+}
+
+void MainWindow::onLogicControlRuleItemChanged(QTableWidgetItem *item)
+{
+    if (m_updatingLogicControlRulePage || m_restoringConfigUndo || !item) {
+        return;
+    }
+
+    const int row = item->row();
+    const int column = item->column();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.controlRules.size()) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicControlRule &rule = logic.controlRules[row];
+    const QString text = item->text().trimmed();
+    if (column == LogicControlRuleColumnDevice) {
+        rule.matchDeviceId = text;
+    } else if (column == LogicControlRuleColumnPoint) {
+        rule.matchDataRef = text;
+    } else if (column == LogicControlRuleColumnDescription) {
+        rule.description = text;
+    } else {
+        return;
+    }
+
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    if (row < m_logicControlRuleTable->rowCount()) {
+        m_logicControlRuleTable->setCurrentCell(row, column);
+    }
+}
+
+void MainWindow::onLogicControlTargetItemChanged(QTableWidgetItem *item)
+{
+    if (m_updatingLogicControlRulePage || m_restoringConfigUndo || !item) {
+        return;
+    }
+
+    const int ruleIndex = currentLogicControlRuleIndex();
+    const int row = item->row();
+    const int column = item->column();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
+        || row < 0 || row >= logic.controlRules.at(ruleIndex).targets.size()) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
+    const QString text = item->text().trimmed();
+    if (column == LogicControlTargetColumnType) {
+        target.targetType = text.isEmpty() ? QStringLiteral("ctrlcmd") : text.toLower();
+    } else if (column == LogicControlTargetColumnDevice) {
+        target.deviceId = text;
+    } else if (column == LogicControlTargetColumnPoint) {
+        target.dataRef = text;
+    } else if (column == LogicControlTargetColumnExpr) {
+        target.expr = text;
+    } else {
+        return;
+    }
+
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(ruleIndex);
+    if (row < m_logicControlTargetTable->rowCount()) {
+        m_logicControlTargetTable->setCurrentCell(row, column);
+    }
+}
+
+void MainWindow::onLogicControlRuleCellDoubleClicked(int row, int column)
+{
+    if (row < 0) {
+        return;
+    }
+    if (column == LogicControlRuleColumnDevice || column == LogicControlRuleColumnPoint) {
+        selectLogicControlMatchPoint(row);
+    }
+}
+
+void MainWindow::onLogicControlTargetCellDoubleClicked(int row, int column)
+{
+    if (row < 0) {
+        return;
+    }
+    if (column == LogicControlTargetColumnDevice || column == LogicControlTargetColumnPoint) {
+        selectLogicControlTargetPoint(row);
+    }
+}
+
+void MainWindow::selectLogicControlMatchPoint(int row)
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.controlRules.size()) {
+        return;
+    }
+
+    PointSelectorDialog dialog(this);
+    dialog.setProject(&m_configProjectManager.project());
+    dialog.setServiceTypeFilter(configtool::ModelServiceType::Control);
+    dialog.setWindowTitle(QStringLiteral("选择源遥控/遥调点"));
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const PointSelectorDialog::SelectedPoint point = dialog.selectedPoint();
+    if (!point.valid) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    logic.controlRules[row].matchDeviceId = point.deviceId;
+    logic.controlRules[row].matchDataRef = point.dataRef;
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(row);
+}
+
+void MainWindow::selectLogicControlTargetPoint(int row)
+{
+    const int ruleIndex = currentLogicControlRuleIndex();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
+        || row < 0 || row >= logic.controlRules.at(ruleIndex).targets.size()) {
+        return;
+    }
+
+    PointSelectorDialog dialog(this);
+    dialog.setProject(&m_configProjectManager.project());
+    dialog.setServiceTypeFilter(configtool::ModelServiceType::Control);
+    dialog.setWindowTitle(QStringLiteral("选择目标遥控/遥调点"));
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const PointSelectorDialog::SelectedPoint point = dialog.selectedPoint();
+    if (!point.valid) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
+    target.deviceId = point.deviceId;
+    target.dataRef = point.dataRef;
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(ruleIndex);
+    m_logicControlTargetTable->selectRow(row);
+}
+
+void MainWindow::onLogicControlPreviewEdited()
+{
+    refreshLogicControlTargetTable();
+}
+
+void MainWindow::refreshLogicControlPreview()
+{
+    if (!m_logicControlPreviewLabel || !m_logicControlTargetTable) {
+        return;
+    }
+
+    const int ruleIndex = currentLogicControlRuleIndex();
+    const int targetRow = m_logicControlTargetTable->currentRow();
+    const QList<configtool::LogicControlRule> &rules =
+        m_configProjectManager.project().logicCenter.controlRules;
+    if (ruleIndex < 0 || ruleIndex >= rules.size()
+        || targetRow < 0 || targetRow >= rules.at(ruleIndex).targets.size()) {
+        m_logicControlPreviewLabel->setText(QStringLiteral("选择目标动作后显示表达式展开结果。"));
+        return;
+    }
+
+    const configtool::LogicControlTarget &target = rules.at(ruleIndex).targets.at(targetRow);
+    QString text = QStringLiteral("%1/%2: %3 => %4")
+                       .arg(target.deviceId,
+                            target.dataRef,
+                            target.expr,
+                            expandedLogicControlExpression(target.expr, m_logicControlPreviewValueEdit->text()));
+    if (isLogicControlTotalTarget(target)) {
+        text += QStringLiteral("；该目标会进入 AGC/AVC 分配逻辑");
+    }
+    m_logicControlPreviewLabel->setText(text);
+}
+
+void MainWindow::onLogicControlTemplateClicked()
+{
+    const int ruleIndex = currentLogicControlRuleIndex();
+    const int targetRow = m_logicControlTargetTable ? m_logicControlTargetTable->currentRow() : -1;
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
+        || targetRow < 0 || targetRow >= logic.controlRules.at(ruleIndex).targets.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个目标动作。"));
+        return;
+    }
+
+    QString expr;
+    QObject *senderObject = sender();
+    if (senderObject == m_logicControlTemplateOriginalBtn) {
+        expr = QStringLiteral("{x}");
+    } else if (senderObject == m_logicControlTemplateInvertBtn) {
+        expr = QStringLiteral("1 - {x}");
+    } else if (senderObject == m_logicControlTemplateScaleBtn) {
+        expr = QStringLiteral("{x} * 1.0");
+    } else if (senderObject == m_logicControlTemplateFixedBtn) {
+        expr = QStringLiteral("1");
+    } else {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    logic.controlRules[ruleIndex].targets[targetRow].expr = expr;
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(ruleIndex);
+    m_logicControlTargetTable->selectRow(targetRow);
+}
+
+void MainWindow::onInsertLogicControlRealtimeRefClicked()
+{
+    const int ruleIndex = currentLogicControlRuleIndex();
+    const int targetRow = m_logicControlTargetTable ? m_logicControlTargetTable->currentRow() : -1;
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
+        || targetRow < 0 || targetRow >= logic.controlRules.at(ruleIndex).targets.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个目标动作。"));
+        return;
+    }
+
+    PointSelectorDialog dialog(this);
+    dialog.setProject(&m_configProjectManager.project());
+    dialog.setWindowTitle(QStringLiteral("选择实时引用点"));
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const PointSelectorDialog::SelectedPoint point = dialog.selectedPoint();
+    if (!point.valid) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[targetRow];
+    const QString ref = QStringLiteral("{rt:%1#%2}").arg(point.deviceId, point.dataRef);
+    if (target.expr.trimmed().isEmpty()) {
+        target.expr = QStringLiteral("{x} + %1").arg(ref);
+    } else {
+        target.expr += QStringLiteral(" + %1").arg(ref);
+    }
+
+    refreshLogicCenterOverview();
+    refreshLogicControlRulePage();
+    m_logicControlRuleTable->selectRow(ruleIndex);
+    m_logicControlTargetTable->selectRow(targetRow);
 }
 
 void MainWindow::onGenerateLogicAgcAvcTotalPClicked()

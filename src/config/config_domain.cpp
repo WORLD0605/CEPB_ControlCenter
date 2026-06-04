@@ -223,10 +223,13 @@ LogicControlRule parseLogicControlRule(const QJsonObject &object)
     rule.matchDeviceId = match.value(QStringLiteral("DeviceId")).toString();
     rule.matchDataRef = match.value(QStringLiteral("dataRef")).toString();
     rule.matchCtrlType = match.value(QStringLiteral("CtrlType")).toString();
+    rule.description = stringValue(match, QStringLiteral("Description"), QStringLiteral("description"));
     rule.matchRawExtra = rawExtraWithout(match, {
         QStringLiteral("DeviceId"),
         QStringLiteral("dataRef"),
-        QStringLiteral("CtrlType")
+        QStringLiteral("CtrlType"),
+        QStringLiteral("Description"),
+        QStringLiteral("description")
     });
     const QJsonArray targets = object.value(QStringLiteral("targets")).toArray();
     for (const QJsonValue &value : targets) {
@@ -246,9 +249,13 @@ QJsonObject serializeLogicControlRule(const LogicControlRule &rule)
     QJsonObject match = rule.matchRawExtra;
     match.insert(QStringLiteral("DeviceId"), rule.matchDeviceId);
     match.insert(QStringLiteral("dataRef"), rule.matchDataRef);
-    if (!rule.matchCtrlType.isEmpty()) {
-        match.insert(QStringLiteral("CtrlType"), rule.matchCtrlType);
+    match.remove(QStringLiteral("CtrlType"));
+    if (!rule.description.trimmed().isEmpty()) {
+        match.insert(QStringLiteral("Description"), rule.description);
+    } else {
+        match.remove(QStringLiteral("Description"));
     }
+    match.remove(QStringLiteral("description"));
 
     QJsonArray targets;
     for (const LogicControlTarget &target : rule.targets) {
@@ -577,6 +584,41 @@ QSet<QString> buildProjectPointKeys(const ConfigProject *project)
     return pointKeys;
 }
 
+QSet<QString> buildProjectControlPointKeys(const ConfigProject *project)
+{
+    QSet<QString> pointKeys;
+    if (!project) {
+        return pointKeys;
+    }
+
+    QHash<QString, const ModelTemplate*> modelsById;
+    for (const ModelTemplate &model : project->models) {
+        if (!model.modelId.trimmed().isEmpty()) {
+            modelsById.insert(model.modelId.trimmed(), &model);
+        }
+    }
+
+    for (const ProtocolDeviceInstance &device : project->devices) {
+        const ModelTemplate *model = modelsById.value(device.modelId.trimmed(), nullptr);
+        if (!model || device.deviceId.trimmed().isEmpty()) {
+            continue;
+        }
+        for (const ServiceTemplate &service : model->services) {
+            if (service.type != ModelServiceType::Control) {
+                continue;
+            }
+            for (const PointTemplate &point : service.points) {
+                const QString dataRef = point.dataRef().trimmed();
+                if (!dataRef.isEmpty()) {
+                    pointKeys.insert(pointKey(device.deviceId, dataRef));
+                }
+            }
+        }
+    }
+
+    return pointKeys;
+}
+
 QString placeholderName(int index)
 {
     return QStringLiteral("{%1}").arg(index);
@@ -634,6 +676,58 @@ void validateLogicFormula(const QString &module,
     }
 }
 
+void validateLogicControlExpression(const QString &objectId,
+                                    const QString &targetId,
+                                    const QString &expr,
+                                    QList<ConfigIssue> &issues)
+{
+    if (expr.trimmed().isEmpty()) {
+        issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                      QStringLiteral("控制转换"),
+                                      objectId,
+                                      QStringLiteral("目标 %1 的 expr 不能为空").arg(targetId)));
+        return;
+    }
+
+    static const QRegularExpression placeholderPattern(QStringLiteral("\\{([^{}]+)\\}"));
+    QRegularExpressionMatchIterator placeholderIt = placeholderPattern.globalMatch(expr);
+    while (placeholderIt.hasNext()) {
+        const QRegularExpressionMatch match = placeholderIt.next();
+        const QString token = match.captured(1).trimmed();
+        if (token == QStringLiteral("x")) {
+            continue;
+        }
+        if (token.startsWith(QStringLiteral("rt:")) && token.mid(3).contains(QLatin1Char('#'))) {
+            continue;
+        }
+        issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                      QStringLiteral("控制转换"),
+                                      objectId,
+                                      QStringLiteral("目标 %1 的 expr 包含不支持的占位符 %2，控制转换仅支持 {x} 和 {rt:DeviceId#DataRefer}")
+                                          .arg(targetId, match.captured(0))));
+    }
+
+    static const QRegularExpression functionPattern(QStringLiteral("\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\("));
+    static const QSet<QString> supportedFunctions = {
+        QStringLiteral("sqrt"),
+        QStringLiteral("sqr"),
+        QStringLiteral("square"),
+        QStringLiteral("pow")
+    };
+    QRegularExpressionMatchIterator functionIt = functionPattern.globalMatch(expr);
+    while (functionIt.hasNext()) {
+        const QRegularExpressionMatch match = functionIt.next();
+        const QString name = match.captured(1);
+        if (!supportedFunctions.contains(name)) {
+            issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
+                                          QStringLiteral("控制转换"),
+                                          objectId,
+                                          QStringLiteral("目标 %1 的 expr 使用了不支持的函数 %2")
+                                              .arg(targetId, name)));
+        }
+    }
+}
+
 bool projectDeviceExists(const QSet<QString> &deviceIds, const QString &deviceId)
 {
     return deviceIds.contains(deviceId.trimmed());
@@ -642,6 +736,11 @@ bool projectDeviceExists(const QSet<QString> &deviceIds, const QString &deviceId
 bool projectPointExists(const QSet<QString> &pointKeys, const QString &deviceId, const QString &dataRef)
 {
     return pointKeys.contains(pointKey(deviceId, dataRef));
+}
+
+bool projectControlPointExists(const QSet<QString> &controlPointKeys, const QString &deviceId, const QString &dataRef)
+{
+    return controlPointKeys.contains(pointKey(deviceId, dataRef));
 }
 
 } // namespace
@@ -952,6 +1051,7 @@ QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
     QList<ConfigIssue> issues;
     const QSet<QString> projectDeviceIds = buildProjectDeviceIds(project);
     const QSet<QString> projectPointKeys = buildProjectPointKeys(project);
+    const QSet<QString> projectControlPointKeys = buildProjectControlPointKeys(project);
     const bool hasProjectContext = project != nullptr;
 
     for (const LogicComputationPoint &point : config.computationPoints) {
@@ -1029,12 +1129,6 @@ QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
                                           objectId,
                                           QStringLiteral("match.DeviceId 和 match.dataRef 不能为空")));
         }
-        if (!rule.matchCtrlType.trimmed().isEmpty()) {
-            issues.append(makeConfigIssue(ConfigIssueSeverity::Info,
-                                          QStringLiteral("控制转换"),
-                                          objectId,
-                                          QStringLiteral("CtrlType 当前不参与匹配，仅保存")));
-        }
         if (rule.targets.isEmpty()) {
             issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
                                           QStringLiteral("控制转换"),
@@ -1054,6 +1148,12 @@ QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
                                               QStringLiteral("控制转换"),
                                               objectId,
                                               QStringLiteral("源控制点在当前工程设备或模型点表中找不到")));
+            } else if (!rule.matchDataRef.trimmed().isEmpty()
+                       && !projectControlPointExists(projectControlPointKeys, rule.matchDeviceId, rule.matchDataRef)) {
+                issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                              QStringLiteral("控制转换"),
+                                              objectId,
+                                              QStringLiteral("源点不是模型中的控制类点位，Control_Rule 仅适用于遥控/遥调")));
             }
         }
 
@@ -1065,12 +1165,7 @@ QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
                                               objectId,
                                               QStringLiteral("目标 DeviceId 和 dataRef 不能为空")));
             }
-            if (target.expr.trimmed().isEmpty()) {
-                issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
-                                              QStringLiteral("控制转换"),
-                                              objectId,
-                                              QStringLiteral("目标 %1 的 expr 不能为空").arg(targetId)));
-            }
+            validateLogicControlExpression(objectId, targetId, target.expr, issues);
             const QString targetType = target.targetType.trimmed();
             if (targetType != QStringLiteral("ctrlcmd") && targetType != QStringLiteral("data_write")) {
                 issues.append(makeConfigIssue(ConfigIssueSeverity::Error,
@@ -1092,6 +1187,13 @@ QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
                                                   QStringLiteral("控制转换"),
                                                   objectId,
                                                   QStringLiteral("目标点 %1 在当前工程设备或模型点表中找不到").arg(targetId)));
+                } else if (targetType == QStringLiteral("ctrlcmd")
+                           && !target.dataRef.trimmed().isEmpty()
+                           && !projectControlPointExists(projectControlPointKeys, target.deviceId, target.dataRef)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("控制转换"),
+                                                  objectId,
+                                                  QStringLiteral("ctrlcmd 目标点 %1 不是模型中的控制类点位").arg(targetId)));
                 }
             }
         }
