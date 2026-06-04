@@ -27,6 +27,7 @@ class QTimer;
 class QSplitter;
 class QEvent;
 class QFrame;
+class QProgressDialog;
 
 enum class AppViewMode {
     Terminal,
@@ -71,10 +72,13 @@ private slots:
     void onBrowseConfigImportDirClicked();
     void onImportIec104ConfigClicked();
     void onExportIec104ConfigClicked();
+    void onUploadConfigClicked();
+    void onDownloadConfigClicked();
     void onConfigModelSelectionChanged();
     void onConfigDeviceSelectionChanged();
     void onConfigModelActivated(int row, int column);
     void onConfigDeviceActivated(int row, int column);
+    void onConfigIssueActivated(int row, int column);
     void onNewModelClicked();
     void onModelFieldEdited();
     void onAddPointClicked();
@@ -155,6 +159,17 @@ private:
     QString resolveModbusAppDir(const QString &projectRoot) const;
     QString resolveLogicCenterAppDir(const QString &projectRoot) const;
     QString configBrowseStartDir() const;
+    QStringList configTransferRelativePaths(const QString &projectRoot) const;
+    QString configRemoteTarget() const;
+    QString configRemoteBaseDir() const;
+    bool runConfigTransferProcess(const QString &program,
+                                  const QStringList &arguments,
+                                  const QString &title,
+                                  QString *output = nullptr,
+                                  QProgressDialog *progress = nullptr);
+    void refreshConfigIssueTable(const QList<configtool::ImportIssue> &issues,
+                                 const QString &source);
+    void navigateToConfigIssue(int row);
     void refreshConfigImportSummary(const configtool::ImportReport &report);
     void refreshConfigObjectViews();
     void refreshLogicCenterOverview();
@@ -221,6 +236,7 @@ private:
     bool m_updatingLogicControlRulePage = false;
     bool m_updatingLogicOnlineLinkPage = false;
     bool m_restoringConfigUndo = false;
+    bool m_lastConfigExportOk = false;
     int m_logicComputationDragRow = -1;
     int m_modelPointDragRow = -1;
     QFrame *m_modelPointDropLine = nullptr;
@@ -234,7 +250,13 @@ private:
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_exportIec104ConfigBtn = nullptr;
-    QPushButton *m_openPointSelectorBtn = nullptr;
+    QPushButton *m_uploadConfigBtn = nullptr;
+    QPushButton *m_downloadConfigBtn = nullptr;
+    QLineEdit *m_configRemoteHostEdit = nullptr;
+    QLineEdit *m_configRemoteUserEdit = nullptr;
+    QLineEdit *m_configRemotePasswordEdit = nullptr;
+    QSpinBox *m_configRemotePortEdit = nullptr;
+    QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceFromModelBtn = nullptr;
     QPushButton *m_deleteModelBtn = nullptr;
@@ -244,7 +266,6 @@ private:
     QPushButton *m_deletePointBtn = nullptr;
     QStackedWidget *m_contentStack = nullptr;
     QTextEdit *m_logView = nullptr;
-    QTextEdit *m_configImportReportView = nullptr;
     QLineEdit *m_cmdEdit = nullptr;
     QPushButton *m_sendBtn = nullptr;
     QComboBox *m_deviceFilterCombo = nullptr;
@@ -260,6 +281,7 @@ private:
     QTabWidget *m_mainTabWidget = nullptr;
     QTabBar *m_modelPointFilterTabBar = nullptr;
     QWidget *m_configPage = nullptr;
+    QWidget *m_configIssuePage = nullptr;
     QWidget *m_logicCenterPage = nullptr;
     QWidget *m_logicAgcAvcPage = nullptr;
     QWidget *m_logicComputationPointPage = nullptr;
@@ -274,6 +296,7 @@ private:
     QLabel *m_configModelCountValueLabel = nullptr;
     QLabel *m_configDeviceCountValueLabel = nullptr;
     QLabel *m_configIssueCountValueLabel = nullptr;
+    QTableWidget *m_configIssueTable = nullptr;
     QLabel *m_logicComputationPointCountLabel = nullptr;
     QLabel *m_logicControlRuleCountLabel = nullptr;
     QLabel *m_logicAgcAvcGroupCountLabel = nullptr;

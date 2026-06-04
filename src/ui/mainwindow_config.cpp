@@ -15,7 +15,9 @@
 #include <QDir>
 #include <QDropEvent>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
 #include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
@@ -29,13 +31,16 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QProgressDialog>
 #include <QPushButton>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStatusBar>
+#include <QStandardPaths>
 #include <QTabBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -87,6 +92,8 @@ constexpr int LogicControlTargetColumnExpr = 3;
 constexpr int LogicControlTargetColumnPreview = 4;
 constexpr int LogicOnlineLinkColumnDevice = 0;
 constexpr int LogicOnlineLinkColumnFollowDevice = 1;
+constexpr int ConfigIssueRoleTargetType = Qt::UserRole + 1;
+constexpr int ConfigIssueRoleTargetKey = Qt::UserRole + 2;
 
 using configtool::buildModbusDataIndex;
 using configtool::isModbusDevice;
@@ -184,6 +191,34 @@ QString deviceChoiceText(const configtool::ProtocolDeviceInstance &device)
 QString deviceIdFromChoiceText(const QString &text)
 {
     return text.section(QStringLiteral(" - "), 0, 0).trimmed();
+}
+
+QString remoteShellQuote(const QString &text)
+{
+    QString quoted = text;
+    quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QStringLiteral("'%1'").arg(quoted);
+}
+
+QString remotePathJoin(const QString &baseDir, const QString &relativePath)
+{
+    QString base = baseDir.trimmed();
+    while (base.endsWith(QLatin1Char('/')) && base.size() > 1) {
+        base.chop(1);
+    }
+    return QStringLiteral("%1/%2").arg(base, relativePath);
+}
+
+QStringList configTransferPathList()
+{
+    return {
+        QStringLiteral("cepiec104/model"),
+        QStringLiteral("cepiec104/dev"),
+        QStringLiteral("cepmodbus/model"),
+        QStringLiteral("cepmodbus/dev"),
+        QStringLiteral("cepmodbus/etc"),
+        QStringLiteral("cepLogicCenter/etc")
+    };
 }
 
 QList<QStringList> parseClipboardTable(const QString &text)
@@ -356,6 +391,8 @@ void MainWindow::onImportIec104ConfigClicked()
 
 void MainWindow::onExportIec104ConfigClicked()
 {
+    m_lastConfigExportOk = false;
+
     const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
     if (projectRoot.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("请先选择配置工程目录"));
@@ -401,7 +438,8 @@ void MainWindow::onExportIec104ConfigClicked()
     if (!ok && hasErrors) {
         const QString detail = issueLines.isEmpty()
             ? QStringLiteral("导出失败，但未返回详细错误。")
-            : issueLines.join('\n');
+            : QStringLiteral("导出失败，详细问题已更新到“问题列表”。");
+        refreshConfigIssueTable(report.issues, QStringLiteral("导出"));
         QMessageBox::warning(this, QStringLiteral("导出失败"), detail);
         statusBar()->showMessage(QStringLiteral("配置导出失败"), 5000);
         return;
@@ -414,10 +452,463 @@ void MainWindow::onExportIec104ConfigClicked()
         statusMessage += QStringLiteral("，警告 %1 条").arg(issueLines.size());
     }
     statusBar()->showMessage(statusMessage, 8000);
+    refreshConfigIssueTable(report.issues, QStringLiteral("导出"));
 
-    if (!issueLines.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("导出完成"), issueLines.join('\n'));
+    m_lastConfigExportOk = true;
+}
+
+void MainWindow::refreshConfigIssueTable(const QList<configtool::ImportIssue> &issues,
+                                         const QString &source)
+{
+    if (!m_configIssueTable) {
+        return;
     }
+
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    m_configIssueTable->setRowCount(issues.size());
+    for (int row = 0; row < issues.size(); ++row) {
+        const configtool::ImportIssue &issue = issues.at(row);
+        const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
+            ? QStringLiteral("错误")
+            : QStringLiteral("警告");
+        const QColor color = issue.severity == configtool::ImportIssueSeverity::Error
+            ? QColor(QStringLiteral("#c0392b"))
+            : QColor(QStringLiteral("#b9770e"));
+
+        QString targetType;
+        QString targetKey;
+        const QString filePath = QFileInfo(issue.filePath).absoluteFilePath();
+        for (const configtool::ModelTemplate &model : project.models) {
+            const QString modelSource = model.source.filePath.trimmed().isEmpty()
+                ? QString()
+                : QFileInfo(model.source.filePath).absoluteFilePath();
+            if ((!modelSource.isEmpty() && !issue.filePath.trimmed().isEmpty() && modelSource == filePath)
+                || issue.filePath == model.modelId
+                || issue.message.contains(model.modelId)) {
+                targetType = QStringLiteral("model");
+                targetKey = model.modelId;
+                break;
+            }
+        }
+        if (targetType.isEmpty()) {
+            for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+                const QString deviceSource = device.source.filePath.trimmed().isEmpty()
+                    ? QString()
+                    : QFileInfo(device.source.filePath).absoluteFilePath();
+                if ((!deviceSource.isEmpty() && !issue.filePath.trimmed().isEmpty() && deviceSource == filePath)
+                    || issue.filePath == device.deviceId
+                    || issue.message.contains(device.deviceId)) {
+                    targetType = QStringLiteral("device");
+                    targetKey = device.deviceId;
+                    break;
+                }
+            }
+        }
+        if (targetType.isEmpty()) {
+            if (issue.message.contains(QStringLiteral("计算点"))) {
+                targetType = QStringLiteral("logic-computation");
+                targetKey = issue.message.section(QStringLiteral(" / "), 1, 1).trimmed();
+            } else if (issue.message.contains(QStringLiteral("控制转换"))) {
+                targetType = QStringLiteral("logic-control");
+                targetKey = issue.message.section(QStringLiteral(" / "), 1, 1).trimmed();
+            } else if (issue.message.contains(QStringLiteral("在线联动"))) {
+                targetType = QStringLiteral("logic-online");
+                targetKey = issue.message.section(QStringLiteral(" / "), 1, 1).trimmed();
+            } else if (issue.message.contains(QStringLiteral("AGC/AVC"))) {
+                targetType = QStringLiteral("logic-agcavc");
+                targetKey = issue.message.section(QStringLiteral(" / "), 1, 1).trimmed();
+            }
+        }
+
+        const QString objectText = targetKey.isEmpty() ? issue.filePath : targetKey;
+        const QStringList values = {source, severity, objectText, issue.message, issue.filePath};
+        for (int column = 0; column < values.size(); ++column) {
+            auto *item = new QTableWidgetItem(values.at(column));
+            item->setForeground(color);
+            item->setData(ConfigIssueRoleTargetType, targetType);
+            item->setData(ConfigIssueRoleTargetKey, targetKey);
+            m_configIssueTable->setItem(row, column, item);
+        }
+    }
+    if (m_configIssueCountValueLabel) {
+        m_configIssueCountValueLabel->setText(QString::number(issues.size()));
+    }
+}
+
+QStringList MainWindow::configTransferRelativePaths(const QString &projectRoot) const
+{
+    QStringList paths;
+    const QDir rootDir(projectRoot);
+    for (const QString &relativePath : configTransferPathList()) {
+        if (rootDir.exists(relativePath)) {
+            paths.append(relativePath);
+        }
+    }
+    return paths;
+}
+
+QString MainWindow::configRemoteTarget() const
+{
+    const QString host = m_configRemoteHostEdit ? m_configRemoteHostEdit->text().trimmed() : QString();
+    const QString user = m_configRemoteUserEdit ? m_configRemoteUserEdit->text().trimmed() : QString();
+    if (host.isEmpty()) {
+        return QString();
+    }
+    return user.isEmpty() ? host : QStringLiteral("%1@%2").arg(user, host);
+}
+
+QString MainWindow::configRemoteBaseDir() const
+{
+    const QString baseDir = m_configRemoteBaseDirEdit
+        ? m_configRemoteBaseDirEdit->text().trimmed()
+        : QStringLiteral("/home/cepgateway/app");
+    return baseDir.isEmpty() ? QStringLiteral("/home/cepgateway/app") : baseDir;
+}
+
+bool MainWindow::runConfigTransferProcess(const QString &program,
+                                          const QStringList &arguments,
+                                          const QString &title,
+                                          QString *output,
+                                          QProgressDialog *progress)
+{
+    QProcess process;
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    if (progress) {
+        progress->setLabelText(title);
+        progress->show();
+        QApplication::processEvents();
+    }
+    process.start(program, arguments);
+    if (!process.waitForStarted(10000)) {
+        if (output) {
+            *output = process.errorString();
+        }
+        return false;
+    }
+
+    QByteArray outputBytes;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (!process.waitForFinished(100)) {
+        outputBytes.append(process.readAllStandardOutput());
+        if (progress) {
+            const QString text = QString::fromUtf8(outputBytes);
+            const QStringList lines = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            if (!lines.isEmpty()) {
+                progress->setLabelText(QStringLiteral("%1\n%2").arg(title, lines.last().trimmed()));
+            }
+            QApplication::processEvents();
+            if (progress->wasCanceled()) {
+                process.kill();
+                process.waitForFinished(3000);
+                if (output) {
+                    *output = QStringLiteral("%1 已取消。").arg(title);
+                }
+                return false;
+            }
+        }
+        if (elapsed.elapsed() > 180000) {
+            process.kill();
+            process.waitForFinished(3000);
+            if (output) {
+                *output = QStringLiteral("%1 超时。").arg(title);
+            }
+            return false;
+        }
+    }
+    outputBytes.append(process.readAllStandardOutput());
+
+    const QString text = QString::fromUtf8(outputBytes);
+    if (output) {
+        *output = text;
+    }
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::onUploadConfigClicked()
+{
+    const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
+    if (projectRoot.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("上传配置"), QStringLiteral("请先选择配置工作区。"));
+        return;
+    }
+    if (configRemoteTarget().isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("上传配置"), QStringLiteral("请先填写设备地址。"));
+        return;
+    }
+
+    const QMessageBox::StandardButton confirm = QMessageBox::warning(
+        this,
+        QStringLiteral("上传配置"),
+        QStringLiteral("上传会先清空设备内对应配置目录，再写入当前工作区配置。\n\n请确认已经自行备份设备内原配置。\n\n是否继续上传？"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    onExportIec104ConfigClicked();
+    if (!m_lastConfigExportOk) {
+        statusBar()->showMessage(QStringLiteral("导出未完成，已取消上传"), 5000);
+        return;
+    }
+
+    const QStringList relativePaths = configTransferRelativePaths(projectRoot);
+    if (relativePaths.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("上传配置"), QStringLiteral("当前工作区没有可上传的配置目录。"));
+        return;
+    }
+
+    const QString archivePath = QDir::temp().filePath(
+        QStringLiteral("cepb_config_upload_%1.tar.gz").arg(QUuid::createUuid().toString(QUuid::Id128)));
+    QProgressDialog progress(QStringLiteral("准备上传配置..."), QStringLiteral("取消"), 0, 4, this);
+    progress.setWindowTitle(QStringLiteral("上传配置"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    auto setUploadStep = [&progress](int value, const QString &text) {
+        progress.setValue(value);
+        progress.setLabelText(text);
+        QApplication::processEvents();
+    };
+
+    QString output;
+    QStringList tarArgs = {QStringLiteral("--options"), QStringLiteral("hdrcharset=UTF-8"),
+                           QStringLiteral("-czvf"), archivePath, QStringLiteral("-C"), projectRoot};
+    tarArgs.append(relativePaths);
+    setUploadStep(0, QStringLiteral("本地打包配置..."));
+    if (!runConfigTransferProcess(QStringLiteral("tar"), tarArgs, QStringLiteral("本地打包配置"), &output, &progress)) {
+        QMessageBox::warning(this, QStringLiteral("上传配置"), QStringLiteral("本地配置打包失败：\n%1").arg(output));
+        return;
+    }
+    setUploadStep(1, QStringLiteral("本地打包完成。"));
+
+    const QString host = m_configRemoteHostEdit->text().trimmed();
+    const QString user = m_configRemoteUserEdit->text().trimmed();
+    const QString password = m_configRemotePasswordEdit ? m_configRemotePasswordEdit->text() : QString();
+    const QString port = QString::number(m_configRemotePortEdit ? m_configRemotePortEdit->value() : 10022);
+    const QString remoteBaseDir = configRemoteBaseDir();
+    const QString remoteArchivePath = QStringLiteral("/tmp/cepb_config_upload.tar.gz");
+    const bool hasPutty = !QStandardPaths::findExecutable(QStringLiteral("plink")).isEmpty()
+        && !QStandardPaths::findExecutable(QStringLiteral("pscp")).isEmpty();
+
+    QStringList cleanupParts;
+    cleanupParts << QStringLiteral("set -e")
+                 << QStringLiteral("mkdir -p %1").arg(remoteShellQuote(remoteBaseDir));
+    for (const QString &relativePath : relativePaths) {
+        const QString remotePath = remotePathJoin(remoteBaseDir, relativePath);
+        cleanupParts << QStringLiteral("rm -rf %1").arg(remoteShellQuote(remotePath))
+                     << QStringLiteral("mkdir -p %1").arg(remoteShellQuote(remotePath));
+    }
+    const QString cleanupCommand = cleanupParts.join(QStringLiteral("; "));
+    const QString extractCommand = QStringLiteral("set -e; tar -xzf %1 -C %2; rm -f %1")
+        .arg(remoteShellQuote(remoteArchivePath), remoteShellQuote(remoteBaseDir));
+
+    auto puttyArgs = [&](const QString &command) {
+        QStringList args = {QStringLiteral("-batch"), QStringLiteral("-ssh"), QStringLiteral("-P"), port};
+        if (!user.isEmpty()) {
+            args << QStringLiteral("-l") << user;
+        }
+        if (!password.isEmpty()) {
+            args << QStringLiteral("-pw") << password;
+        }
+        args << host << command;
+        return args;
+    };
+
+    bool ok = false;
+    if (hasPutty) {
+        setUploadStep(1, QStringLiteral("清空设备内对应配置目录..."));
+        ok = runConfigTransferProcess(QStringLiteral("plink"), puttyArgs(cleanupCommand), QStringLiteral("清空设备内对应配置目录"), &output, &progress);
+        if (ok) {
+            setUploadStep(2, QStringLiteral("上传配置压缩包..."));
+            QStringList args = {QStringLiteral("-batch"), QStringLiteral("-P"), port};
+            if (!user.isEmpty()) {
+                args << QStringLiteral("-l") << user;
+            }
+            if (!password.isEmpty()) {
+                args << QStringLiteral("-pw") << password;
+            }
+            args << archivePath << QStringLiteral("%1:%2").arg(host, remoteArchivePath);
+            ok = runConfigTransferProcess(QStringLiteral("pscp"), args, QStringLiteral("上传配置压缩包"), &output, &progress);
+        }
+        if (ok) {
+            setUploadStep(3, QStringLiteral("设备端解包配置..."));
+            ok = runConfigTransferProcess(QStringLiteral("plink"), puttyArgs(extractCommand), QStringLiteral("设备端解包配置"), &output, &progress);
+        }
+    } else {
+        const QString target = configRemoteTarget();
+        setUploadStep(1, QStringLiteral("清空设备内对应配置目录..."));
+        ok = runConfigTransferProcess(QStringLiteral("ssh"),
+                                      {QStringLiteral("-p"), port, target, cleanupCommand},
+                                      QStringLiteral("清空设备内对应配置目录"),
+                                      &output,
+                                      &progress);
+        if (ok) {
+            setUploadStep(2, QStringLiteral("上传配置压缩包..."));
+            ok = runConfigTransferProcess(QStringLiteral("scp"),
+                                          {QStringLiteral("-P"), port, archivePath, QStringLiteral("%1:%2").arg(target, remoteArchivePath)},
+                                          QStringLiteral("上传配置压缩包"),
+                                          &output,
+                                          &progress);
+        }
+        if (ok) {
+            setUploadStep(3, QStringLiteral("设备端解包配置..."));
+            ok = runConfigTransferProcess(QStringLiteral("ssh"),
+                                          {QStringLiteral("-p"), port, target, extractCommand},
+                                          QStringLiteral("设备端解包配置"),
+                                          &output,
+                                          &progress);
+        }
+    }
+
+    QFile::remove(archivePath);
+    if (!ok) {
+        QMessageBox::warning(this,
+                             QStringLiteral("上传配置"),
+                             QStringLiteral("配置上传失败。\n\n若设备需要密码，请确认本机已安装 plink/pscp，程序会使用密码 root 自动连接。\n\n%1").arg(output));
+        statusBar()->showMessage(QStringLiteral("配置上传失败"), 5000);
+        return;
+    }
+
+    progress.setValue(4);
+    statusBar()->showMessage(QStringLiteral("配置上传完成"), 8000);
+    QMessageBox::information(this, QStringLiteral("上传配置"), QStringLiteral("配置上传完成。"));
+}
+
+void MainWindow::onDownloadConfigClicked()
+{
+    if (configRemoteTarget().isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("下载配置"), QStringLiteral("请先填写设备地址。"));
+        return;
+    }
+
+    const QString startDir = configBrowseStartDir();
+    const QString targetDir = QFileDialog::getExistingDirectory(this, QStringLiteral("选择下载保存目录"), startDir);
+    if (targetDir.isEmpty()) {
+        return;
+    }
+
+    const QString host = m_configRemoteHostEdit->text().trimmed();
+    const QString user = m_configRemoteUserEdit->text().trimmed();
+    const QString password = m_configRemotePasswordEdit ? m_configRemotePasswordEdit->text() : QString();
+    const QString port = QString::number(m_configRemotePortEdit ? m_configRemotePortEdit->value() : 10022);
+    const QString remoteBaseDir = configRemoteBaseDir();
+    const QString remoteArchivePath = QStringLiteral("/tmp/cepb_config_download.tar.gz");
+    const QString archivePath = QDir::temp().filePath(
+        QStringLiteral("cepb_config_download_%1.tar.gz").arg(QUuid::createUuid().toString(QUuid::Id128)));
+    const bool hasPutty = !QStandardPaths::findExecutable(QStringLiteral("plink")).isEmpty()
+        && !QStandardPaths::findExecutable(QStringLiteral("pscp")).isEmpty();
+
+    QStringList quotedPaths;
+    for (const QString &relativePath : configTransferPathList()) {
+        quotedPaths << remoteShellQuote(relativePath);
+    }
+    const QString packageCommand = QStringLiteral(
+        "set -e; cd %1; paths=\"\"; for p in %2; do [ -e \"$p\" ] && { find \"$p\" -type f -print; paths=\"$paths $p\"; }; done; "
+        "[ -n \"$paths\" ] || { echo 'no config paths found'; exit 2; }; tar -czf %3 $paths")
+        .arg(remoteShellQuote(remoteBaseDir),
+             quotedPaths.join(QLatin1Char(' ')),
+             remoteShellQuote(remoteArchivePath));
+
+    auto puttyArgs = [&](const QString &command) {
+        QStringList args = {QStringLiteral("-batch"), QStringLiteral("-ssh"), QStringLiteral("-P"), port};
+        if (!user.isEmpty()) {
+            args << QStringLiteral("-l") << user;
+        }
+        if (!password.isEmpty()) {
+            args << QStringLiteral("-pw") << password;
+        }
+        args << host << command;
+        return args;
+    };
+
+    QProgressDialog progress(QStringLiteral("准备下载配置..."), QStringLiteral("取消"), 0, 4, this);
+    progress.setWindowTitle(QStringLiteral("下载配置"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    auto setDownloadStep = [&progress](int value, const QString &text) {
+        progress.setValue(value);
+        progress.setLabelText(text);
+        QApplication::processEvents();
+    };
+
+    QString output;
+    bool ok = false;
+    if (hasPutty) {
+        setDownloadStep(0, QStringLiteral("设备端扫描并打包配置..."));
+        ok = runConfigTransferProcess(QStringLiteral("plink"), puttyArgs(packageCommand), QStringLiteral("设备端扫描并打包配置"), &output, &progress);
+        if (ok) {
+            setDownloadStep(1, QStringLiteral("下载配置压缩包..."));
+            QStringList args = {QStringLiteral("-batch"), QStringLiteral("-P"), port};
+            if (!user.isEmpty()) {
+                args << QStringLiteral("-l") << user;
+            }
+            if (!password.isEmpty()) {
+                args << QStringLiteral("-pw") << password;
+            }
+            args << QStringLiteral("%1:%2").arg(host, remoteArchivePath) << archivePath;
+            ok = runConfigTransferProcess(QStringLiteral("pscp"), args, QStringLiteral("下载配置压缩包"), &output, &progress);
+        }
+        if (ok) {
+            runConfigTransferProcess(QStringLiteral("plink"),
+                                     puttyArgs(QStringLiteral("rm -f %1").arg(remoteShellQuote(remoteArchivePath))),
+                                     QStringLiteral("清理远端临时文件"));
+        }
+    } else {
+        const QString target = configRemoteTarget();
+        setDownloadStep(0, QStringLiteral("设备端扫描并打包配置..."));
+        ok = runConfigTransferProcess(QStringLiteral("ssh"),
+                                      {QStringLiteral("-p"), port, target, packageCommand},
+                                      QStringLiteral("设备端扫描并打包配置"),
+                                      &output,
+                                      &progress);
+        if (ok) {
+            setDownloadStep(1, QStringLiteral("下载配置压缩包..."));
+            ok = runConfigTransferProcess(QStringLiteral("scp"),
+                                          {QStringLiteral("-P"), port, QStringLiteral("%1:%2").arg(target, remoteArchivePath), archivePath},
+                                          QStringLiteral("下载配置压缩包"),
+                                          &output,
+                                          &progress);
+        }
+        if (ok) {
+            runConfigTransferProcess(QStringLiteral("ssh"),
+                                     {QStringLiteral("-p"), port, target, QStringLiteral("rm -f %1").arg(remoteShellQuote(remoteArchivePath))},
+                                     QStringLiteral("清理远端临时文件"));
+        }
+    }
+
+    if (!ok) {
+        QFile::remove(archivePath);
+        QMessageBox::warning(this,
+                             QStringLiteral("下载配置"),
+                             QStringLiteral("配置下载失败。\n\n若设备需要密码，请确认本机已安装 plink/pscp，程序会使用密码 root 自动连接。\n\n%1").arg(output));
+        statusBar()->showMessage(QStringLiteral("配置下载失败"), 5000);
+        return;
+    }
+
+    setDownloadStep(2, QStringLiteral("本地解包配置..."));
+    if (!runConfigTransferProcess(QStringLiteral("tar"),
+                                  {QStringLiteral("--options"), QStringLiteral("hdrcharset=UTF-8"),
+                                   QStringLiteral("-xzvf"), archivePath, QStringLiteral("-C"), targetDir},
+                                  QStringLiteral("本地解包配置"),
+                                  &output,
+                                  &progress)) {
+        QFile::remove(archivePath);
+        QMessageBox::warning(this, QStringLiteral("下载配置"), QStringLiteral("配置解包失败：\n%1").arg(output));
+        return;
+    }
+    QFile::remove(archivePath);
+
+    m_configImportDirEdit->setText(targetDir);
+    QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+    settings.setValue(QStringLiteral("config/lastBrowseDir"), targetDir);
+    setDownloadStep(3, QStringLiteral("重新导入下载后的配置..."));
+    onImportIec104ConfigClicked();
+    progress.setValue(4);
+    statusBar()->showMessage(QStringLiteral("配置下载完成"), 8000);
 }
 
 QString MainWindow::normalizedConfigProjectRoot(const QString &selectedPath) const
@@ -559,6 +1050,95 @@ void MainWindow::onConfigDeviceActivated(int row, int /*column*/)
     refreshDeviceDetail(row);
     refreshDeviceEditor(row);
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
+}
+
+void MainWindow::onConfigIssueActivated(int row, int /*column*/)
+{
+    navigateToConfigIssue(row);
+}
+
+void MainWindow::navigateToConfigIssue(int row)
+{
+    if (!m_configIssueTable || row < 0 || row >= m_configIssueTable->rowCount()) {
+        return;
+    }
+
+    QTableWidgetItem *anchorItem = m_configIssueTable->item(row, 0);
+    if (!anchorItem) {
+        return;
+    }
+
+    const QString targetType = anchorItem->data(ConfigIssueRoleTargetType).toString();
+    const QString targetKey = anchorItem->data(ConfigIssueRoleTargetKey).toString();
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+
+    if (targetType == QStringLiteral("model")) {
+        for (int index = 0; index < project.models.size(); ++index) {
+            if (project.models.at(index).modelId == targetKey) {
+                onConfigModelActivated(index, 0);
+                return;
+            }
+        }
+    } else if (targetType == QStringLiteral("device")) {
+        for (int index = 0; index < project.devices.size(); ++index) {
+            if (project.devices.at(index).deviceId == targetKey) {
+                onConfigDeviceActivated(index, 0);
+                return;
+            }
+        }
+    } else if (targetType == QStringLiteral("logic-computation")) {
+        refreshLogicComputationPointPage();
+        m_mainTabWidget->setCurrentWidget(m_logicComputationPointPage);
+        const QString deviceId = targetKey.section(QLatin1Char('#'), 0, 0);
+        const QString dataRef = targetKey.section(QLatin1Char('#'), 1);
+        const QList<configtool::LogicComputationPoint> &points = project.logicCenter.computationPoints;
+        for (int index = 0; index < points.size(); ++index) {
+            if ((points.at(index).deviceId == deviceId && points.at(index).dataRef == dataRef)
+                || targetKey.contains(points.at(index).deviceId + QLatin1Char('#') + points.at(index).dataRef)) {
+                m_logicComputationPointTable->selectRow(index);
+                return;
+            }
+        }
+        statusBar()->showMessage(QStringLiteral("已进入计算点页面，但未找到精确对象"), 5000);
+        return;
+    } else if (targetType == QStringLiteral("logic-control")) {
+        refreshLogicControlRulePage();
+        m_mainTabWidget->setCurrentWidget(m_logicControlRulePage);
+        const QString deviceId = targetKey.section(QLatin1Char('#'), 0, 0);
+        const QString dataRef = targetKey.section(QLatin1Char('#'), 1);
+        const QList<configtool::LogicControlRule> &rules = project.logicCenter.controlRules;
+        for (int index = 0; index < rules.size(); ++index) {
+            if ((rules.at(index).matchDeviceId == deviceId && rules.at(index).matchDataRef == dataRef)
+                || targetKey.contains(rules.at(index).matchDeviceId + QLatin1Char('#') + rules.at(index).matchDataRef)) {
+                m_logicControlRuleTable->selectRow(index);
+                refreshLogicControlTargetTable();
+                return;
+            }
+        }
+        statusBar()->showMessage(QStringLiteral("已进入控制转换页面，但未找到精确对象"), 5000);
+        return;
+    } else if (targetType == QStringLiteral("logic-online")) {
+        refreshLogicOnlineLinkPage();
+        m_mainTabWidget->setCurrentWidget(m_logicOnlineLinkPage);
+        const QList<configtool::LogicOnlineStatusLink> &links = project.logicCenter.onlineStatusLinks;
+        for (int index = 0; index < links.size(); ++index) {
+            const QString objectId = QStringLiteral("%1 -> %2").arg(links.at(index).deviceId, links.at(index).linkToDeviceId);
+            if (objectId == targetKey || targetKey.contains(objectId)) {
+                m_logicOnlineLinkTable->selectRow(index);
+                return;
+            }
+        }
+        statusBar()->showMessage(QStringLiteral("已进入在线联动页面，但未找到精确对象"), 5000);
+        return;
+    } else if (targetType == QStringLiteral("logic-agcavc")) {
+        refreshLogicAgcAvcPage();
+        m_mainTabWidget->setCurrentWidget(m_logicAgcAvcPage);
+        statusBar()->showMessage(QStringLiteral("已进入 AGC/AVC 页面"), 5000);
+        return;
+    }
+
+    m_mainTabWidget->setCurrentWidget(m_configIssuePage);
+    statusBar()->showMessage(QStringLiteral("该问题暂时无法定位到具体编辑对象"), 5000);
 }
 
 void MainWindow::onNewModelClicked()
@@ -1689,6 +2269,7 @@ void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &repo
             .arg(report.issues.size());
     }
     statusBar()->showMessage(statusMessage, 8000);
+    refreshConfigIssueTable(report.issues, QStringLiteral("导入"));
     refreshConfigObjectViews();
 }
 

@@ -1,8 +1,5 @@
 #include "mainwindow.h"
-#include "ui/point_selector_dialog.h"
 
-#include <QApplication>
-#include <QClipboard>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
@@ -214,9 +211,37 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(m_browseConfigImportDirBtn);
     m_exportIec104ConfigBtn = new QPushButton("导出配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
-    m_openPointSelectorBtn = new QPushButton(QStringLiteral("选择点位..."));
-    importRow->addWidget(m_openPointSelectorBtn);
     configLayout->addLayout(importRow);
+
+    auto *transferRow = new QHBoxLayout();
+    transferRow->addWidget(new QLabel(QStringLiteral("设备:")));
+    m_configRemoteHostEdit = new QLineEdit(QStringLiteral("192.168.7.10"), this);
+    m_configRemoteHostEdit->setMinimumWidth(130);
+    transferRow->addWidget(m_configRemoteHostEdit);
+    transferRow->addWidget(new QLabel(QStringLiteral("用户:")));
+    m_configRemoteUserEdit = new QLineEdit(QStringLiteral("root"), this);
+    m_configRemoteUserEdit->setMaximumWidth(90);
+    transferRow->addWidget(m_configRemoteUserEdit);
+    transferRow->addWidget(new QLabel(QStringLiteral("密码:")));
+    m_configRemotePasswordEdit = new QLineEdit(QStringLiteral("root"), this);
+    m_configRemotePasswordEdit->setEchoMode(QLineEdit::Password);
+    m_configRemotePasswordEdit->setMaximumWidth(90);
+    transferRow->addWidget(m_configRemotePasswordEdit);
+    transferRow->addWidget(new QLabel(QStringLiteral("端口:")));
+    m_configRemotePortEdit = new QSpinBox(this);
+    m_configRemotePortEdit->setRange(1, 65535);
+    m_configRemotePortEdit->setValue(10022);
+    m_configRemotePortEdit->setMaximumWidth(84);
+    transferRow->addWidget(m_configRemotePortEdit);
+    transferRow->addWidget(new QLabel(QStringLiteral("APP目录:")));
+    m_configRemoteBaseDirEdit = new QLineEdit(QStringLiteral("/home/cepgateway/app"), this);
+    m_configRemoteBaseDirEdit->setMinimumWidth(220);
+    transferRow->addWidget(m_configRemoteBaseDirEdit, 1);
+    m_uploadConfigBtn = new QPushButton(QStringLiteral("上传到设备"), this);
+    m_downloadConfigBtn = new QPushButton(QStringLiteral("从设备下载"), this);
+    transferRow->addWidget(m_uploadConfigBtn);
+    transferRow->addWidget(m_downloadConfigBtn);
+    configLayout->addLayout(transferRow);
 
     auto *summaryFrame = new QFrame(this);
     summaryFrame->setFrameShape(QFrame::StyledPanel);
@@ -234,7 +259,7 @@ MainWindow::MainWindow(QWidget *parent)
     summaryLayout->addRow("工程目录:", m_configSourceRootValueLabel);
     summaryLayout->addRow("模型数量:", m_configModelCountValueLabel);
     summaryLayout->addRow("设备数量:", m_configDeviceCountValueLabel);
-    summaryLayout->addRow("导入问题数:", m_configIssueCountValueLabel);
+    summaryLayout->addRow("问题数:", m_configIssueCountValueLabel);
     configLayout->addWidget(summaryFrame);
 
     auto *configWorkspaceSplitter = new QSplitter(Qt::Horizontal, this);
@@ -554,10 +579,40 @@ MainWindow::MainWindow(QWidget *parent)
     deviceDetailLayout->addRow("绑定点位数:", m_deviceDetailBindingCountLabel);
     detailPanelLayout->addWidget(deviceDetailPage, 1);
     configWorkspaceSplitter->addWidget(detailPanel);
-    configWorkspaceSplitter->setStretchFactor(0, 0);
+    configWorkspaceSplitter->setStretchFactor(0, 2);
     configWorkspaceSplitter->setStretchFactor(1, 1);
-    configWorkspaceSplitter->setSizes({420, 420});
+    configWorkspaceSplitter->setSizes({960, 500});
     configLayout->addWidget(configWorkspaceSplitter, 1);
+
+    m_configIssuePage = new QWidget(this);
+    auto *configIssueLayout = new QVBoxLayout(m_configIssuePage);
+    configIssueLayout->setContentsMargins(0, 0, 0, 0);
+    configIssueLayout->setSpacing(8);
+    auto *configIssueHint = new QLabel(
+        QStringLiteral("导入、导出和配置校验产生的问题会统一显示在这里。双击问题行可尽量跳转到对应编辑页面和对象。"),
+        this);
+    configIssueHint->setWordWrap(true);
+    configIssueLayout->addWidget(configIssueHint);
+    m_configIssueTable = new QTableWidget(0, 5, this);
+    m_configIssueTable->setHorizontalHeaderLabels({
+        QStringLiteral("来源"),
+        QStringLiteral("级别"),
+        QStringLiteral("对象"),
+        QStringLiteral("说明"),
+        QStringLiteral("文件")
+    });
+    m_configIssueTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_configIssueTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_configIssueTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_configIssueTable->setAlternatingRowColors(true);
+    m_configIssueTable->verticalHeader()->setVisible(false);
+    m_configIssueTable->horizontalHeader()->setStretchLastSection(true);
+    m_configIssueTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_configIssueTable->setColumnWidth(0, 80);
+    m_configIssueTable->setColumnWidth(1, 80);
+    m_configIssueTable->setColumnWidth(2, 260);
+    m_configIssueTable->setColumnWidth(3, 520);
+    configIssueLayout->addWidget(m_configIssueTable, 1);
 
     m_logicCenterPage = new QWidget(this);
     auto *logicLayout = new QVBoxLayout(m_logicCenterPage);
@@ -1019,6 +1074,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_configPage, "配置概览");
+    m_mainTabWidget->addTab(m_configIssuePage, "问题列表");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
     m_mainTabWidget->addTab(m_logicCenterPage, "逻辑中心");
@@ -1061,22 +1117,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onBrowseConfigImportDirClicked);
     connect(m_exportIec104ConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onExportIec104ConfigClicked);
-    connect(m_openPointSelectorBtn, &QPushButton::clicked,
-            this, [this]() {
-                PointSelectorDialog dialog(this);
-                dialog.setProject(&m_configProjectManager.project());
-                if (dialog.exec() != QDialog::Accepted) {
-                    return;
-                }
-
-                const PointSelectorDialog::SelectedPoint point = dialog.selectedPoint();
-                if (!point.valid) {
-                    return;
-                }
-                const QString text = point.deviceId + QLatin1Char('\t') + point.dataRef;
-                QApplication::clipboard()->setText(text);
-                statusBar()->showMessage(QStringLiteral("已复制点位: %1 / %2").arg(point.deviceId, point.dataRef), 5000);
-            });
+    connect(m_uploadConfigBtn, &QPushButton::clicked,
+            this, &MainWindow::onUploadConfigClicked);
+    connect(m_downloadConfigBtn, &QPushButton::clicked,
+            this, &MainWindow::onDownloadConfigClicked);
     for (QLineEdit *edit : {m_logicAgcAvcGroupIdEdit, m_logicAgcAvcVirtualDeviceIdEdit}) {
         connect(edit, &QLineEdit::textEdited,
                 this, &MainWindow::onLogicAgcAvcBasicEdited);
@@ -1190,6 +1234,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConfigModelActivated);
     connect(m_configDeviceTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onConfigDeviceActivated);
+    connect(m_configIssueTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onConfigIssueActivated);
     connect(m_modelIdEdit, &QLineEdit::textEdited,
             this, &MainWindow::onModelFieldEdited);
     connect(m_modelDisplayNameEdit, &QLineEdit::textEdited,
