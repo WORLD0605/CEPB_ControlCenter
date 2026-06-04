@@ -914,9 +914,16 @@ QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device)
 
 ImportIssueSeverity importSeverityForConfigIssue(ConfigIssueSeverity severity)
 {
-    return severity == ConfigIssueSeverity::Error
-        ? ImportIssueSeverity::Error
-        : ImportIssueSeverity::Warning;
+    switch (severity) {
+    case ConfigIssueSeverity::Info:
+        return ImportIssueSeverity::Info;
+    case ConfigIssueSeverity::Warning:
+        return ImportIssueSeverity::Warning;
+    case ConfigIssueSeverity::Error:
+        return ImportIssueSeverity::Error;
+    }
+
+    return ImportIssueSeverity::Error;
 }
 
 QString formatConfigIssue(const ConfigIssue &issue)

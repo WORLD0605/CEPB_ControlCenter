@@ -18,6 +18,14 @@ namespace {
 constexpr int TypeRole = Qt::UserRole;
 constexpr int HasTypeRole = Qt::UserRole + 1;
 
+struct PointSelectorFilterState {
+    QString deviceId;
+    int serviceType = -1;
+    QString searchText;
+};
+
+PointSelectorFilterState s_lastFilterState;
+
 QString pointKey(const QString &deviceId, const QString &dataRef)
 {
     return deviceId.trimmed() + QLatin1Char('#') + dataRef.trimmed();
@@ -90,11 +98,20 @@ PointSelectorDialog::PointSelectorDialog(QWidget *parent)
     mainLayout->addLayout(bottomLayout);
 
     connect(m_deviceCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &PointSelectorDialog::refreshPointTable);
+            this, [this](int) {
+                saveFilterState();
+                refreshPointTable();
+            });
     connect(m_typeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, &PointSelectorDialog::refreshPointTable);
+            this, [this](int) {
+                saveFilterState();
+                refreshPointTable();
+            });
     connect(m_searchEdit, &QLineEdit::textChanged,
-            this, &PointSelectorDialog::refreshPointTable);
+            this, [this]() {
+                saveFilterState();
+                refreshPointTable();
+            });
     connect(m_table, &QTableWidget::itemSelectionChanged,
             this, &PointSelectorDialog::updateSelectionState);
     connect(m_table, &QTableWidget::cellDoubleClicked,
@@ -109,6 +126,7 @@ void PointSelectorDialog::setProject(const configtool::ConfigProject *project)
 {
     m_project = project;
     rebuildDeviceFilter();
+    restoreFilterState();
     refreshPointTable();
 }
 
@@ -117,6 +135,7 @@ void PointSelectorDialog::setServiceTypeFilter(configtool::ModelServiceType type
     const int index = m_typeCombo->findData(static_cast<int>(type));
     if (index >= 0) {
         m_typeCombo->setCurrentIndex(index);
+        saveFilterState();
     }
 }
 
@@ -139,6 +158,32 @@ void PointSelectorDialog::rebuildDeviceFilter()
         }
     }
     m_deviceCombo->blockSignals(false);
+}
+
+void PointSelectorDialog::restoreFilterState()
+{
+    m_deviceCombo->blockSignals(true);
+    m_typeCombo->blockSignals(true);
+    m_searchEdit->blockSignals(true);
+
+    const int deviceIndex = m_deviceCombo->findData(s_lastFilterState.deviceId);
+    m_deviceCombo->setCurrentIndex(deviceIndex >= 0 ? deviceIndex : 0);
+
+    const int typeIndex = m_typeCombo->findData(s_lastFilterState.serviceType);
+    m_typeCombo->setCurrentIndex(typeIndex >= 0 ? typeIndex : 0);
+
+    m_searchEdit->setText(s_lastFilterState.searchText);
+
+    m_searchEdit->blockSignals(false);
+    m_typeCombo->blockSignals(false);
+    m_deviceCombo->blockSignals(false);
+}
+
+void PointSelectorDialog::saveFilterState() const
+{
+    s_lastFilterState.deviceId = m_deviceCombo ? m_deviceCombo->currentData().toString() : QString();
+    s_lastFilterState.serviceType = m_typeCombo ? m_typeCombo->currentData().toInt() : -1;
+    s_lastFilterState.searchText = m_searchEdit ? m_searchEdit->text() : QString();
 }
 
 QList<PointSelectorDialog::PointRow> PointSelectorDialog::collectPointRows() const

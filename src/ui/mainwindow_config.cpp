@@ -175,6 +175,20 @@ configtool::PointSignalType signalTypeForModelService(configtool::ModelServiceTy
     return configtool::PointSignalType::Yc;
 }
 
+QString defaultLnTypeForModelService(configtool::ModelServiceType type)
+{
+    switch (type) {
+    case configtool::ModelServiceType::Measurement:
+        return QStringLiteral("SlrInvMMXU");
+    case configtool::ModelServiceType::Status:
+        return QStringLiteral("SlrInvAlmGGIO");
+    case configtool::ModelServiceType::Control:
+        return QStringLiteral("SlrInvCtlGGIO");
+    }
+
+    return QStringLiteral("SlrInvMMXU");
+}
+
 QStringList splitClipboardLine(const QString &line)
 {
     return line.split('\t');
@@ -282,6 +296,78 @@ QColor configIssueSeverityColor(configtool::ConfigIssueSeverity severity)
     }
 
     return QColor(QStringLiteral("#c0392b"));
+}
+
+QString importIssueSeverityText(configtool::ImportIssueSeverity severity)
+{
+    switch (severity) {
+    case configtool::ImportIssueSeverity::Info:
+        return QStringLiteral("提示");
+    case configtool::ImportIssueSeverity::Warning:
+        return QStringLiteral("警告");
+    case configtool::ImportIssueSeverity::Error:
+        return QStringLiteral("错误");
+    }
+
+    return QStringLiteral("错误");
+}
+
+QColor importIssueSeverityColor(configtool::ImportIssueSeverity severity)
+{
+    switch (severity) {
+    case configtool::ImportIssueSeverity::Info:
+        return QColor(QStringLiteral("#2f6f9f"));
+    case configtool::ImportIssueSeverity::Warning:
+        return QColor(QStringLiteral("#b9770e"));
+    case configtool::ImportIssueSeverity::Error:
+        return QColor(QStringLiteral("#c0392b"));
+    }
+
+    return QColor(QStringLiteral("#c0392b"));
+}
+
+bool resolveLogicIssueTarget(const QString &message, QString *targetType, QString *targetKey)
+{
+    const QStringList rawParts = message.split(QStringLiteral(" / "));
+    QStringList parts;
+    parts.reserve(rawParts.size());
+    for (const QString &rawPart : rawParts) {
+        const QString part = rawPart.trimmed();
+        if (!part.isEmpty()) {
+            parts.append(part);
+        }
+    }
+
+    for (int index = 0; index < parts.size(); ++index) {
+        QString part = parts.at(index);
+        const int bracketIndex = part.indexOf(QLatin1Char(']'));
+        if (bracketIndex >= 0) {
+            part = part.mid(bracketIndex + 1).trimmed();
+        }
+
+        QString type;
+        if (part == QStringLiteral("计算点")) {
+            type = QStringLiteral("logic-computation");
+        } else if (part == QStringLiteral("控制转换")) {
+            type = QStringLiteral("logic-control");
+        } else if (part == QStringLiteral("在线联动")) {
+            type = QStringLiteral("logic-online");
+        } else if (part == QStringLiteral("AGC/AVC")) {
+            type = QStringLiteral("logic-agcavc");
+        }
+
+        if (!type.isEmpty()) {
+            if (targetType) {
+                *targetType = type;
+            }
+            if (targetKey) {
+                *targetKey = index + 1 < parts.size() ? parts.at(index + 1).trimmed() : QString();
+            }
+            return true;
+        }
+    }
+
+    return false;
 }
 
 QString doubleToUiText(double value)
@@ -427,11 +513,16 @@ void MainWindow::onExportIec104ConfigClicked()
 
     QStringList issueLines;
     bool hasErrors = false;
+    int warningCount = 0;
+    int infoCount = 0;
     for (const configtool::ImportIssue &issue : report.issues) {
-        const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
-            ? QStringLiteral("错误")
-            : QStringLiteral("警告");
+        const QString severity = importIssueSeverityText(issue.severity);
         hasErrors = hasErrors || issue.severity == configtool::ImportIssueSeverity::Error;
+        if (issue.severity == configtool::ImportIssueSeverity::Warning) {
+            ++warningCount;
+        } else if (issue.severity == configtool::ImportIssueSeverity::Info) {
+            ++infoCount;
+        }
         issueLines << QStringLiteral("[%1] %2").arg(severity, issue.message);
     }
 
@@ -448,8 +539,11 @@ void MainWindow::onExportIec104ConfigClicked()
     QString statusMessage = QStringLiteral("配置导出完成: 模型 %1，设备 %2")
         .arg(report.exportedModelCount)
         .arg(report.exportedDeviceCount);
-    if (!issueLines.isEmpty()) {
-        statusMessage += QStringLiteral("，警告 %1 条").arg(issueLines.size());
+    if (warningCount > 0) {
+        statusMessage += QStringLiteral("，警告 %1 条").arg(warningCount);
+    }
+    if (infoCount > 0) {
+        statusMessage += QStringLiteral("，提示 %1 条").arg(infoCount);
     }
     statusBar()->showMessage(statusMessage, 8000);
     refreshConfigIssueTable(report.issues, QStringLiteral("导出"));
@@ -468,26 +562,25 @@ void MainWindow::refreshConfigIssueTable(const QList<configtool::ImportIssue> &i
     m_configIssueTable->setRowCount(issues.size());
     for (int row = 0; row < issues.size(); ++row) {
         const configtool::ImportIssue &issue = issues.at(row);
-        const QString severity = issue.severity == configtool::ImportIssueSeverity::Error
-            ? QStringLiteral("错误")
-            : QStringLiteral("警告");
-        const QColor color = issue.severity == configtool::ImportIssueSeverity::Error
-            ? QColor(QStringLiteral("#c0392b"))
-            : QColor(QStringLiteral("#b9770e"));
+        const QString severity = importIssueSeverityText(issue.severity);
+        const QColor color = importIssueSeverityColor(issue.severity);
 
         QString targetType;
         QString targetKey;
         const QString filePath = QFileInfo(issue.filePath).absoluteFilePath();
-        for (const configtool::ModelTemplate &model : project.models) {
-            const QString modelSource = model.source.filePath.trimmed().isEmpty()
-                ? QString()
-                : QFileInfo(model.source.filePath).absoluteFilePath();
-            if ((!modelSource.isEmpty() && !issue.filePath.trimmed().isEmpty() && modelSource == filePath)
-                || issue.filePath == model.modelId
-                || issue.message.contains(model.modelId)) {
-                targetType = QStringLiteral("model");
-                targetKey = model.modelId;
-                break;
+        resolveLogicIssueTarget(issue.message, &targetType, &targetKey);
+        if (targetType.isEmpty()) {
+            for (const configtool::ModelTemplate &model : project.models) {
+                const QString modelSource = model.source.filePath.trimmed().isEmpty()
+                    ? QString()
+                    : QFileInfo(model.source.filePath).absoluteFilePath();
+                if ((!modelSource.isEmpty() && !issue.filePath.trimmed().isEmpty() && modelSource == filePath)
+                    || issue.filePath == model.modelId
+                    || issue.message.contains(model.modelId)) {
+                    targetType = QStringLiteral("model");
+                    targetKey = model.modelId;
+                    break;
+                }
             }
         }
         if (targetType.isEmpty()) {
@@ -1232,7 +1325,7 @@ void MainWindow::onAddPointClicked()
     point.name = QStringLiteral("NewPoint%1").arg(nextIndex);
     point.description = QStringLiteral("新建点位%1").arg(nextIndex);
     point.ldName = QStringLiteral("PROT");
-    point.lnType = QStringLiteral("CustomGGIO");
+    point.lnType = defaultLnTypeForModelService(newPointType);
     point.lnInst = QStringLiteral("1");
     point.doName = point.name;
     point.doType = newPointType == configtool::ModelServiceType::Status

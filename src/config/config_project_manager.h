@@ -9,6 +9,7 @@
 namespace configtool {
 
 enum class ImportIssueSeverity {
+    Info,
     Warning,
     Error
 };

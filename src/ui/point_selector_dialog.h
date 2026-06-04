@@ -51,6 +51,8 @@ private:
     };
 
     void rebuildDeviceFilter();
+    void restoreFilterState();
+    void saveFilterState() const;
     QList<PointRow> collectPointRows() const;
     const configtool::ModelTemplate *findModelById(const QString &modelId) const;
     static QString serviceTypeDisplayName(configtool::ModelServiceType type, bool hasServiceType);

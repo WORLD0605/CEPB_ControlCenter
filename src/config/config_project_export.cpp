@@ -20,7 +20,7 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
 
     if (exportModels.isEmpty() && exportDevices.isEmpty()) {
-        report.addIssue(ImportIssueSeverity::Warning, appDir, QStringLiteral("当前工程没有 104 模型或设备可导出"));
+        report.addIssue(ImportIssueSeverity::Info, appDir, QStringLiteral("当前工程没有 104 模型或设备可导出"));
         return false;
     }
 
@@ -135,7 +135,7 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Modbus);
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
     if (exportModels.isEmpty() && exportDevices.isEmpty()) {
-        report.addIssue(ImportIssueSeverity::Warning, appDir, QStringLiteral("当前工程没有 Modbus 模型或设备可导出"));
+        report.addIssue(ImportIssueSeverity::Info, appDir, QStringLiteral("当前工程没有 Modbus 模型或设备可导出"));
         return false;
     }
 
