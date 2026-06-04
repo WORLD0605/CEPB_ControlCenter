@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -12,17 +13,22 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDropEvent>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLayoutItem>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
@@ -1712,6 +1718,208 @@ int formulaOperandCount(const QString &formula)
     return count;
 }
 
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    auto dropPosition = [](QDropEvent *dropEvent) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        return dropEvent->position().toPoint();
+#else
+        return dropEvent->pos();
+#endif
+    };
+    auto insertRowAt = [](QTableWidget *table, const QPoint &dropPos) {
+        const int rowCount = table->rowCount();
+        int insertRow = table->rowAt(dropPos.y());
+        if (insertRow < 0) {
+            return rowCount;
+        }
+
+        const int rowTop = table->rowViewportPosition(insertRow);
+        const int rowHeight = table->rowHeight(insertRow);
+        if (dropPos.y() > rowTop + rowHeight / 2) {
+            ++insertRow;
+        }
+        return insertRow;
+    };
+    auto showDropLine = [](QTableWidget *table, QFrame *line, int insertRow) {
+        if (!table || !line) {
+            return;
+        }
+
+        const int rowCount = table->rowCount();
+        int y = 0;
+        if (insertRow <= 0) {
+            y = 0;
+        } else if (insertRow >= rowCount) {
+            const int lastRow = rowCount - 1;
+            y = table->rowViewportPosition(lastRow) + table->rowHeight(lastRow);
+        } else {
+            y = table->rowViewportPosition(insertRow);
+        }
+
+        y = qMax(0, y - line->height() / 2);
+        line->setGeometry(0, y, table->viewport()->width(), line->height());
+        line->raise();
+        line->show();
+    };
+    auto hideDropLine = [](QFrame *line) {
+        if (line) {
+            line->hide();
+        }
+    };
+
+    if (m_logicComputationPointTable
+        && watched == m_logicComputationPointTable->viewport()) {
+
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                m_logicComputationDragRow = m_logicComputationPointTable->rowAt(mouseEvent->pos().y());
+            }
+        } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            auto *dragEvent = static_cast<QDropEvent *>(event);
+            if (m_logicComputationDragRow >= 0) {
+                showDropLine(m_logicComputationPointTable,
+                             m_logicComputationDropLine,
+                             insertRowAt(m_logicComputationPointTable, dropPosition(dragEvent)));
+                dragEvent->setDropAction(Qt::CopyAction);
+                dragEvent->accept();
+                return true;
+            }
+        } else if (event->type() == QEvent::DragLeave) {
+            hideDropLine(m_logicComputationDropLine);
+            m_logicComputationDragRow = -1;
+        } else if (event->type() == QEvent::Drop) {
+            auto *dropEvent = static_cast<QDropEvent *>(event);
+            configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+            const int rowCount = logic.computationPoints.size();
+            const int sourceRow = m_logicComputationDragRow;
+            m_logicComputationDragRow = -1;
+            hideDropLine(m_logicComputationDropLine);
+
+            if (sourceRow < 0 || sourceRow >= rowCount || rowCount < 2) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            const int insertRow = insertRowAt(m_logicComputationPointTable, dropPosition(dropEvent));
+            const int destinationRow = insertRow > sourceRow ? insertRow - 1 : insertRow;
+            if (destinationRow < 0 || destinationRow >= rowCount || destinationRow == sourceRow) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            pushConfigUndoSnapshot();
+            logic.computationPoints.move(sourceRow, destinationRow);
+            refreshLogicCenterOverview();
+            refreshLogicComputationPointPage();
+            m_logicComputationPointTable->selectRow(destinationRow);
+            statusBar()->showMessage(QStringLiteral("已调整计算点顺序"), 5000);
+
+            dropEvent->setDropAction(Qt::CopyAction);
+            dropEvent->accept();
+            return true;
+        }
+    }
+
+    if (m_modelPointsTable
+        && watched == m_modelPointsTable->viewport()) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                m_modelPointDragRow = m_modelPointsTable->rowAt(mouseEvent->pos().y());
+            }
+        } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            auto *dragEvent = static_cast<QDropEvent *>(event);
+            if (m_modelPointDragRow >= 0) {
+                if (m_modelPointFilterTabBar && m_modelPointFilterTabBar->currentIndex() > 0) {
+                    showDropLine(m_modelPointsTable,
+                                 m_modelPointDropLine,
+                                 insertRowAt(m_modelPointsTable, dropPosition(dragEvent)));
+                } else {
+                    hideDropLine(m_modelPointDropLine);
+                }
+                dragEvent->setDropAction(Qt::CopyAction);
+                dragEvent->accept();
+                return true;
+            }
+        } else if (event->type() == QEvent::DragLeave) {
+            hideDropLine(m_modelPointDropLine);
+            m_modelPointDragRow = -1;
+        } else if (event->type() == QEvent::Drop) {
+            auto *dropEvent = static_cast<QDropEvent *>(event);
+            hideDropLine(m_modelPointDropLine);
+
+            const int sourceRow = m_modelPointDragRow;
+            m_modelPointDragRow = -1;
+            const int modelIndex = currentConfigModelIndex();
+            configtool::ConfigProject &project = m_configProjectManager.project();
+            const bool singleCategoryView = m_modelPointFilterTabBar
+                && m_modelPointFilterTabBar->currentIndex() > 0;
+            if (!singleCategoryView
+                || modelIndex < 0
+                || modelIndex >= project.models.size()
+                || sourceRow < 0
+                || sourceRow >= m_modelPointsTable->rowCount()) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            QTableWidgetItem *sourceItem = m_modelPointsTable->item(sourceRow, 0);
+            if (!sourceItem) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            const int serviceIndex = sourceItem->data(Qt::UserRole).toInt();
+            const int sourcePointIndex = sourceItem->data(Qt::UserRole + 1).toInt();
+            configtool::ModelTemplate &model = project.models[modelIndex];
+            if (serviceIndex < 0 || serviceIndex >= model.services.size()) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            configtool::ServiceTemplate &service = model.services[serviceIndex];
+            if (sourcePointIndex < 0 || sourcePointIndex >= service.points.size() || service.points.size() < 2) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            const int insertRow = qBound(0,
+                                         insertRowAt(m_modelPointsTable, dropPosition(dropEvent)),
+                                         service.points.size());
+            const int destinationPointIndex = insertRow > sourcePointIndex ? insertRow - 1 : insertRow;
+            if (destinationPointIndex < 0
+                || destinationPointIndex >= service.points.size()
+                || destinationPointIndex == sourcePointIndex) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            pushConfigUndoSnapshot();
+            const QString movedPointId = service.points.at(sourcePointIndex).pointId;
+            service.points.move(sourcePointIndex, destinationPointIndex);
+            refreshConfigObjectViews();
+            refreshModelDetail(modelIndex);
+            selectModelPointById(movedPointId);
+            statusBar()->showMessage(QStringLiteral("已调整模型点位顺序"), 5000);
+
+            dropEvent->setDropAction(Qt::CopyAction);
+            dropEvent->accept();
+            return true;
+        }
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
 void MainWindow::refreshSelectionOverview()
 {
     const int modelIndex = currentConfigModelIndex();
@@ -2403,13 +2611,15 @@ void MainWindow::refreshLogicComputationPointPage()
         auto *operandsItem = new QTableWidgetItem(operands.join(QStringLiteral("; ")));
         auto *descriptionItem = new QTableWidgetItem(point.description);
 
-        deviceItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        dataRefItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        formulaItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable);
-        dropItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+        const Qt::ItemFlags readOnlyFlags = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled;
+        const Qt::ItemFlags editableFlags = readOnlyFlags | Qt::ItemIsEditable;
+        deviceItem->setFlags(readOnlyFlags);
+        dataRefItem->setFlags(readOnlyFlags);
+        formulaItem->setFlags(editableFlags);
+        dropItem->setFlags(readOnlyFlags | Qt::ItemIsUserCheckable);
         dropItem->setCheckState(point.dropOperands ? Qt::Checked : Qt::Unchecked);
-        operandsItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        descriptionItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsEditable);
+        operandsItem->setFlags(readOnlyFlags);
+        descriptionItem->setFlags(editableFlags);
 
         m_logicComputationPointTable->setItem(row, LogicComputationColumnOutputDevice, deviceItem);
         m_logicComputationPointTable->setItem(row, LogicComputationColumnOutputPoint, dataRefItem);
@@ -2985,6 +3195,268 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
     upsertLogicTemplatePoint(request);
 }
 
+bool MainWindow::editLogicComputationOperands(const QString &title,
+                                              const QString &formula,
+                                              QList<configtool::LogicOperand> &operands)
+{
+    const int operandCount = formulaOperandCount(formula);
+    if (operandCount <= 0) {
+        QMessageBox::information(this,
+                                 title,
+                                 QStringLiteral("公式中没有 {1} 这类源点占位符，不需要配置源点。"));
+        operands.clear();
+        return true;
+    }
+
+    while (operands.size() < operandCount) {
+        operands.append(configtool::LogicOperand());
+    }
+    while (operands.size() > operandCount) {
+        operands.removeLast();
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(title);
+    dialog.resize(820, 420);
+
+    auto *mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(10);
+
+    auto *formulaLabel = new QLabel(QStringLiteral("公式: %1").arg(formula.trimmed()), &dialog);
+    formulaLabel->setWordWrap(true);
+    mainLayout->addWidget(formulaLabel);
+
+    auto *hintLabel = new QLabel(QStringLiteral("按公式中的 {1}、{2} 顺序配置源点。"), &dialog);
+    hintLabel->setWordWrap(true);
+    mainLayout->addWidget(hintLabel);
+
+    auto *table = new QTableWidget(operandCount, 3, &dialog);
+    table->setHorizontalHeaderLabels({
+        QStringLiteral("占位符"),
+        QStringLiteral("源设备"),
+        QStringLiteral("源点")
+    });
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setColumnWidth(0, 90);
+    table->setColumnWidth(1, 160);
+    mainLayout->addWidget(table, 1);
+
+    auto refreshRow = [&](int row) {
+        const configtool::LogicOperand &operand = operands.at(row);
+        auto *placeholderItem = new QTableWidgetItem(QStringLiteral("{%1}").arg(row + 1));
+        auto *deviceItem = new QTableWidgetItem(operand.deviceId);
+        auto *dataRefItem = new QTableWidgetItem(operand.dataRef);
+        placeholderItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        deviceItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        dataRefItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+        table->setItem(row, 0, placeholderItem);
+        table->setItem(row, 1, deviceItem);
+        table->setItem(row, 2, dataRefItem);
+    };
+
+    for (int row = 0; row < operandCount; ++row) {
+        refreshRow(row);
+    }
+
+    auto selectOperand = [&](int row) {
+        if (row < 0 || row >= operands.size()) {
+            return;
+        }
+
+        PointSelectorDialog selector(&dialog);
+        selector.setProject(&m_configProjectManager.project());
+        selector.setWindowTitle(QStringLiteral("选择 %1").arg(table->item(row, 0)->text()));
+        if (selector.exec() != QDialog::Accepted) {
+            return;
+        }
+
+        const PointSelectorDialog::SelectedPoint selected = selector.selectedPoint();
+        if (!selected.valid) {
+            return;
+        }
+
+        operands[row].deviceId = selected.deviceId;
+        operands[row].dataRef = selected.dataRef;
+        refreshRow(row);
+        table->selectRow(row);
+    };
+
+    auto *toolbar = new QHBoxLayout();
+    auto *selectBtn = new QPushButton(QStringLiteral("选择源点"), &dialog);
+    auto *clearBtn = new QPushButton(QStringLiteral("清空本行"), &dialog);
+    toolbar->addWidget(selectBtn);
+    toolbar->addWidget(clearBtn);
+    toolbar->addStretch();
+    mainLayout->addLayout(toolbar);
+
+    connect(selectBtn, &QPushButton::clicked, &dialog, [&]() {
+        selectOperand(table->currentRow());
+    });
+    connect(clearBtn, &QPushButton::clicked, &dialog, [&]() {
+        const int row = table->currentRow();
+        if (row < 0 || row >= operands.size()) {
+            return;
+        }
+
+        operands[row] = configtool::LogicOperand();
+        refreshRow(row);
+        table->selectRow(row);
+    });
+    connect(table, &QTableWidget::cellDoubleClicked, &dialog, [&](int row, int) {
+        selectOperand(row);
+    });
+    if (operandCount > 0) {
+        table->selectRow(0);
+    }
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定"));
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    mainLayout->addWidget(buttonBox);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, [&]() {
+        for (int row = 0; row < operands.size(); ++row) {
+            const configtool::LogicOperand &operand = operands.at(row);
+            if (operand.deviceId.trimmed().isEmpty() || operand.dataRef.trimmed().isEmpty()) {
+                QMessageBox::information(&dialog,
+                                         title,
+                                         QStringLiteral("请先配置 %1 的源点。").arg(table->item(row, 0)->text()));
+                table->selectRow(row);
+                return;
+            }
+        }
+        dialog.accept();
+    });
+
+    return dialog.exec() == QDialog::Accepted;
+}
+
+void MainWindow::onAddLogicComputationPointClicked()
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    PointSelectorDialog outputSelector(this);
+    outputSelector.setProject(&m_configProjectManager.project());
+    outputSelector.setWindowTitle(QStringLiteral("选择计算点输出点"));
+    if (outputSelector.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const PointSelectorDialog::SelectedPoint output = outputSelector.selectedPoint();
+    if (!output.valid) {
+        return;
+    }
+    for (const configtool::LogicComputationPoint &existing : logic.computationPoints) {
+        if (existing.deviceId.trimmed() == output.deviceId.trimmed()
+            && existing.dataRef.trimmed() == output.dataRef.trimmed()) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("新增计算点"),
+                                 QStringLiteral("计算点 %1#%2 已存在，请选择其他输出点或直接编辑现有行。")
+                                     .arg(output.deviceId, output.dataRef));
+            return;
+        }
+    }
+
+    bool ok = false;
+    const QString formula = QInputDialog::getText(this,
+                                                  QStringLiteral("新增计算点"),
+                                                  QStringLiteral("公式:"),
+                                                  QLineEdit::Normal,
+                                                  QStringLiteral("{1}"),
+                                                  &ok).trimmed();
+    if (!ok) {
+        return;
+    }
+    if (formula.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("新增计算点"), QStringLiteral("公式不能为空。"));
+        return;
+    }
+    if (formulaOperandCount(formula) <= 0) {
+        QMessageBox::warning(this,
+                             QStringLiteral("新增计算点"),
+                             QStringLiteral("公式至少需要包含一个 {1} 这类源点占位符。"));
+        return;
+    }
+
+    configtool::LogicComputationPoint point;
+    point.deviceId = output.deviceId;
+    point.dataRef = output.dataRef;
+    point.formula = formula;
+    point.dropOperands = true;
+    point.description = QStringLiteral("手工新增计算点");
+    if (!editLogicComputationOperands(QStringLiteral("配置计算点源点"), point.formula, point.operands)) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    logic.computationPoints.append(point);
+    refreshLogicCenterOverview();
+    refreshLogicComputationPointPage();
+    const int row = logic.computationPoints.size() - 1;
+    if (row >= 0) {
+        m_logicComputationPointTable->selectRow(row);
+    }
+    statusBar()->showMessage(QStringLiteral("已新增计算点 %1#%2").arg(point.deviceId, point.dataRef), 5000);
+}
+
+void MainWindow::onCopyLogicComputationPointClicked()
+{
+    if (!m_logicComputationPointTable) {
+        return;
+    }
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    const int row = m_logicComputationPointTable->currentRow();
+    if (row < 0 || row >= logic.computationPoints.size()) {
+        QMessageBox::information(this, QStringLiteral("复制计算点"), QStringLiteral("请先选择要复制的计算点。"));
+        return;
+    }
+
+    configtool::LogicComputationPoint point = logic.computationPoints.at(row);
+    PointSelectorDialog outputSelector(this);
+    outputSelector.setProject(&m_configProjectManager.project());
+    outputSelector.setWindowTitle(QStringLiteral("选择复制后的输出点"));
+    if (outputSelector.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const PointSelectorDialog::SelectedPoint output = outputSelector.selectedPoint();
+    if (!output.valid) {
+        return;
+    }
+    for (int index = 0; index < logic.computationPoints.size(); ++index) {
+        const configtool::LogicComputationPoint &existing = logic.computationPoints.at(index);
+        if (existing.deviceId.trimmed() == output.deviceId.trimmed()
+            && existing.dataRef.trimmed() == output.dataRef.trimmed()) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("复制计算点"),
+                                 QStringLiteral("计算点 %1#%2 已存在，请选择其他输出点。")
+                                     .arg(output.deviceId, output.dataRef));
+            return;
+        }
+    }
+
+    point.deviceId = output.deviceId;
+    point.dataRef = output.dataRef;
+    point.description = point.description.trimmed().isEmpty()
+        ? QStringLiteral("复制计算点")
+        : QStringLiteral("%1 (复制)").arg(point.description);
+
+    pushConfigUndoSnapshot();
+    logic.computationPoints.append(point);
+    refreshLogicCenterOverview();
+    refreshLogicComputationPointPage();
+    const int newRow = logic.computationPoints.size() - 1;
+    if (newRow >= 0) {
+        m_logicComputationPointTable->selectRow(newRow);
+    }
+    statusBar()->showMessage(QStringLiteral("已复制计算点 %1#%2").arg(point.deviceId, point.dataRef), 5000);
+}
+
 void MainWindow::onDeleteLogicComputationPointClicked()
 {
     if (!m_logicComputationPointTable) {
@@ -3112,33 +3584,11 @@ void MainWindow::selectLogicComputationOperands(int row)
         return;
     }
 
-    const configtool::LogicComputationPoint &point = logic.computationPoints.at(row);
-    const int operandCount = formulaOperandCount(point.formula);
-    if (operandCount <= 0) {
-        QMessageBox::information(this,
-                                 QStringLiteral("选择源点"),
-                                 QStringLiteral("公式中没有 {1} 这类源点占位符，无法反推出源点数量。"));
+    QList<configtool::LogicOperand> operands = logic.computationPoints.at(row).operands;
+    if (!editLogicComputationOperands(QStringLiteral("编辑计算点源点"),
+                                      logic.computationPoints.at(row).formula,
+                                      operands)) {
         return;
-    }
-
-    QList<configtool::LogicOperand> operands;
-    for (int index = 0; index < operandCount; ++index) {
-        PointSelectorDialog dialog(this);
-        dialog.setProject(&m_configProjectManager.project());
-        dialog.setWindowTitle(QStringLiteral("选择第 %1 个源点").arg(index + 1));
-        if (dialog.exec() != QDialog::Accepted) {
-            return;
-        }
-
-        const PointSelectorDialog::SelectedPoint selected = dialog.selectedPoint();
-        if (!selected.valid) {
-            return;
-        }
-
-        configtool::LogicOperand operand;
-        operand.deviceId = selected.deviceId;
-        operand.dataRef = selected.dataRef;
-        operands.append(operand);
     }
 
     pushConfigUndoSnapshot();

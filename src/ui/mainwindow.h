@@ -25,6 +25,8 @@ class QTabWidget;
 class QTabBar;
 class QTimer;
 class QSplitter;
+class QEvent;
+class QFrame;
 
 enum class AppViewMode {
     Terminal,
@@ -52,6 +54,9 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+private:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void onConnectClicked();
@@ -91,6 +96,8 @@ private slots:
     void onGenerateLogicAgcAvcTotalPClicked();
     void onGenerateLogicAgcAvcTotalQClicked();
     void onGenerateLogicAgcAvcCosClicked();
+    void onAddLogicComputationPointClicked();
+    void onCopyLogicComputationPointClicked();
     void onDeleteLogicComputationPointClicked();
     void onLogicComputationPointItemChanged(QTableWidgetItem *item);
     void onLogicComputationPointCellDoubleClicked(int row, int column);
@@ -164,6 +171,9 @@ private:
                                            const QString &operatorText,
                                            const QString &titleText,
                                            const QString &defaultOutputDataRef);
+    bool editLogicComputationOperands(const QString &title,
+                                      const QString &formula,
+                                      QList<configtool::LogicOperand> &operands);
     void selectLogicComputationOutputPoint(int row);
     void selectLogicComputationOperands(int row);
 
@@ -182,6 +192,10 @@ private:
     bool m_updatingLogicAgcAvcPage = false;
     bool m_updatingLogicComputationPointPage = false;
     bool m_restoringConfigUndo = false;
+    int m_logicComputationDragRow = -1;
+    int m_modelPointDragRow = -1;
+    QFrame *m_modelPointDropLine = nullptr;
+    QFrame *m_logicComputationDropLine = nullptr;
     QList<configtool::ConfigProject> m_configUndoStack;
 
     QLineEdit *m_ipEdit = nullptr;
@@ -237,6 +251,8 @@ private:
     QLabel *m_logicIssueCountLabel = nullptr;
     QLabel *m_logicExportPathLabel = nullptr;
     QTableWidget *m_logicIssueTable = nullptr;
+    QPushButton *m_addLogicComputationPointBtn = nullptr;
+    QPushButton *m_copyLogicComputationPointBtn = nullptr;
     QPushButton *m_deleteLogicComputationPointBtn = nullptr;
     QTableWidget *m_logicComputationPointTable = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;

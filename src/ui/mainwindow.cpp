@@ -387,6 +387,17 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_modelPointsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_modelPointsTable->setDragEnabled(true);
+    m_modelPointsTable->setAcceptDrops(true);
+    m_modelPointsTable->setDropIndicatorShown(true);
+    m_modelPointsTable->setDragDropMode(QAbstractItemView::DragDrop);
+    m_modelPointsTable->setDragDropOverwriteMode(false);
+    m_modelPointsTable->setDefaultDropAction(Qt::CopyAction);
+    m_modelPointsTable->viewport()->installEventFilter(this);
+    m_modelPointDropLine = new QFrame(m_modelPointsTable->viewport());
+    m_modelPointDropLine->setFixedHeight(3);
+    m_modelPointDropLine->setStyleSheet(QStringLiteral("background-color: #ff8c00; border-radius: 1px;"));
+    m_modelPointDropLine->hide();
     m_modelPointsTable->verticalHeader()->setVisible(false);
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
     m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -816,7 +827,11 @@ MainWindow::MainWindow(QWidget *parent)
     logicComputationLayout->addWidget(logicTemplateGroup);
 
     auto *logicComputationToolbar = new QHBoxLayout();
+    m_addLogicComputationPointBtn = new QPushButton(QStringLiteral("新增"), this);
+    m_copyLogicComputationPointBtn = new QPushButton(QStringLiteral("复制"), this);
     m_deleteLogicComputationPointBtn = new QPushButton(QStringLiteral("删除"), this);
+    logicComputationToolbar->addWidget(m_addLogicComputationPointBtn);
+    logicComputationToolbar->addWidget(m_copyLogicComputationPointBtn);
     logicComputationToolbar->addWidget(m_deleteLogicComputationPointBtn);
     logicComputationToolbar->addStretch();
     logicComputationLayout->addLayout(logicComputationToolbar);
@@ -834,6 +849,17 @@ MainWindow::MainWindow(QWidget *parent)
                                                   | QAbstractItemView::EditKeyPressed);
     m_logicComputationPointTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_logicComputationPointTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_logicComputationPointTable->setDragEnabled(true);
+    m_logicComputationPointTable->setAcceptDrops(true);
+    m_logicComputationPointTable->setDropIndicatorShown(true);
+    m_logicComputationPointTable->setDragDropMode(QAbstractItemView::DragDrop);
+    m_logicComputationPointTable->setDragDropOverwriteMode(false);
+    m_logicComputationPointTable->setDefaultDropAction(Qt::CopyAction);
+    m_logicComputationPointTable->viewport()->installEventFilter(this);
+    m_logicComputationDropLine = new QFrame(m_logicComputationPointTable->viewport());
+    m_logicComputationDropLine->setFixedHeight(3);
+    m_logicComputationDropLine->setStyleSheet(QStringLiteral("background-color: #ff8c00; border-radius: 1px;"));
+    m_logicComputationDropLine->hide();
     m_logicComputationPointTable->setAlternatingRowColors(true);
     m_logicComputationPointTable->verticalHeader()->setVisible(false);
     m_logicComputationPointTable->horizontalHeader()->setStretchLastSection(true);
@@ -944,6 +970,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onGenerateLogicAgcAvcTotalQClicked);
     connect(m_generateLogicCosBtn, &QPushButton::clicked,
             this, &MainWindow::onGenerateLogicAgcAvcCosClicked);
+    connect(m_addLogicComputationPointBtn, &QPushButton::clicked,
+            this, &MainWindow::onAddLogicComputationPointClicked);
+    connect(m_copyLogicComputationPointBtn, &QPushButton::clicked,
+            this, &MainWindow::onCopyLogicComputationPointClicked);
     connect(m_deleteLogicComputationPointBtn, &QPushButton::clicked,
             this, &MainWindow::onDeleteLogicComputationPointClicked);
     connect(m_logicComputationPointTable, &QTableWidget::itemChanged,
