@@ -207,6 +207,56 @@ QString deviceIdFromChoiceText(const QString &text)
     return text.section(QStringLiteral(" - "), 0, 0).trimmed();
 }
 
+QString modelChoiceText(const configtool::ModelTemplate &model)
+{
+    const QString name = model.displayName.trimmed();
+    return name.isEmpty()
+        ? model.modelId
+        : QStringLiteral("%1 - %2").arg(model.modelId, name);
+}
+
+QString modelIdFromChoiceText(const QString &text)
+{
+    return text.section(QStringLiteral(" - "), 0, 0).trimmed();
+}
+
+QString pointShortNameFromDataRef(const QString &dataRef)
+{
+    return dataRef.section(QLatin1Char('.'), -1).trimmed();
+}
+
+QString pointShortName(const configtool::PointTemplate &point)
+{
+    const QString name = point.name.trimmed();
+    if (!name.isEmpty()) {
+        return name;
+    }
+    const QString doName = point.doName.trimmed();
+    return doName.isEmpty() ? pointShortNameFromDataRef(point.dataRef()) : doName;
+}
+
+const configtool::ModelTemplate *findModelById(const configtool::ConfigProject &project,
+                                               const QString &modelId)
+{
+    for (const configtool::ModelTemplate &model : project.models) {
+        if (model.modelId == modelId) {
+            return &model;
+        }
+    }
+    return nullptr;
+}
+
+const configtool::ProtocolDeviceInstance *findDeviceById(const configtool::ConfigProject &project,
+                                                         const QString &deviceId)
+{
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.deviceId == deviceId) {
+            return &device;
+        }
+    }
+    return nullptr;
+}
+
 QString remoteShellQuote(const QString &text)
 {
     QString quoted = text;
@@ -3726,6 +3776,472 @@ void MainWindow::generateLogicStatusAndTemplateVisual()
                                       QStringLiteral("AND"),
                                       QStringLiteral("所有输入点都为 1 时，输出点为 1"),
                                       QStringLiteral("StatusAnd"));
+}
+
+void MainWindow::generateLogicDerivedDeviceMappingVisual()
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (project.devices.isEmpty() || project.models.isEmpty()) {
+        QMessageBox::information(this,
+                                 QStringLiteral("派生设备"),
+                                 QStringLiteral("请先导入或创建源设备和目标模型。"));
+        return;
+    }
+
+    QStringList deviceChoices;
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (!device.deviceId.trimmed().isEmpty()) {
+            deviceChoices.append(deviceChoiceText(device));
+        }
+    }
+    deviceChoices.removeDuplicates();
+
+    QStringList modelChoices;
+    for (const configtool::ModelTemplate &model : project.models) {
+        if (!model.modelId.trimmed().isEmpty()) {
+            modelChoices.append(modelChoiceText(model));
+        }
+    }
+    modelChoices.removeDuplicates();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("派生设备批量生成"));
+    dialog.resize(980, 720);
+
+    auto *mainLayout = new QVBoxLayout(&dialog);
+    auto *basicGroup = new QGroupBox(QStringLiteral("基本设置"), &dialog);
+    auto *basicLayout = new QGridLayout(basicGroup);
+    auto *sourceDeviceCombo = new QComboBox(basicGroup);
+    sourceDeviceCombo->addItems(deviceChoices);
+    auto *targetModelCombo = new QComboBox(basicGroup);
+    targetModelCombo->addItems(modelChoices);
+    auto *createMissingDeviceCheck = new QCheckBox(QStringLiteral("自动创建缺失的目标设备"), basicGroup);
+    createMissingDeviceCheck->setChecked(true);
+    auto *generateOnlineLinkCheck = new QCheckBox(QStringLiteral("同时生成在线联动"), basicGroup);
+    generateOnlineLinkCheck->setChecked(true);
+    basicLayout->addWidget(new QLabel(QStringLiteral("源真实设备:"), basicGroup), 0, 0);
+    basicLayout->addWidget(sourceDeviceCombo, 0, 1);
+    basicLayout->addWidget(new QLabel(QStringLiteral("目标设备模型:"), basicGroup), 0, 2);
+    basicLayout->addWidget(targetModelCombo, 0, 3);
+    basicLayout->addWidget(createMissingDeviceCheck, 1, 1);
+    basicLayout->addWidget(generateOnlineLinkCheck, 1, 3);
+    mainLayout->addWidget(basicGroup);
+
+    auto *instanceGroup = new QGroupBox(QStringLiteral("派生实例"), &dialog);
+    auto *instanceLayout = new QVBoxLayout(instanceGroup);
+    auto *instanceToolbar = new QHBoxLayout();
+    auto *detectPrefixBtn = new QPushButton(QStringLiteral("从源点识别前缀"), instanceGroup);
+    auto *addInstanceBtn = new QPushButton(QStringLiteral("新增实例"), instanceGroup);
+    auto *removeInstanceBtn = new QPushButton(QStringLiteral("删除实例"), instanceGroup);
+    instanceToolbar->addWidget(detectPrefixBtn);
+    instanceToolbar->addSpacing(12);
+    instanceToolbar->addWidget(addInstanceBtn);
+    instanceToolbar->addWidget(removeInstanceBtn);
+    instanceToolbar->addStretch();
+    instanceLayout->addLayout(instanceToolbar);
+
+    auto *instanceTable = new QTableWidget(0, 3, instanceGroup);
+    instanceTable->setHorizontalHeaderLabels({
+        QStringLiteral("源点前缀"),
+        QStringLiteral("目标 DeviceId"),
+        QStringLiteral("目标设备描述")
+    });
+    instanceTable->horizontalHeader()->setStretchLastSection(true);
+    instanceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    instanceTable->setColumnWidth(0, 180);
+    instanceTable->setColumnWidth(1, 160);
+    instanceTable->setColumnWidth(2, 260);
+    instanceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    instanceTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    instanceLayout->addWidget(instanceTable, 1);
+    mainLayout->addWidget(instanceGroup, 1);
+
+    auto *previewGroup = new QGroupBox(QStringLiteral("生成预览"), &dialog);
+    auto *previewLayout = new QVBoxLayout(previewGroup);
+    auto *previewToolbar = new QHBoxLayout();
+    auto *refreshPreviewBtn = new QPushButton(QStringLiteral("刷新预览"), previewGroup);
+    auto *previewSummaryLabel = new QLabel(QStringLiteral("尚未生成预览"), previewGroup);
+    previewToolbar->addWidget(refreshPreviewBtn);
+    previewToolbar->addWidget(previewSummaryLabel, 1);
+    previewLayout->addLayout(previewToolbar);
+    auto *previewTable = new QTableWidget(0, 5, previewGroup);
+    previewTable->setHorizontalHeaderLabels({
+        QStringLiteral("源点"),
+        QStringLiteral("目标设备"),
+        QStringLiteral("目标点"),
+        QStringLiteral("动作"),
+        QStringLiteral("状态")
+    });
+    previewTable->horizontalHeader()->setStretchLastSection(true);
+    previewTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    previewTable->setColumnWidth(0, 320);
+    previewTable->setColumnWidth(1, 120);
+    previewTable->setColumnWidth(2, 320);
+    previewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    previewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    previewTable->setAlternatingRowColors(true);
+    previewLayout->addWidget(previewTable, 1);
+    mainLayout->addWidget(previewGroup, 2);
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("生成"));
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    mainLayout->addWidget(buttonBox);
+
+    struct DerivedInstance {
+        QString prefix;
+        QString targetDeviceId;
+        QString description;
+    };
+    struct DerivedPreview {
+        QString sourceDataRef;
+        QString targetDeviceId;
+        QString targetDataRef;
+        QString action;
+        QString status;
+        bool valid = false;
+    };
+
+    QList<DerivedPreview> previews;
+
+    auto collectInstances = [&]() {
+        QList<DerivedInstance> instances;
+        for (int row = 0; row < instanceTable->rowCount(); ++row) {
+            DerivedInstance instance;
+            instance.prefix = instanceTable->item(row, 0) ? instanceTable->item(row, 0)->text().trimmed() : QString();
+            instance.targetDeviceId = instanceTable->item(row, 1) ? instanceTable->item(row, 1)->text().trimmed() : QString();
+            instance.description = instanceTable->item(row, 2) ? instanceTable->item(row, 2)->text().trimmed() : QString();
+            if (!instance.prefix.isEmpty() && !instance.targetDeviceId.isEmpty()) {
+                instances.append(instance);
+            }
+        }
+        return instances;
+    };
+
+    auto setInstanceRows = [&](const QList<DerivedInstance> &instances) {
+        instanceTable->setRowCount(instances.size());
+        for (int row = 0; row < instances.size(); ++row) {
+            const DerivedInstance &instance = instances.at(row);
+            instanceTable->setItem(row, 0, new QTableWidgetItem(instance.prefix));
+            instanceTable->setItem(row, 1, new QTableWidgetItem(instance.targetDeviceId));
+            instanceTable->setItem(row, 2, new QTableWidgetItem(instance.description));
+        }
+    };
+
+    auto selectedContext = [&]() {
+        struct Context {
+            const configtool::ProtocolDeviceInstance *sourceDevice = nullptr;
+            const configtool::ModelTemplate *targetModel = nullptr;
+        };
+        Context context;
+        context.sourceDevice = findDeviceById(m_configProjectManager.project(),
+                                              deviceIdFromChoiceText(sourceDeviceCombo->currentText()));
+        context.targetModel = findModelById(m_configProjectManager.project(),
+                                            modelIdFromChoiceText(targetModelCombo->currentText()));
+        return context;
+    };
+
+    auto targetPointMap = [](const configtool::ModelTemplate &model) {
+        QHash<QString, QString> pointsByShortName;
+        for (const configtool::ServiceTemplate &service : model.services) {
+            for (const configtool::PointTemplate &point : service.points) {
+                const QString dataRef = point.dataRef().trimmed();
+                const QString shortName = pointShortName(point);
+                if (!shortName.isEmpty() && !dataRef.isEmpty() && !pointsByShortName.contains(shortName)) {
+                    pointsByShortName.insert(shortName, dataRef);
+                }
+            }
+        }
+        return pointsByShortName;
+    };
+
+    auto detectInstances = [&]() {
+        const auto context = selectedContext();
+        if (!context.sourceDevice || !context.targetModel) {
+            return QList<DerivedInstance>();
+        }
+
+        QStringList targetShortNames = targetPointMap(*context.targetModel).keys();
+        std::sort(targetShortNames.begin(), targetShortNames.end(), [](const QString &left, const QString &right) {
+            return left.size() > right.size();
+        });
+
+        QHash<QString, DerivedInstance> instancesByPrefix;
+        const QRegularExpression numberPattern(QStringLiteral("(\\d+)"));
+        for (const configtool::PointBinding &binding : context.sourceDevice->bindings) {
+            const QString sourceShortName = pointShortNameFromDataRef(binding.dataRef);
+            for (const QString &targetShortName : targetShortNames) {
+                if (!sourceShortName.endsWith(targetShortName, Qt::CaseInsensitive)) {
+                    continue;
+                }
+                const QString prefix = sourceShortName.left(sourceShortName.size() - targetShortName.size());
+                if (prefix.isEmpty() || instancesByPrefix.contains(prefix)) {
+                    break;
+                }
+                QString targetDeviceId;
+                const QRegularExpressionMatch match = numberPattern.match(prefix);
+                if (match.hasMatch()) {
+                    targetDeviceId = match.captured(1);
+                }
+                DerivedInstance instance;
+                instance.prefix = prefix;
+                instance.targetDeviceId = targetDeviceId;
+                instance.description = targetDeviceId.isEmpty()
+                    ? QStringLiteral("派生设备")
+                    : QStringLiteral("派生设备%1").arg(targetDeviceId);
+                instancesByPrefix.insert(prefix, instance);
+                break;
+            }
+        }
+
+        QList<DerivedInstance> instances = instancesByPrefix.values();
+        std::sort(instances.begin(), instances.end(), [](const DerivedInstance &left, const DerivedInstance &right) {
+            return left.prefix < right.prefix;
+        });
+        return instances;
+    };
+
+    auto refreshPreview = [&]() {
+        previews.clear();
+        const auto context = selectedContext();
+        if (!context.sourceDevice || !context.targetModel) {
+            previewTable->setRowCount(0);
+            previewSummaryLabel->setText(QStringLiteral("请选择有效的源设备和目标模型"));
+            return;
+        }
+
+        const QList<DerivedInstance> instances = collectInstances();
+        const QHash<QString, QString> targetPoints = targetPointMap(*context.targetModel);
+        const configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+
+        for (const DerivedInstance &instance : instances) {
+            const bool targetDeviceExists = findDeviceById(m_configProjectManager.project(), instance.targetDeviceId) != nullptr;
+            for (const configtool::PointBinding &binding : context.sourceDevice->bindings) {
+                const QString sourceShortName = pointShortNameFromDataRef(binding.dataRef);
+                if (!sourceShortName.startsWith(instance.prefix, Qt::CaseInsensitive)) {
+                    continue;
+                }
+
+                DerivedPreview preview;
+                preview.sourceDataRef = binding.dataRef;
+                preview.targetDeviceId = instance.targetDeviceId;
+                const QString targetShortName = sourceShortName.mid(instance.prefix.size());
+                preview.targetDataRef = targetPoints.value(targetShortName);
+                if (preview.targetDataRef.isEmpty()) {
+                    preview.status = QStringLiteral("目标模型无点 %1").arg(targetShortName);
+                } else if (!targetDeviceExists && !createMissingDeviceCheck->isChecked()) {
+                    preview.status = QStringLiteral("目标设备不存在");
+                } else {
+                    preview.valid = true;
+                    preview.action = QStringLiteral("新增");
+                    for (const configtool::LogicComputationPoint &existing : logic.computationPoints) {
+                        if (existing.deviceId.trimmed() == preview.targetDeviceId
+                            && existing.dataRef.trimmed() == preview.targetDataRef) {
+                            preview.action = QStringLiteral("更新");
+                            break;
+                        }
+                    }
+                    preview.status = targetDeviceExists ? QStringLiteral("可生成")
+                                                        : QStringLiteral("将创建设备后生成");
+                }
+                previews.append(preview);
+            }
+        }
+
+        previewTable->setRowCount(previews.size());
+        int validCount = 0;
+        for (int row = 0; row < previews.size(); ++row) {
+            const DerivedPreview &preview = previews.at(row);
+            if (preview.valid) {
+                ++validCount;
+            }
+            const QColor color = preview.valid ? QColor() : QColor(170, 0, 0);
+            const QStringList values = {
+                QStringLiteral("%1#%2").arg(context.sourceDevice->deviceId, preview.sourceDataRef),
+                preview.targetDeviceId,
+                preview.targetDataRef,
+                preview.action,
+                preview.status
+            };
+            for (int column = 0; column < values.size(); ++column) {
+                auto *item = new QTableWidgetItem(values.at(column));
+                if (color.isValid()) {
+                    item->setForeground(color);
+                }
+                previewTable->setItem(row, column, item);
+            }
+        }
+        previewSummaryLabel->setText(QStringLiteral("可生成 %1 条，预览共 %2 条").arg(validCount).arg(previews.size()));
+    };
+
+    auto addInstanceRow = [&](const DerivedInstance &instance) {
+        const int row = instanceTable->rowCount();
+        instanceTable->insertRow(row);
+        instanceTable->setItem(row, 0, new QTableWidgetItem(instance.prefix));
+        instanceTable->setItem(row, 1, new QTableWidgetItem(instance.targetDeviceId));
+        instanceTable->setItem(row, 2, new QTableWidgetItem(instance.description));
+        instanceTable->selectRow(row);
+    };
+
+    connect(detectPrefixBtn, &QPushButton::clicked, &dialog, [&]() {
+        const QList<DerivedInstance> instances = detectInstances();
+        if (instances.isEmpty()) {
+            QMessageBox::information(&dialog,
+                                     QStringLiteral("识别前缀"),
+                                     QStringLiteral("未能从源点中识别出可匹配目标模型的前缀。"));
+            return;
+        }
+        setInstanceRows(instances);
+        refreshPreview();
+    });
+    connect(addInstanceBtn, &QPushButton::clicked, &dialog, [&]() {
+        const int index = instanceTable->rowCount() + 1;
+        addInstanceRow({QStringLiteral("Inv%1_").arg(index),
+                        QString::number(index),
+                        QStringLiteral("派生设备%1").arg(index)});
+    });
+    connect(removeInstanceBtn, &QPushButton::clicked, &dialog, [&]() {
+        const int row = instanceTable->currentRow();
+        if (row >= 0) {
+            instanceTable->removeRow(row);
+            refreshPreview();
+        }
+    });
+    connect(refreshPreviewBtn, &QPushButton::clicked, &dialog, refreshPreview);
+    connect(sourceDeviceCombo, &QComboBox::currentTextChanged, &dialog, [&]() {
+        setInstanceRows(detectInstances());
+        refreshPreview();
+    });
+    connect(targetModelCombo, &QComboBox::currentTextChanged, &dialog, [&]() {
+        setInstanceRows(detectInstances());
+        refreshPreview();
+    });
+    connect(createMissingDeviceCheck, &QCheckBox::toggled, &dialog, [&]() {
+        refreshPreview();
+    });
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, [&]() {
+        refreshPreview();
+        bool hasValid = false;
+        for (const DerivedPreview &preview : previews) {
+            if (preview.valid) {
+                hasValid = true;
+                break;
+            }
+        }
+        if (!hasValid) {
+            QMessageBox::warning(&dialog, QStringLiteral("派生设备"), QStringLiteral("没有可生成的映射。"));
+            return;
+        }
+        dialog.accept();
+    });
+
+    setInstanceRows(detectInstances());
+    refreshPreview();
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const auto context = selectedContext();
+    if (!context.sourceDevice || !context.targetModel) {
+        return;
+    }
+
+    const configtool::ProtocolDeviceInstance sourceDevice = *context.sourceDevice;
+    const configtool::ModelTemplate targetModel = *context.targetModel;
+    const QList<DerivedInstance> instances = collectInstances();
+    const bool createMissingDevices = createMissingDeviceCheck->isChecked();
+    const bool generateOnlineLinks = generateOnlineLinkCheck->isChecked();
+
+    pushConfigUndoSnapshot();
+    configtool::ConfigProject &mutableProject = m_configProjectManager.project();
+    configtool::LogicCenterConfig &logic = mutableProject.logicCenter;
+
+    int createdDeviceCount = 0;
+    if (createMissingDevices) {
+        for (const DerivedInstance &instance : instances) {
+            if (findDeviceById(mutableProject, instance.targetDeviceId)) {
+                continue;
+            }
+            configtool::ProtocolDeviceInstance device;
+            device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            device.appType = sourceDevice.appType;
+            device.protocol = sourceDevice.protocol;
+            device.deviceId = instance.targetDeviceId;
+            device.deviceDesc = instance.description.isEmpty() ? instance.targetDeviceId : instance.description;
+            device.modelId = targetModel.modelId;
+            for (const configtool::ServiceTemplate &service : targetModel.services) {
+                for (const configtool::PointTemplate &point : service.points) {
+                    configtool::PointBinding binding;
+                    binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                    binding.pointRef = point.pointRef(targetModel.modelId);
+                    binding.dataRef = point.dataRef();
+                    binding.descriptionOverride = point.description;
+                    binding.enabled = true;
+                    device.bindings.append(binding);
+                }
+            }
+            mutableProject.devices.append(device);
+            ++createdDeviceCount;
+        }
+    }
+
+    int insertedCount = 0;
+    int updatedCount = 0;
+    for (const DerivedPreview &preview : previews) {
+        if (!preview.valid) {
+            continue;
+        }
+        configtool::LogicComputationPoint point;
+        point.deviceId = preview.targetDeviceId;
+        point.dataRef = preview.targetDataRef;
+        point.formula = QStringLiteral("{1}");
+        point.dropOperands = true;
+        point.description = QStringLiteral("派生设备映射: %1#%2 -> %3#%4")
+            .arg(sourceDevice.deviceId, preview.sourceDataRef, preview.targetDeviceId, preview.targetDataRef);
+        configtool::LogicOperand operand;
+        operand.deviceId = sourceDevice.deviceId;
+        operand.dataRef = preview.sourceDataRef;
+        point.operands.append(operand);
+        if (configtool::upsertLogicComputationPoint(logic, point)) {
+            ++insertedCount;
+        } else {
+            ++updatedCount;
+        }
+    }
+
+    int onlineLinkCount = 0;
+    if (generateOnlineLinks) {
+        for (const DerivedInstance &instance : instances) {
+            bool exists = false;
+            for (const configtool::LogicOnlineStatusLink &link : logic.onlineStatusLinks) {
+                if (link.deviceId == instance.targetDeviceId && link.linkToDeviceId == sourceDevice.deviceId) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                configtool::LogicOnlineStatusLink link;
+                link.deviceId = instance.targetDeviceId;
+                link.linkToDeviceId = sourceDevice.deviceId;
+                logic.onlineStatusLinks.append(link);
+                ++onlineLinkCount;
+            }
+        }
+    }
+
+    configtool::ImportReport report;
+    refreshConfigImportSummary(report);
+    refreshLogicCenterOverview();
+    refreshLogicComputationPointPage();
+    refreshLogicOnlineLinkPage();
+    statusBar()->showMessage(QStringLiteral("派生设备生成完成：新增 %1 条，更新 %2 条，创建设备 %3 个，在线联动 %4 条")
+                                 .arg(insertedCount)
+                                 .arg(updatedCount)
+                                 .arg(createdDeviceCount)
+                                 .arg(onlineLinkCount),
+                             6000);
 }
 
 void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationTemplateType type,

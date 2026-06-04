@@ -880,14 +880,20 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("单点映射/改名"),
         QStringLiteral("原点缩放"),
         QStringLiteral("遥信 OR"),
-        QStringLiteral("遥信 AND")
+        QStringLiteral("遥信 AND"),
+        QStringLiteral("派生设备")
     };
     for (int index = 0; index < logicTemplateButtons.size(); ++index) {
         auto *button = new QPushButton(logicTemplateButtons.at(index), this);
         button->setMinimumHeight(32);
         logicTemplateLayout->addWidget(button, index / 3, index % 3);
-        connect(button, &QPushButton::clicked,
-                this, [this, index]() { generateLogicComputationTemplate(index); });
+        connect(button, &QPushButton::clicked, this, [this, index]() {
+            if (index == 4) {
+                generateLogicDerivedDeviceMappingVisual();
+                return;
+            }
+            generateLogicComputationTemplate(index);
+        });
     }
     logicComputationLayout->addWidget(logicTemplateGroup);
 

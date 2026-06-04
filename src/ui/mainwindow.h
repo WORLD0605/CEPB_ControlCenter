@@ -202,6 +202,7 @@ private:
     void generateLogicSourcePointScaleTemplateVisual();
     void generateLogicStatusOrTemplateVisual();
     void generateLogicStatusAndTemplateVisual();
+    void generateLogicDerivedDeviceMappingVisual();
     void generateLogicStatusTemplateVisual(configtool::LogicComputationTemplateType type,
                                            const QString &templateName,
                                            const QString &operatorText,
