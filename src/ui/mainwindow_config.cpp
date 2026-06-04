@@ -85,6 +85,8 @@ constexpr int LogicControlTargetColumnDevice = 1;
 constexpr int LogicControlTargetColumnPoint = 2;
 constexpr int LogicControlTargetColumnExpr = 3;
 constexpr int LogicControlTargetColumnPreview = 4;
+constexpr int LogicOnlineLinkColumnDevice = 0;
+constexpr int LogicOnlineLinkColumnFollowDevice = 1;
 
 using configtool::buildModbusDataIndex;
 using configtool::isModbusDevice;
@@ -169,6 +171,19 @@ configtool::PointSignalType signalTypeForModelService(configtool::ModelServiceTy
 QStringList splitClipboardLine(const QString &line)
 {
     return line.split('\t');
+}
+
+QString deviceChoiceText(const configtool::ProtocolDeviceInstance &device)
+{
+    const QString description = device.deviceDesc.trimmed();
+    return description.isEmpty()
+        ? device.deviceId
+        : QStringLiteral("%1 - %2").arg(device.deviceId, description);
+}
+
+QString deviceIdFromChoiceText(const QString &text)
+{
+    return text.section(QStringLiteral(" - "), 0, 0).trimmed();
 }
 
 QList<QStringList> parseClipboardTable(const QString &text)
@@ -1731,6 +1746,7 @@ void MainWindow::refreshConfigObjectViews()
     refreshLogicAgcAvcPage();
     refreshLogicComputationPointPage();
     refreshLogicControlRulePage();
+    refreshLogicOnlineLinkPage();
 }
 
 int formulaOperandCount(const QString &formula)
@@ -4085,6 +4101,283 @@ void MainWindow::onInsertLogicControlRealtimeRefClicked()
     refreshLogicControlRulePage();
     m_logicControlRuleTable->selectRow(ruleIndex);
     m_logicControlTargetTable->selectRow(targetRow);
+}
+
+void MainWindow::refreshLogicOnlineLinkPage()
+{
+    if (!m_logicOnlineLinkTable) {
+        return;
+    }
+
+    m_updatingLogicOnlineLinkPage = true;
+    const QList<configtool::LogicOnlineStatusLink> &links =
+        m_configProjectManager.project().logicCenter.onlineStatusLinks;
+    m_logicOnlineLinkTable->setRowCount(links.size());
+    for (int row = 0; row < links.size(); ++row) {
+        const configtool::LogicOnlineStatusLink &link = links.at(row);
+        m_logicOnlineLinkTable->setItem(row,
+                                        LogicOnlineLinkColumnDevice,
+                                        new QTableWidgetItem(link.deviceId));
+        m_logicOnlineLinkTable->setItem(row,
+                                        LogicOnlineLinkColumnFollowDevice,
+                                        new QTableWidgetItem(link.linkToDeviceId));
+    }
+    m_updatingLogicOnlineLinkPage = false;
+}
+
+void MainWindow::onAddLogicOnlineLinkClicked()
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    pushConfigUndoSnapshot();
+
+    configtool::LogicOnlineStatusLink link;
+    link.deviceId = QStringLiteral("virtual_device_%1").arg(logic.onlineStatusLinks.size() + 1);
+    link.linkToDeviceId = QStringLiteral("real_device_%1").arg(logic.onlineStatusLinks.size() + 1);
+    logic.onlineStatusLinks.append(link);
+
+    refreshLogicCenterOverview();
+    refreshLogicOnlineLinkPage();
+    m_logicOnlineLinkTable->selectRow(logic.onlineStatusLinks.size() - 1);
+}
+
+void MainWindow::onDeleteLogicOnlineLinkClicked()
+{
+    const int row = m_logicOnlineLinkTable ? m_logicOnlineLinkTable->currentRow() : -1;
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.onlineStatusLinks.size()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择要删除的在线联动。"));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    logic.onlineStatusLinks.removeAt(row);
+    refreshLogicCenterOverview();
+    refreshLogicOnlineLinkPage();
+    if (!logic.onlineStatusLinks.isEmpty()) {
+        m_logicOnlineLinkTable->selectRow(qMin(row, logic.onlineStatusLinks.size() - 1));
+    }
+}
+
+void MainWindow::onGenerateLogicVirtualOnlineLinksClicked()
+{
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    QList<configtool::LogicOnlineStatusLink> generatedLinks;
+
+    for (const configtool::AgcAvcGroup &group : logic.agcAvcGroups) {
+        const QString virtualDeviceId = group.virtualDeviceId.trimmed();
+        if (virtualDeviceId.isEmpty() || group.devices.isEmpty()) {
+            continue;
+        }
+
+        const QString followDeviceId = group.devices.first().deviceId.trimmed();
+        if (followDeviceId.isEmpty()) {
+            continue;
+        }
+
+        bool exists = false;
+        for (const configtool::LogicOnlineStatusLink &link : logic.onlineStatusLinks) {
+            if (link.deviceId == virtualDeviceId && link.linkToDeviceId == followDeviceId) {
+                exists = true;
+                break;
+            }
+        }
+        for (const configtool::LogicOnlineStatusLink &link : generatedLinks) {
+            if (link.deviceId == virtualDeviceId && link.linkToDeviceId == followDeviceId) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) {
+            continue;
+        }
+
+        configtool::LogicOnlineStatusLink link;
+        link.deviceId = virtualDeviceId;
+        link.linkToDeviceId = followDeviceId;
+        generatedLinks.append(link);
+    }
+
+    if (generatedLinks.isEmpty()) {
+        QMessageBox::information(this,
+                                 QStringLiteral("在线联动"),
+                                 QStringLiteral("没有可生成的 AGC/AVC 虚拟设备联动。请先配置虚拟设备和南向设备，或检查是否已存在。"));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    for (const configtool::LogicOnlineStatusLink &link : generatedLinks) {
+        logic.onlineStatusLinks.append(link);
+    }
+    refreshLogicCenterOverview();
+    refreshLogicOnlineLinkPage();
+    statusBar()->showMessage(QStringLiteral("已生成 %1 条虚拟设备在线联动").arg(generatedLinks.size()), 5000);
+}
+
+void MainWindow::onGenerateLogicDerivedOnlineLinkClicked()
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    QStringList deviceChoices;
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (!device.deviceId.trimmed().isEmpty()) {
+            deviceChoices.append(deviceChoiceText(device));
+        }
+    }
+    deviceChoices.removeDuplicates();
+
+    if (deviceChoices.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("在线联动"), QStringLiteral("当前工程没有可选择的设备。"));
+        return;
+    }
+
+    bool ok = false;
+    const QString derivedChoice = QInputDialog::getItem(this,
+                                                        QStringLiteral("派生设备跟随真实设备"),
+                                                        QStringLiteral("被联动设备:"),
+                                                        deviceChoices,
+                                                        0,
+                                                        false,
+                                                        &ok);
+    if (!ok) {
+        return;
+    }
+    const QString followChoice = QInputDialog::getItem(this,
+                                                       QStringLiteral("派生设备跟随真实设备"),
+                                                       QStringLiteral("跟随设备:"),
+                                                       deviceChoices,
+                                                       0,
+                                                       false,
+                                                       &ok);
+    if (!ok) {
+        return;
+    }
+
+    const QString derivedDeviceId = deviceIdFromChoiceText(derivedChoice);
+    const QString followDeviceId = deviceIdFromChoiceText(followChoice);
+    if (derivedDeviceId.isEmpty() || followDeviceId.isEmpty()) {
+        return;
+    }
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    for (int index = 0; index < logic.onlineStatusLinks.size(); ++index) {
+        const configtool::LogicOnlineStatusLink &existing = logic.onlineStatusLinks.at(index);
+        if (existing.deviceId == derivedDeviceId && existing.linkToDeviceId == followDeviceId) {
+            refreshLogicOnlineLinkPage();
+            m_logicOnlineLinkTable->selectRow(index);
+            statusBar()->showMessage(QStringLiteral("该在线联动已存在"), 5000);
+            return;
+        }
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicOnlineStatusLink link;
+    link.deviceId = derivedDeviceId;
+    link.linkToDeviceId = followDeviceId;
+    logic.onlineStatusLinks.append(link);
+    refreshLogicCenterOverview();
+    refreshLogicOnlineLinkPage();
+    m_logicOnlineLinkTable->selectRow(logic.onlineStatusLinks.size() - 1);
+}
+
+void MainWindow::onLogicOnlineLinkItemChanged(QTableWidgetItem *item)
+{
+    if (m_updatingLogicOnlineLinkPage || m_restoringConfigUndo || !item) {
+        return;
+    }
+
+    const int row = item->row();
+    const int column = item->column();
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.onlineStatusLinks.size()) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::LogicOnlineStatusLink &link = logic.onlineStatusLinks[row];
+    const QString text = item->text().trimmed();
+    if (column == LogicOnlineLinkColumnDevice) {
+        link.deviceId = text;
+    } else if (column == LogicOnlineLinkColumnFollowDevice) {
+        link.linkToDeviceId = text;
+    } else {
+        return;
+    }
+
+    refreshLogicCenterOverview();
+    refreshLogicOnlineLinkPage();
+    if (row < m_logicOnlineLinkTable->rowCount()) {
+        m_logicOnlineLinkTable->setCurrentCell(row, column);
+    }
+}
+
+void MainWindow::onLogicOnlineLinkCellDoubleClicked(int row, int column)
+{
+    selectLogicOnlineLinkDevice(row, column);
+}
+
+void MainWindow::selectLogicOnlineLinkDevice(int row, int column)
+{
+    if (column != LogicOnlineLinkColumnDevice && column != LogicOnlineLinkColumnFollowDevice) {
+        return;
+    }
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    if (row < 0 || row >= logic.onlineStatusLinks.size()) {
+        return;
+    }
+
+    QStringList deviceChoices;
+    for (const configtool::ProtocolDeviceInstance &device : m_configProjectManager.project().devices) {
+        if (!device.deviceId.trimmed().isEmpty()) {
+            deviceChoices.append(deviceChoiceText(device));
+        }
+    }
+    deviceChoices.removeDuplicates();
+
+    if (deviceChoices.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("选择设备"), QStringLiteral("当前工程没有可选择的设备。"));
+        return;
+    }
+
+    const QString currentDeviceId = column == LogicOnlineLinkColumnDevice
+        ? logic.onlineStatusLinks.at(row).deviceId
+        : logic.onlineStatusLinks.at(row).linkToDeviceId;
+    int currentIndex = 0;
+    for (int index = 0; index < deviceChoices.size(); ++index) {
+        if (deviceIdFromChoiceText(deviceChoices.at(index)) == currentDeviceId) {
+            currentIndex = index;
+            break;
+        }
+    }
+
+    bool ok = false;
+    const QString choice = QInputDialog::getItem(this,
+                                                 QStringLiteral("选择设备"),
+                                                 column == LogicOnlineLinkColumnDevice
+                                                     ? QStringLiteral("被联动设备:")
+                                                     : QStringLiteral("跟随设备:"),
+                                                 deviceChoices,
+                                                 currentIndex,
+                                                 false,
+                                                 &ok);
+    if (!ok) {
+        return;
+    }
+
+    const QString selectedDeviceId = deviceIdFromChoiceText(choice);
+    if (selectedDeviceId.isEmpty()) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    if (column == LogicOnlineLinkColumnDevice) {
+        logic.onlineStatusLinks[row].deviceId = selectedDeviceId;
+    } else {
+        logic.onlineStatusLinks[row].linkToDeviceId = selectedDeviceId;
+    }
+
+    refreshLogicCenterOverview();
+    refreshLogicOnlineLinkPage();
+    m_logicOnlineLinkTable->setCurrentCell(row, column);
 }
 
 void MainWindow::onGenerateLogicAgcAvcTotalPClicked()

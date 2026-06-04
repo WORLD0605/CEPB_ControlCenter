@@ -616,6 +616,16 @@ MainWindow::MainWindow(QWidget *parent)
                 m_mainTabWidget->setCurrentWidget(m_logicComputationPointPage);
                 return;
             }
+            if (text == QStringLiteral("控制转换") && m_logicControlRulePage) {
+                refreshLogicControlRulePage();
+                m_mainTabWidget->setCurrentWidget(m_logicControlRulePage);
+                return;
+            }
+            if (text == QStringLiteral("在线联动") && m_logicOnlineLinkPage) {
+                refreshLogicOnlineLinkPage();
+                m_mainTabWidget->setCurrentWidget(m_logicOnlineLinkPage);
+                return;
+            }
             statusBar()->showMessage(QStringLiteral("%1 编辑器将在后续步骤接入").arg(text), 5000);
         });
         return button;
@@ -966,6 +976,47 @@ MainWindow::MainWindow(QWidget *parent)
     logicControlTargetLayout->addLayout(logicControlPreviewRow);
     logicControlLayout->addWidget(logicControlTargetGroup, 1);
 
+    m_logicOnlineLinkPage = new QWidget(this);
+    auto *logicOnlineLayout = new QVBoxLayout(m_logicOnlineLinkPage);
+    logicOnlineLayout->setContentsMargins(0, 0, 0, 0);
+    logicOnlineLayout->setSpacing(8);
+    auto *logicOnlineHint = new QLabel(
+        QStringLiteral("在线状态联动用于让虚拟设备或派生设备跟随真实设备的 DevUpdate 状态。双击设备列可从当前工程设备中选择。"),
+        this);
+    logicOnlineHint->setWordWrap(true);
+    logicOnlineLayout->addWidget(logicOnlineHint);
+
+    auto *logicOnlineToolbar = new QHBoxLayout();
+    m_addLogicOnlineLinkBtn = new QPushButton(QStringLiteral("新增联动"), this);
+    m_deleteLogicOnlineLinkBtn = new QPushButton(QStringLiteral("删除联动"), this);
+    m_generateLogicVirtualOnlineLinksBtn = new QPushButton(QStringLiteral("虚拟设备跟随真实设备"), this);
+    m_generateLogicDerivedOnlineLinkBtn = new QPushButton(QStringLiteral("派生设备跟随真实设备"), this);
+    logicOnlineToolbar->addWidget(m_addLogicOnlineLinkBtn);
+    logicOnlineToolbar->addWidget(m_deleteLogicOnlineLinkBtn);
+    logicOnlineToolbar->addSpacing(12);
+    logicOnlineToolbar->addWidget(m_generateLogicVirtualOnlineLinksBtn);
+    logicOnlineToolbar->addWidget(m_generateLogicDerivedOnlineLinkBtn);
+    logicOnlineToolbar->addStretch();
+    logicOnlineLayout->addLayout(logicOnlineToolbar);
+
+    m_logicOnlineLinkTable = new QTableWidget(0, 2, this);
+    m_logicOnlineLinkTable->setHorizontalHeaderLabels({
+        QStringLiteral("被联动设备 DeviceId"),
+        QStringLiteral("跟随设备 LinkToDeviceId")
+    });
+    m_logicOnlineLinkTable->setEditTriggers(QAbstractItemView::DoubleClicked
+                                            | QAbstractItemView::SelectedClicked
+                                            | QAbstractItemView::EditKeyPressed);
+    m_logicOnlineLinkTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_logicOnlineLinkTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_logicOnlineLinkTable->setAlternatingRowColors(true);
+    m_logicOnlineLinkTable->verticalHeader()->setVisible(false);
+    m_logicOnlineLinkTable->horizontalHeader()->setStretchLastSection(true);
+    m_logicOnlineLinkTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_logicOnlineLinkTable->setColumnWidth(0, 220);
+    m_logicOnlineLinkTable->setColumnWidth(1, 220);
+    logicOnlineLayout->addWidget(m_logicOnlineLinkTable, 1);
+
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
@@ -974,6 +1025,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
     m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");
+    m_mainTabWidget->addTab(m_logicOnlineLinkPage, "在线联动");
 
     setCentralWidget(central);
 
@@ -1110,6 +1162,18 @@ MainWindow::MainWindow(QWidget *parent)
     }
     connect(m_insertLogicControlRealtimeRefBtn, &QPushButton::clicked,
             this, &MainWindow::onInsertLogicControlRealtimeRefClicked);
+    connect(m_addLogicOnlineLinkBtn, &QPushButton::clicked,
+            this, &MainWindow::onAddLogicOnlineLinkClicked);
+    connect(m_deleteLogicOnlineLinkBtn, &QPushButton::clicked,
+            this, &MainWindow::onDeleteLogicOnlineLinkClicked);
+    connect(m_generateLogicVirtualOnlineLinksBtn, &QPushButton::clicked,
+            this, &MainWindow::onGenerateLogicVirtualOnlineLinksClicked);
+    connect(m_generateLogicDerivedOnlineLinkBtn, &QPushButton::clicked,
+            this, &MainWindow::onGenerateLogicDerivedOnlineLinkClicked);
+    connect(m_logicOnlineLinkTable, &QTableWidget::itemChanged,
+            this, &MainWindow::onLogicOnlineLinkItemChanged);
+    connect(m_logicOnlineLinkTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onLogicOnlineLinkCellDoubleClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceFromModelBtn, &QPushButton::clicked,

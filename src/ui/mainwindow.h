@@ -114,6 +114,12 @@ private slots:
     void onLogicControlPreviewEdited();
     void onLogicControlTemplateClicked();
     void onInsertLogicControlRealtimeRefClicked();
+    void onAddLogicOnlineLinkClicked();
+    void onDeleteLogicOnlineLinkClicked();
+    void onGenerateLogicVirtualOnlineLinksClicked();
+    void onGenerateLogicDerivedOnlineLinkClicked();
+    void onLogicOnlineLinkItemChanged(QTableWidgetItem *item);
+    void onLogicOnlineLinkCellDoubleClicked(int row, int column);
 
     void onConnected();
     void onDisconnected();
@@ -155,6 +161,7 @@ private:
     void refreshLogicAgcAvcPage();
     void refreshLogicComputationPointPage();
     void refreshLogicControlRulePage();
+    void refreshLogicOnlineLinkPage();
     void refreshSelectionOverview();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
@@ -192,6 +199,7 @@ private:
     void selectLogicComputationOperands(int row);
     void selectLogicControlMatchPoint(int row);
     void selectLogicControlTargetPoint(int row);
+    void selectLogicOnlineLinkDevice(int row, int column);
     int currentLogicControlRuleIndex() const;
     void refreshLogicControlTargetTable();
     void refreshLogicControlPreview();
@@ -211,6 +219,7 @@ private:
     bool m_updatingLogicAgcAvcPage = false;
     bool m_updatingLogicComputationPointPage = false;
     bool m_updatingLogicControlRulePage = false;
+    bool m_updatingLogicOnlineLinkPage = false;
     bool m_restoringConfigUndo = false;
     int m_logicComputationDragRow = -1;
     int m_modelPointDragRow = -1;
@@ -255,6 +264,7 @@ private:
     QWidget *m_logicAgcAvcPage = nullptr;
     QWidget *m_logicComputationPointPage = nullptr;
     QWidget *m_logicControlRulePage = nullptr;
+    QWidget *m_logicOnlineLinkPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -290,6 +300,11 @@ private:
     QTableWidget *m_logicControlTargetTable = nullptr;
     QLineEdit *m_logicControlPreviewValueEdit = nullptr;
     QLabel *m_logicControlPreviewLabel = nullptr;
+    QPushButton *m_addLogicOnlineLinkBtn = nullptr;
+    QPushButton *m_deleteLogicOnlineLinkBtn = nullptr;
+    QPushButton *m_generateLogicVirtualOnlineLinksBtn = nullptr;
+    QPushButton *m_generateLogicDerivedOnlineLinkBtn = nullptr;
+    QTableWidget *m_logicOnlineLinkTable = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

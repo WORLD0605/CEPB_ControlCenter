@@ -25,19 +25,20 @@ metadata:
 8. 模型导出补齐 service 级字段：`description` 和 `serviceId`。
 9. 配置概览页支持删除模型和删除设备；删除模型时会提示并级联删除引用该模型的设备。
 10. 导出前会清理对应协议目录下 `model/*.json` 和 `dev/*.json` 旧文件，避免 UI 删除后旧文件残留。
-11. LogicCenter 可视化配置已完成阶段 1-7：
+11. LogicCenter 可视化配置已完成阶段 1-8：
    - 支持 `LogicCenter_Config.json` 结构化导入、导出和未知字段保留。
    - 支持 LogicCenter 总览、校验问题展示、AGC/AVC 单虚拟并网点配置。
    - 支持计算点模板生成和计算点列表维护。
    - 支持控制转换编辑器：按源设备/源控制点维护 `control_rules`，目标动作支持 `ctrlcmd`/`data_write`、公式模板、实时值引用插入和表达式展开预览。
    - `CtrlType` 不在控制转换编辑器中展示，也不从配置工具导出；运行态复用北向 `CtrlCmd` 帧中的 `CtrlType`。
+   - 支持在线状态联动编辑器：维护 `onlineStatus_link`，支持设备列表选择、新增删除，以及虚拟设备/派生设备跟随真实设备的快捷生成。
 
 ## 当前边界
 
 当前主要能力已覆盖 `cepiec104`、`cepmodbus` 的模型/设备配置，以及 `cepLogicCenter`
-的 AGC/AVC、计算点、控制转换配置。
+的 AGC/AVC、计算点、控制转换、在线联动配置。
 
-`cepdlt645` 尚未接入完整导入、编辑和导出能力。LogicCenter 的在线联动、虚拟设备派生、
+`cepdlt645` 尚未接入完整导入、编辑和导出能力。LogicCenter 的虚拟设备派生、
 高级 JSON 预览仍待后续阶段补齐。
 
 ## 下一步建议
@@ -45,5 +46,5 @@ metadata:
 1. 继续完善 104 设备编辑器：地址连续填充、批量偏移、按类型分组查看。
 2. 给 Modbus 点位表继续补批量编辑能力，例如批量设置功能码、数据类型、比例、寄存器地址递增。
 3. 增加导出预览或导出报告详情，明确哪些文件被清理、哪些文件被重新生成。
-4. 继续 LogicCenter 阶段 8：实现 `onlineStatus_link` 在线状态联动编辑器。
+4. 继续 LogicCenter 阶段 9：实现虚拟设备派生 / 点位批量映射。
 5. 逐步拆分 `MainWindow`，把 UI 组装、配置业务逻辑、协议导入导出分层得更清楚。
