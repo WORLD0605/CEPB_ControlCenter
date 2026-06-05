@@ -94,6 +94,8 @@ private slots:
     void onDeleteModelClicked();
     void onDeleteDeviceClicked();
     void onDeviceFieldEdited();
+    void onDeviceBindingDataRefFilterTextChanged(const QString &text);
+    void onDeviceBindingDescriptionFilterTextChanged(const QString &text);
     void onDeviceBindingItemChanged(QTableWidgetItem *item);
     void onLogicAgcAvcBasicEdited();
     void onLogicAgcAvcDeviceItemChanged(QTableWidgetItem *item);
@@ -293,6 +295,8 @@ private:
     QTabBar *m_modelPointFilterTabBar = nullptr;
     QLineEdit *m_modelPointDataRefFilterEdit = nullptr;
     QLineEdit *m_modelPointDescriptionFilterEdit = nullptr;
+    QLineEdit *m_deviceBindingDataRefFilterEdit = nullptr;
+    QLineEdit *m_deviceBindingDescriptionFilterEdit = nullptr;
     QWidget *m_configPage = nullptr;
     QWidget *m_configIssuePage = nullptr;
     QWidget *m_logicCenterPage = nullptr;

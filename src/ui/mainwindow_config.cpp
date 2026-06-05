@@ -2254,6 +2254,16 @@ int MainWindow::renameLogicDeviceReferences(const QString &oldDeviceId, const QS
     return updateCount;
 }
 
+void MainWindow::onDeviceBindingDataRefFilterTextChanged(const QString & /*text*/)
+{
+    refreshDeviceEditor(currentConfigDeviceIndex());
+}
+
+void MainWindow::onDeviceBindingDescriptionFilterTextChanged(const QString & /*text*/)
+{
+    refreshDeviceEditor(currentConfigDeviceIndex());
+}
+
 void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
 {
     if (!item || m_updatingDeviceBindingsTable || m_restoringConfigUndo) {
@@ -3525,6 +3535,24 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
     }
 
+    const QString dataRefKeyword = m_deviceBindingDataRefFilterEdit
+        ? m_deviceBindingDataRefFilterEdit->text().trimmed()
+        : QString();
+    const QString descriptionKeyword = m_deviceBindingDescriptionFilterEdit
+        ? m_deviceBindingDescriptionFilterEdit->text().trimmed()
+        : QString();
+    QList<int> visibleBindingIndexes;
+    for (int bindingIndex = 0; bindingIndex < device.bindings.size(); ++bindingIndex) {
+        const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
+        const bool matchesDataRef = dataRefKeyword.isEmpty()
+            || binding.dataRef.contains(dataRefKeyword, Qt::CaseInsensitive);
+        const bool matchesDescription = descriptionKeyword.isEmpty()
+            || binding.descriptionOverride.contains(descriptionKeyword, Qt::CaseInsensitive);
+        if (matchesDataRef && matchesDescription) {
+            visibleBindingIndexes.append(bindingIndex);
+        }
+    }
+
     if (modbusDevice) {
         int missingRegisterCount = 0;
         m_updatingDeviceBindingsTable = true;
@@ -3544,7 +3572,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("dataIndex"),
             QStringLiteral("自发标志")
         });
-        m_deviceBindingsTable->setRowCount(device.bindings.size());
+        m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnKind, 58);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDataRef, 260);
@@ -3558,12 +3586,13 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDataIndex, 90);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnSelfSignal, 80);
 
-        for (int row = 0; row < device.bindings.size(); ++row) {
-            const configtool::PointBinding &binding = device.bindings.at(row);
+        for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
+            const int bindingIndex = visibleBindingIndexes.at(row);
+            const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
             auto *enabledItem = new QTableWidgetItem();
             enabledItem->setFlags((enabledItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
             enabledItem->setCheckState(binding.enabled ? Qt::Checked : Qt::Unchecked);
-            enabledItem->setData(Qt::UserRole, row);
+            enabledItem->setData(Qt::UserRole, bindingIndex);
 
             const QString kind = modbusBindingKind(binding);
             const QString dataType = modbusBindingString(binding, QStringLiteral("modbusDataType"), kind == QStringLiteral("yx") ? QStringLiteral("BIT") : QStringLiteral("WORD"));
@@ -3582,7 +3611,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
             auto *kindItem = new QTableWidgetItem(modbusKindDisplayName(kind));
             kindItem->setFlags(kindItem->flags() & ~Qt::ItemIsEditable);
-            kindItem->setData(Qt::UserRole, row);
+            kindItem->setData(Qt::UserRole, bindingIndex);
             auto *dataRefItem = new QTableWidgetItem(binding.dataRef);
             auto *descriptionItem = new QTableWidgetItem(binding.descriptionOverride);
             auto *funCodeItem = new QTableWidgetItem(funCode);
@@ -3617,7 +3646,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             kindCombo->addItem(QStringLiteral("遥调"), QStringLiteral("yt"));
             const int kindIndex = kindCombo->findData(kind);
             kindCombo->setCurrentIndex(kindIndex >= 0 ? kindIndex : kindCombo->findData(QStringLiteral("yc")));
-            kindCombo->setProperty("bindingIndex", row);
+            kindCombo->setProperty("bindingIndex", bindingIndex);
             connect(kindCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, kindCombo](int) {
                 if (m_updatingDeviceBindingsTable || m_restoringConfigUndo) {
                     return;
@@ -3644,8 +3673,12 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 rebuildModbusDeviceConfig(device);
                 refreshDeviceDetail(deviceIndex);
                 refreshDeviceEditor(deviceIndex);
-                if (bindingIndex < m_deviceBindingsTable->rowCount()) {
-                    m_deviceBindingsTable->setCurrentCell(bindingIndex, ModbusColumnKind);
+                for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                    const QTableWidgetItem *item = m_deviceBindingsTable->item(row, ModbusColumnEnabled);
+                    if (item && item->data(Qt::UserRole).toInt() == bindingIndex) {
+                        m_deviceBindingsTable->setCurrentCell(row, ModbusColumnKind);
+                        break;
+                    }
                 }
             });
             m_deviceBindingsTable->setCellWidget(row, ModbusColumnKind, kindCombo);
@@ -3686,13 +3719,14 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         QStringLiteral("初值"),
         QStringLiteral("自发标志")
     });
-    m_deviceBindingsTable->setRowCount(device.bindings.size());
-    for (int row = 0; row < device.bindings.size(); ++row) {
-        const configtool::PointBinding &binding = device.bindings.at(row);
+    m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
+    for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
+        const int bindingIndex = visibleBindingIndexes.at(row);
+        const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
         auto *enabledItem = new QTableWidgetItem();
         enabledItem->setFlags((enabledItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
         enabledItem->setCheckState(binding.enabled ? Qt::Checked : Qt::Unchecked);
-        enabledItem->setData(Qt::UserRole, row);
+        enabledItem->setData(Qt::UserRole, bindingIndex);
         auto *dataRefItem = new QTableWidgetItem(binding.dataRef);
         auto *descriptionItem = new QTableWidgetItem(binding.descriptionOverride);
         auto *addressItem = new QTableWidgetItem(binding.address);

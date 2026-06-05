@@ -551,6 +551,24 @@ MainWindow::MainWindow(QWidget *parent)
     bindingToolbar->addWidget(new QLabel(QStringLiteral("点位映射:"), this));
     bindingToolbar->addStretch();
     deviceEditorLayout->addLayout(bindingToolbar);
+
+    auto *bindingFilterToolbar = new QHBoxLayout();
+    bindingFilterToolbar->setSpacing(8);
+    bindingFilterToolbar->addSpacing(2);
+    bindingFilterToolbar->addWidget(new QLabel("DataRef:", this));
+    m_deviceBindingDataRefFilterEdit = new QLineEdit(this);
+    m_deviceBindingDataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
+    m_deviceBindingDataRefFilterEdit->setClearButtonEnabled(true);
+    m_deviceBindingDataRefFilterEdit->setMinimumWidth(320);
+    bindingFilterToolbar->addWidget(m_deviceBindingDataRefFilterEdit, 1);
+    bindingFilterToolbar->addWidget(new QLabel("Description:", this));
+    m_deviceBindingDescriptionFilterEdit = new QLineEdit(this);
+    m_deviceBindingDescriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
+    m_deviceBindingDescriptionFilterEdit->setClearButtonEnabled(true);
+    m_deviceBindingDescriptionFilterEdit->setMinimumWidth(320);
+    bindingFilterToolbar->addWidget(m_deviceBindingDescriptionFilterEdit, 1);
+    deviceEditorLayout->addLayout(bindingFilterToolbar);
+
     m_deviceBindingsTable = new QTableWidget(0, 6, this);
     m_deviceBindingsTable->setHorizontalHeaderLabels({
         QStringLiteral("启用"),
@@ -576,7 +594,8 @@ MainWindow::MainWindow(QWidget *parent)
     deviceEditorLayout->setStretch(0, 0);
     deviceEditorLayout->setStretch(1, 0);
     deviceEditorLayout->setStretch(2, 0);
-    deviceEditorLayout->setStretch(3, 1);
+    deviceEditorLayout->setStretch(3, 0);
+    deviceEditorLayout->setStretch(4, 1);
 
     auto *deviceDetailPage = new QWidget(this);
     auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
@@ -1329,6 +1348,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusDebugCheck, &QCheckBox::toggled,
             this, &MainWindow::onDeviceFieldEdited);
+    connect(m_deviceBindingDataRefFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onDeviceBindingDataRefFilterTextChanged);
+    connect(m_deviceBindingDescriptionFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onDeviceBindingDescriptionFilterTextChanged);
     connect(m_deviceBindingsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onDeviceBindingItemChanged);
     connect(m_autoRefreshTimer, &QTimer::timeout,
