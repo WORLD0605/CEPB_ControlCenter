@@ -156,6 +156,7 @@ private:
     void applyModelPointCellText(int row, int column, const QString &text);
     void applyDeviceBindingCellText(int row, int column, const QString &text);
     void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
+    int applyIec104SameChannelDerivedDeviceMappings();
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
@@ -293,6 +294,7 @@ private:
     QTableWidget *m_deviceBindingsTable = nullptr;
     QTabWidget *m_mainTabWidget = nullptr;
     QTabBar *m_modelPointFilterTabBar = nullptr;
+    QCheckBox *m_showAutoDerivedModelPointsCheck = nullptr;
     QLineEdit *m_modelPointDataRefFilterEdit = nullptr;
     QLineEdit *m_modelPointDescriptionFilterEdit = nullptr;
     QLineEdit *m_deviceBindingDataRefFilterEdit = nullptr;

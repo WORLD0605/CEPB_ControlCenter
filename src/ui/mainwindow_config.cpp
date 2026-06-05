@@ -507,6 +507,81 @@ QString expandedLogicControlExpression(const QString &expr, const QString &xValu
     return expanded.replace(realtimeRefPattern, QStringLiteral("<实时:$1>"));
 }
 
+bool isAutoDerivedMirrorPoint(const configtool::PointTemplate &point)
+{
+    return point.extensions.value(QStringLiteral("generatedBy")).toString()
+        == QStringLiteral("iec104SameChannelDerivedDevice");
+}
+
+QString iec104SameChannelKey(const configtool::ProtocolDeviceInstance &device)
+{
+    if (device.protocol != configtool::ProtocolType::Iec104
+        && device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) != 0) {
+        return QString();
+    }
+
+    const QString ip = device.transport.ip.trimmed();
+    const QString port = device.transport.port.trimmed();
+    const QString stationAddress = device.transport.stationAddress.trimmed();
+    if (ip.isEmpty() || port.isEmpty() || stationAddress.isEmpty()) {
+        return QString();
+    }
+
+    return ip + QLatin1Char('|') + port + QLatin1Char('|') + stationAddress;
+}
+
+configtool::ModelTemplate *mutableModelById(configtool::ConfigProject &project, const QString &modelId)
+{
+    for (configtool::ModelTemplate &model : project.models) {
+        if (model.modelId == modelId) {
+            return &model;
+        }
+    }
+    return nullptr;
+}
+
+int modelPointCount(const configtool::ModelTemplate *model)
+{
+    if (!model) {
+        return 0;
+    }
+
+    int count = 0;
+    for (const configtool::ServiceTemplate &service : model->services) {
+        count += service.points.size();
+    }
+    return count;
+}
+
+configtool::PointBinding *mutableBindingByDataRef(configtool::ProtocolDeviceInstance &device,
+                                                  const QString &dataRef)
+{
+    for (configtool::PointBinding &binding : device.bindings) {
+        if (binding.dataRef == dataRef) {
+            return &binding;
+        }
+    }
+    return nullptr;
+}
+
+configtool::PointTemplate *mutablePointByDataRef(configtool::ModelTemplate &model,
+                                                 const QString &dataRef)
+{
+    for (configtool::ServiceTemplate &service : model.services) {
+        for (configtool::PointTemplate &point : service.points) {
+            if (point.dataRef() == dataRef) {
+                return &point;
+            }
+        }
+    }
+    return nullptr;
+}
+
+QString prefixedDoName(const QString &deviceId, const QString &doName)
+{
+    return deviceId.trimmed() + QLatin1Char('_') + doName.trimmed();
+}
+
 } // namespace
 
 void MainWindow::onBrowseConfigImportDirClicked()
@@ -576,6 +651,219 @@ void MainWindow::onImportIec104ConfigClicked()
     statusBar()->showMessage(QStringLiteral("配置导入完成"), 5000);
 }
 
+int MainWindow::applyIec104SameChannelDerivedDeviceMappings()
+{
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    QHash<QString, QList<int>> groups;
+    for (int index = 0; index < project.devices.size(); ++index) {
+        const QString key = iec104SameChannelKey(project.devices.at(index));
+        if (!key.isEmpty()) {
+            groups[key].append(index);
+        }
+    }
+
+    int changedCount = 0;
+    bool undoPushed = false;
+    auto pushUndoOnce = [&]() {
+        if (!undoPushed) {
+            pushConfigUndoSnapshot();
+            undoPushed = true;
+        }
+    };
+
+    for (const QList<int> &deviceIndexes : groups) {
+        if (deviceIndexes.size() < 2) {
+            continue;
+        }
+
+        int mainDeviceIndex = -1;
+        int mainPointCount = -1;
+        for (int deviceIndex : deviceIndexes) {
+            const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
+            const int pointCount = modelPointCount(findModelById(project, device.modelId));
+            if (pointCount > mainPointCount) {
+                mainPointCount = pointCount;
+                mainDeviceIndex = deviceIndex;
+            }
+        }
+        if (mainDeviceIndex < 0) {
+            continue;
+        }
+
+        configtool::ProtocolDeviceInstance &mainDevice = project.devices[mainDeviceIndex];
+        configtool::ModelTemplate *mainModel = mutableModelById(project, mainDevice.modelId);
+        if (!mainModel) {
+            continue;
+        }
+
+        for (int deviceIndex : deviceIndexes) {
+            if (deviceIndex == mainDeviceIndex) {
+                continue;
+            }
+
+            configtool::ProtocolDeviceInstance &derivedDevice = project.devices[deviceIndex];
+            const configtool::ModelTemplate *derivedModel = findModelById(project, derivedDevice.modelId);
+            if (!derivedModel) {
+                continue;
+            }
+
+            derivedDevice.extensions.insert(QStringLiteral("derivedIec104Virtual"), true);
+            derivedDevice.extensions.insert(QStringLiteral("derivedMainDeviceId"), mainDevice.deviceId);
+
+            for (const configtool::PointBinding &derivedBinding : derivedDevice.bindings) {
+                if (!derivedBinding.enabled || derivedBinding.address.trimmed().isEmpty()) {
+                    continue;
+                }
+
+                const configtool::PointTemplate *sourcePoint = nullptr;
+                for (const configtool::ServiceTemplate &service : derivedModel->services) {
+                    for (const configtool::PointTemplate &point : service.points) {
+                        if (point.dataRef() == derivedBinding.dataRef) {
+                            sourcePoint = &point;
+                            break;
+                        }
+                    }
+                    if (sourcePoint) {
+                        break;
+                    }
+                }
+                if (!sourcePoint || sourcePoint->category == configtool::ModelServiceType::Control) {
+                    continue;
+                }
+
+                const QString mirrorDoName = prefixedDoName(derivedDevice.deviceId, sourcePoint->doName);
+                const QString mirrorDataRef = configtool::buildDataRef(sourcePoint->ldName,
+                                                                       sourcePoint->lnType,
+                                                                       sourcePoint->lnInst,
+                                                                       mirrorDoName);
+                configtool::ServiceTemplate *mainService = mainModel->findService(sourcePoint->category);
+                if (!mainService) {
+                    mainModel->services.append(configtool::ServiceTemplate());
+                    mainService = &mainModel->services.last();
+                    mainService->type = sourcePoint->category;
+                }
+
+                configtool::PointTemplate *mirrorPoint = mutablePointByDataRef(*mainModel, mirrorDataRef);
+                if (!mirrorPoint) {
+                    pushUndoOnce();
+                    configtool::PointTemplate point = *sourcePoint;
+                    point.pointId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                    point.name = mirrorDoName;
+                    point.doName = mirrorDoName;
+                    point.northVisible = false;
+                    point.description = QStringLiteral("%1/%2").arg(derivedDevice.deviceDesc.isEmpty()
+                                                                        ? derivedDevice.deviceId
+                                                                        : derivedDevice.deviceDesc,
+                                                                    sourcePoint->description);
+                    point.extensions.insert(QStringLiteral("generatedBy"), QStringLiteral("iec104SameChannelDerivedDevice"));
+                    point.extensions.insert(QStringLiteral("autoGenerated"), true);
+                    point.extensions.insert(QStringLiteral("derivedMainDeviceId"), mainDevice.deviceId);
+                    point.extensions.insert(QStringLiteral("derivedSourceDeviceId"), derivedDevice.deviceId);
+                    point.extensions.insert(QStringLiteral("derivedSourceDataRef"), derivedBinding.dataRef);
+                    mainService->points.append(point);
+                    mirrorPoint = &mainService->points.last();
+                    ++changedCount;
+                } else {
+                    const bool needsUpdate = mirrorPoint->northVisible
+                        || !isAutoDerivedMirrorPoint(*mirrorPoint)
+                        || mirrorPoint->extensions.value(QStringLiteral("derivedSourceDeviceId")).toString() != derivedDevice.deviceId
+                        || mirrorPoint->extensions.value(QStringLiteral("derivedSourceDataRef")).toString() != derivedBinding.dataRef;
+                    if (needsUpdate) {
+                        pushUndoOnce();
+                        mirrorPoint->northVisible = false;
+                        mirrorPoint->extensions.insert(QStringLiteral("generatedBy"), QStringLiteral("iec104SameChannelDerivedDevice"));
+                        mirrorPoint->extensions.insert(QStringLiteral("autoGenerated"), true);
+                        mirrorPoint->extensions.insert(QStringLiteral("derivedMainDeviceId"), mainDevice.deviceId);
+                        mirrorPoint->extensions.insert(QStringLiteral("derivedSourceDeviceId"), derivedDevice.deviceId);
+                        mirrorPoint->extensions.insert(QStringLiteral("derivedSourceDataRef"), derivedBinding.dataRef);
+                        ++changedCount;
+                    }
+                }
+
+                configtool::PointBinding *mainBinding = mutableBindingByDataRef(mainDevice, mirrorDataRef);
+                if (!mainBinding) {
+                    pushUndoOnce();
+                    configtool::PointBinding binding = derivedBinding;
+                    binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                    binding.pointRef = mirrorPoint->pointRef(mainModel->modelId);
+                    binding.dataRef = mirrorDataRef;
+                    binding.descriptionOverride = mirrorPoint->description;
+                    binding.enabled = true;
+                    binding.extensions.insert(QStringLiteral("generatedBy"), QStringLiteral("iec104SameChannelDerivedDevice"));
+                    binding.extensions.insert(QStringLiteral("autoGenerated"), true);
+                    binding.extensions.insert(QStringLiteral("derivedSourceDeviceId"), derivedDevice.deviceId);
+                    binding.extensions.insert(QStringLiteral("derivedSourceDataRef"), derivedBinding.dataRef);
+                    mainDevice.bindings.append(binding);
+                    ++changedCount;
+                } else if (mainBinding->address != derivedBinding.address
+                           || !mainBinding->enabled
+                           || mainBinding->pointRef != mirrorPoint->pointRef(mainModel->modelId)) {
+                    pushUndoOnce();
+                    mainBinding->address = derivedBinding.address;
+                    mainBinding->pointRef = mirrorPoint->pointRef(mainModel->modelId);
+                    mainBinding->descriptionOverride = mirrorPoint->description;
+                    mainBinding->enabled = true;
+                    mainBinding->extensions.insert(QStringLiteral("generatedBy"), QStringLiteral("iec104SameChannelDerivedDevice"));
+                    mainBinding->extensions.insert(QStringLiteral("autoGenerated"), true);
+                    mainBinding->extensions.insert(QStringLiteral("derivedSourceDeviceId"), derivedDevice.deviceId);
+                    mainBinding->extensions.insert(QStringLiteral("derivedSourceDataRef"), derivedBinding.dataRef);
+                    ++changedCount;
+                }
+
+                configtool::LogicComputationPoint computation;
+                computation.deviceId = derivedDevice.deviceId;
+                computation.dataRef = derivedBinding.dataRef;
+                computation.formula = QStringLiteral("{1}");
+                computation.dropOperands = true;
+                computation.description = QStringLiteral("104 同通道派生: %1#%2 -> %3#%4")
+                    .arg(mainDevice.deviceId, mirrorDataRef, derivedDevice.deviceId, derivedBinding.dataRef);
+                configtool::LogicOperand operand;
+                operand.deviceId = mainDevice.deviceId;
+                operand.dataRef = mirrorDataRef;
+                computation.operands.append(operand);
+
+                bool computationNeedsUpdate = true;
+                for (const configtool::LogicComputationPoint &existing : project.logicCenter.computationPoints) {
+                    if (existing.deviceId.trimmed() == computation.deviceId
+                        && existing.dataRef.trimmed() == computation.dataRef
+                        && existing.formula == computation.formula
+                        && existing.dropOperands == computation.dropOperands
+                        && existing.operands.size() == computation.operands.size()
+                        && !existing.operands.isEmpty()
+                        && existing.operands.first().deviceId == operand.deviceId
+                        && existing.operands.first().dataRef == operand.dataRef) {
+                        computationNeedsUpdate = false;
+                        break;
+                    }
+                }
+                if (computationNeedsUpdate) {
+                    pushUndoOnce();
+                    configtool::upsertLogicComputationPoint(project.logicCenter, computation);
+                    ++changedCount;
+                }
+            }
+
+            bool onlineLinkExists = false;
+            for (const configtool::LogicOnlineStatusLink &link : project.logicCenter.onlineStatusLinks) {
+                if (link.deviceId == derivedDevice.deviceId && link.linkToDeviceId == mainDevice.deviceId) {
+                    onlineLinkExists = true;
+                    break;
+                }
+            }
+            if (!onlineLinkExists) {
+                pushUndoOnce();
+                configtool::LogicOnlineStatusLink link;
+                link.deviceId = derivedDevice.deviceId;
+                link.linkToDeviceId = mainDevice.deviceId;
+                project.logicCenter.onlineStatusLinks.append(link);
+                ++changedCount;
+            }
+        }
+    }
+
+    return changedCount;
+}
+
 void MainWindow::onExportIec104ConfigClicked()
 {
     m_lastConfigExportOk = false;
@@ -601,6 +889,11 @@ void MainWindow::onExportIec104ConfigClicked()
     }
 
     m_configImportDirEdit->setText(projectRoot);
+    const int derivedChangeCount = applyIec104SameChannelDerivedDeviceMappings();
+    if (derivedChangeCount > 0) {
+        refreshConfigObjectViews();
+        statusBar()->showMessage(QStringLiteral("已自动整理 104 同通道派生配置，生成/更新 %1 项").arg(derivedChangeCount), 5000);
+    }
 
     configtool::ExportReport report;
     bool ok = true;
@@ -3246,13 +3539,20 @@ void MainWindow::refreshModelDetail(int modelIndex)
     const QString descriptionKeyword = m_modelPointDescriptionFilterEdit
         ? m_modelPointDescriptionFilterEdit->text().trimmed()
         : QString();
+    const bool showAutoDerivedPoints = m_showAutoDerivedModelPointsCheck
+        && m_showAutoDerivedModelPointsCheck->isChecked();
     int totalPointCount = 0;
+    int hiddenAutoDerivedPointCount = 0;
     for (const configtool::ServiceTemplate &service : model.services) {
         if (filterTabIndex != 0 && modelPointFilterTabIndex(service.type) != filterTabIndex) {
             continue;
         }
 
         for (const configtool::PointTemplate &point : service.points) {
+            if (!showAutoDerivedPoints && isAutoDerivedMirrorPoint(point)) {
+                ++hiddenAutoDerivedPointCount;
+                continue;
+            }
             const bool matchesDataRef = dataRefKeyword.isEmpty()
                 || point.dataRef().contains(dataRefKeyword, Qt::CaseInsensitive);
             const bool matchesDescription = descriptionKeyword.isEmpty()
@@ -3274,6 +3574,9 @@ void MainWindow::refreshModelDetail(int modelIndex)
         }
         for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex) {
             const configtool::PointTemplate &point = service.points.at(pointIndex);
+            if (!showAutoDerivedPoints && isAutoDerivedMirrorPoint(point)) {
+                continue;
+            }
             const bool matchesDataRef = dataRefKeyword.isEmpty()
                 || point.dataRef().contains(dataRefKeyword, Qt::CaseInsensitive);
             const bool matchesDescription = descriptionKeyword.isEmpty()
@@ -3362,6 +3665,9 @@ void MainWindow::refreshModelDetail(int modelIndex)
             message += QStringLiteral(" 当前模型北向不可见，导出时不会生成 northmodel。");
         } else if (hiddenNorthPointCount > 0) {
             message += QStringLiteral(" 已隐藏 %1 个北向点位。").arg(hiddenNorthPointCount);
+        }
+        if (hiddenAutoDerivedPointCount > 0) {
+            message += QStringLiteral(" 自动派生点默认隐藏 %1 个。").arg(hiddenAutoDerivedPointCount);
         }
         m_modelValidationLabel->setText(message);
     } else {

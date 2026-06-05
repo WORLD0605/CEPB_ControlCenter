@@ -391,6 +391,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointFilterTabBar->setExpanding(false);
     m_modelPointFilterTabBar->setCurrentIndex(0);
     pointToolbar->addWidget(m_modelPointFilterTabBar);
+    m_showAutoDerivedModelPointsCheck = new QCheckBox(QStringLiteral("显示自动派生点"), this);
+    m_showAutoDerivedModelPointsCheck->setChecked(false);
+    pointToolbar->addWidget(m_showAutoDerivedModelPointsCheck);
     pointToolbar->addStretch();
     pointToolbar->addWidget(new QLabel("新建到:"));
     m_newPointCategoryCombo = new QComboBox(this);
@@ -1316,6 +1319,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeletePointClicked);
     connect(m_modelPointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onModelPointFilterChanged);
+    connect(m_showAutoDerivedModelPointsCheck, &QCheckBox::toggled,
+            this, [this]() { refreshModelDetail(currentConfigModelIndex()); });
     connect(m_modelPointDataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onModelPointDataRefFilterTextChanged);
     connect(m_modelPointDescriptionFilterEdit, &QLineEdit::textChanged,
