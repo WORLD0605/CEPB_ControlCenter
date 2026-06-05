@@ -209,7 +209,7 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(m_configImportDirEdit, 1);
     m_browseConfigImportDirBtn = new QPushButton("打开配置工作区...");
     importRow->addWidget(m_browseConfigImportDirBtn);
-    m_exportIec104ConfigBtn = new QPushButton("导出配置");
+    m_exportIec104ConfigBtn = new QPushButton("保存配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
 
@@ -381,6 +381,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelFormLayout->addRow(QStringLiteral("北向:"), m_modelNorthVisibleCheck);
     modelDetailLayout->addWidget(modelFormFrame);
     auto *pointToolbar = new QHBoxLayout();
+    pointToolbar->setSpacing(8);
     pointToolbar->addWidget(new QLabel("模型点位:"));
     m_modelPointFilterTabBar = new QTabBar(this);
     m_modelPointFilterTabBar->addTab(QStringLiteral("全部"));
@@ -390,7 +391,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointFilterTabBar->setExpanding(false);
     m_modelPointFilterTabBar->setCurrentIndex(0);
     pointToolbar->addWidget(m_modelPointFilterTabBar);
-    pointToolbar->addSpacing(12);
+    pointToolbar->addStretch();
     pointToolbar->addWidget(new QLabel("新建到:"));
     m_newPointCategoryCombo = new QComboBox(this);
     m_newPointCategoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
@@ -403,12 +404,28 @@ MainWindow::MainWindow(QWidget *parent)
     pointToolbar->addWidget(m_addPointBtn);
     pointToolbar->addWidget(m_copyPointBtn);
     pointToolbar->addWidget(m_deletePointBtn);
-    pointToolbar->addStretch();
     modelDetailLayout->addLayout(pointToolbar);
+
+    auto *pointFilterToolbar = new QHBoxLayout();
+    pointFilterToolbar->setSpacing(8);
+    pointFilterToolbar->addSpacing(2);
+    pointFilterToolbar->addWidget(new QLabel("DataRef:"));
+    m_modelPointDataRefFilterEdit = new QLineEdit(this);
+    m_modelPointDataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
+    m_modelPointDataRefFilterEdit->setClearButtonEnabled(true);
+    m_modelPointDataRefFilterEdit->setMinimumWidth(320);
+    pointFilterToolbar->addWidget(m_modelPointDataRefFilterEdit, 1);
+    pointFilterToolbar->addWidget(new QLabel("Description:"));
+    m_modelPointDescriptionFilterEdit = new QLineEdit(this);
+    m_modelPointDescriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
+    m_modelPointDescriptionFilterEdit->setClearButtonEnabled(true);
+    m_modelPointDescriptionFilterEdit->setMinimumWidth(320);
+    pointFilterToolbar->addWidget(m_modelPointDescriptionFilterEdit, 1);
+    modelDetailLayout->addLayout(pointFilterToolbar);
+
     m_modelValidationLabel = new QLabel(this);
-    m_modelValidationLabel->setWordWrap(true);
+    m_modelValidationLabel->setWordWrap(false);
     m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
-    modelDetailLayout->addWidget(m_modelValidationLabel);
     m_modelPointsTable = new QTableWidget(0, 10, this);
     m_modelPointsTable->setColumnCount(10);
     m_modelPointsTable->setHorizontalHeaderLabels({"北向可见", "类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
@@ -440,8 +457,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->setColumnWidth(8, 90);
     m_modelPointsTable->setColumnWidth(9, 70);
     modelDetailLayout->addWidget(m_modelPointsTable, 1);
-    modelDetailLayout->setStretch(2, 1);
-    modelDetailLayout->setStretch(3, 8);
+    modelDetailLayout->setStretch(0, 0);
+    modelDetailLayout->setStretch(1, 0);
+    modelDetailLayout->setStretch(2, 0);
+    modelDetailLayout->setStretch(3, 1);
 
     m_deviceEditorPage = new QWidget(this);
     auto *deviceEditorLayout = new QVBoxLayout(m_deviceEditorPage);
@@ -1102,6 +1121,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_statusLabel = new QLabel("未连接");
     statusBar()->addWidget(m_statusLabel);
+    statusBar()->addWidget(m_modelValidationLabel, 1);
 
     m_versionLabel = new QLabel(QStringLiteral("v") + QStringLiteral(APP_VERSION), this);
     m_versionLabel->setStyleSheet(QStringLiteral("color: #888888; font-size: 11px;"));
@@ -1277,6 +1297,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeletePointClicked);
     connect(m_modelPointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onModelPointFilterChanged);
+    connect(m_modelPointDataRefFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onModelPointDataRefFilterTextChanged);
+    connect(m_modelPointDescriptionFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onModelPointDescriptionFilterTextChanged);
     connect(m_modelPointsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onModelPointItemChanged);
     connect(m_deviceIdEdit, &QLineEdit::textEdited,

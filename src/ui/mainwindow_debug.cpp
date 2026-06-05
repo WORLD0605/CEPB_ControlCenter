@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDateTime>
+#include <QHash>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -385,8 +386,21 @@ void MainWindow::refreshDeviceFilterOptions()
 
     m_deviceFilterCombo->clear();
     m_deviceFilterCombo->addItem("all", QString());
+    QHash<QString, QString> deviceDescriptions;
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        const QString deviceId = device.deviceId.trimmed();
+        if (!deviceId.isEmpty() && !device.deviceDesc.trimmed().isEmpty()) {
+            deviceDescriptions.insert(deviceId, device.deviceDesc.trimmed());
+        }
+    }
+
     for (const QString &deviceId : deviceIds) {
-        m_deviceFilterCombo->addItem(deviceId, deviceId);
+        const QString description = deviceDescriptions.value(deviceId);
+        const QString displayText = description.isEmpty()
+            ? deviceId
+            : QStringLiteral("%1 - %2").arg(deviceId, description);
+        m_deviceFilterCombo->addItem(displayText, deviceId);
     }
 
     const int restoredIndex = m_deviceFilterCombo->findData(currentFilter);

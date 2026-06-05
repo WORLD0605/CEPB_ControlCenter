@@ -1789,6 +1789,16 @@ void MainWindow::onModelPointFilterChanged(int index)
     refreshModelDetail(currentConfigModelIndex());
 }
 
+void MainWindow::onModelPointDataRefFilterTextChanged(const QString & /*text*/)
+{
+    refreshModelDetail(currentConfigModelIndex());
+}
+
+void MainWindow::onModelPointDescriptionFilterTextChanged(const QString & /*text*/)
+{
+    refreshModelDetail(currentConfigModelIndex());
+}
+
 void MainWindow::onModelPointCategoryChanged(int index)
 {
     if (m_updatingModelPointCategory || index < 0) {
@@ -3220,10 +3230,26 @@ void MainWindow::refreshModelDetail(int modelIndex)
     }
 
     const int filterTabIndex = m_modelPointFilterTabBar ? m_modelPointFilterTabBar->currentIndex() : 0;
+    const QString dataRefKeyword = m_modelPointDataRefFilterEdit
+        ? m_modelPointDataRefFilterEdit->text().trimmed()
+        : QString();
+    const QString descriptionKeyword = m_modelPointDescriptionFilterEdit
+        ? m_modelPointDescriptionFilterEdit->text().trimmed()
+        : QString();
     int totalPointCount = 0;
     for (const configtool::ServiceTemplate &service : model.services) {
-        if (filterTabIndex == 0 || modelPointFilterTabIndex(service.type) == filterTabIndex) {
-            totalPointCount += service.points.size();
+        if (filterTabIndex != 0 && modelPointFilterTabIndex(service.type) != filterTabIndex) {
+            continue;
+        }
+
+        for (const configtool::PointTemplate &point : service.points) {
+            const bool matchesDataRef = dataRefKeyword.isEmpty()
+                || point.dataRef().contains(dataRefKeyword, Qt::CaseInsensitive);
+            const bool matchesDescription = descriptionKeyword.isEmpty()
+                || point.description.contains(descriptionKeyword, Qt::CaseInsensitive);
+            if (matchesDataRef && matchesDescription) {
+                ++totalPointCount;
+            }
         }
     }
 
@@ -3236,8 +3262,16 @@ void MainWindow::refreshModelDetail(int modelIndex)
         if (filterTabIndex != 0 && modelPointFilterTabIndex(service.type) != filterTabIndex) {
             continue;
         }
-        for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex, ++row) {
+        for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex) {
             const configtool::PointTemplate &point = service.points.at(pointIndex);
+            const bool matchesDataRef = dataRefKeyword.isEmpty()
+                || point.dataRef().contains(dataRefKeyword, Qt::CaseInsensitive);
+            const bool matchesDescription = descriptionKeyword.isEmpty()
+                || point.description.contains(descriptionKeyword, Qt::CaseInsensitive);
+            if (!matchesDataRef || !matchesDescription) {
+                continue;
+            }
+
             auto *northVisibleItem = new QTableWidgetItem();
             auto *categoryItem = new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category));
             auto *nameItem = new QTableWidgetItem(point.doName);
@@ -3296,6 +3330,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
             connect(categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                     this, &MainWindow::onModelPointCategoryChanged);
             m_modelPointsTable->setCellWidget(row, 1, categoryCombo);
+            ++row;
         }
     }
     m_updatingModelPointsTable = false;
