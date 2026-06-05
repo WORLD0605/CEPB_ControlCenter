@@ -1577,6 +1577,7 @@ void MainWindow::onModelFieldEdited()
     model.manufacturerId = m_modelManufacturerIdEdit->text().trimmed();
     model.manufacturerDesc = m_modelManufacturerDescEdit->text().trimmed();
     model.schema = m_modelSchemaEdit->text().trimmed();
+    model.northVisible = !m_modelNorthVisibleCheck || m_modelNorthVisibleCheck->isChecked();
 
     const int renamedReferenceCount = renameModelReferences(oldModelId, newModelId);
     if (m_modelIdEdit && !newModelId.isEmpty() && oldModelId != newModelId) {
@@ -1585,6 +1586,9 @@ void MainWindow::onModelFieldEdited()
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
+    }
+    if (sender() == m_modelNorthVisibleCheck) {
+        refreshModelDetail(modelIndex);
     }
     if (renamedReferenceCount > 0) {
         statusBar()->showMessage(QStringLiteral("已同步更新 %1 处模型引用").arg(renamedReferenceCount), 5000);
@@ -2304,13 +2308,13 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
         return;
     }
 
-    QTableWidgetItem *categoryItem = m_modelPointsTable->item(item->row(), 0);
-    if (!categoryItem) {
+    QTableWidgetItem *anchorItem = m_modelPointsTable->item(item->row(), 0);
+    if (!anchorItem) {
         return;
     }
 
-    const int serviceIndex = categoryItem->data(Qt::UserRole).toInt();
-    const int pointIndex = categoryItem->data(Qt::UserRole + 1).toInt();
+    const int serviceIndex = anchorItem->data(Qt::UserRole).toInt();
+    const int pointIndex = anchorItem->data(Qt::UserRole + 1).toInt();
 
     configtool::ConfigProject &project = m_configProjectManager.project();
     if (modelIndex >= project.models.size()) {
@@ -2331,7 +2335,11 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
     const int editedRow = item->row();
     const int editedColumn = item->column();
     const QString pointId = service.points.at(pointIndex).pointId;
-    applyModelPointCellText(item->row(), item->column(), item->text());
+    if (editedColumn == 0) {
+        service.points[pointIndex].northVisible = item->checkState() == Qt::Checked;
+    } else {
+        applyModelPointCellText(item->row(), item->column(), item->text());
+    }
 
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
@@ -2344,14 +2352,14 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
 
 void MainWindow::applyModelPointCellText(int row, int column, const QString &text)
 {
-    QTableWidgetItem *categoryItem = m_modelPointsTable->item(row, 0);
-    if (!categoryItem) {
+    QTableWidgetItem *anchorItem = m_modelPointsTable->item(row, 0);
+    if (!anchorItem) {
         return;
     }
 
     const int modelIndex = currentConfigModelIndex();
-    const int serviceIndex = categoryItem->data(Qt::UserRole).toInt();
-    const int pointIndex = categoryItem->data(Qt::UserRole + 1).toInt();
+    const int serviceIndex = anchorItem->data(Qt::UserRole).toInt();
+    const int pointIndex = anchorItem->data(Qt::UserRole + 1).toInt();
 
     configtool::ConfigProject &project = m_configProjectManager.project();
     if (modelIndex < 0 || modelIndex >= project.models.size()) {
@@ -2372,26 +2380,26 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
     const QString oldDataRef = point.dataRef();
     const QString value = text.trimmed();
     switch (column) {
-    case 1:
+    case 2:
         point.name = value;
         point.doName = point.name;
         break;
-    case 2:
+    case 3:
         point.description = value;
         break;
-    case 3:
+    case 4:
         point.ldName = value;
         break;
-    case 4:
+    case 5:
         point.lnType = value;
         break;
-    case 5:
+    case 6:
         point.lnInst = value;
         break;
-    case 7:
+    case 8:
         point.dataType = value;
         break;
-    case 8:
+    case 9:
         point.unit = value;
         break;
     default:
@@ -3182,6 +3190,10 @@ void MainWindow::refreshModelDetail(int modelIndex)
                                 m_modelManufacturerDescEdit, m_modelSchemaEdit}) {
             edit->clear();
         }
+        if (m_modelNorthVisibleCheck) {
+            QSignalBlocker blocker(m_modelNorthVisibleCheck);
+            m_modelNorthVisibleCheck->setChecked(true);
+        }
         m_modelValidationLabel->setText(QStringLiteral("请选择一个模型。"));
         m_modelPointsTable->setRowCount(0);
         return;
@@ -3201,6 +3213,10 @@ void MainWindow::refreshModelDetail(int modelIndex)
                       qMakePair(m_modelSchemaEdit, model.schema)}) {
         QSignalBlocker blocker(pair.first);
         pair.first->setText(pair.second);
+    }
+    if (m_modelNorthVisibleCheck) {
+        QSignalBlocker blocker(m_modelNorthVisibleCheck);
+        m_modelNorthVisibleCheck->setChecked(model.northVisible);
     }
 
     const int filterTabIndex = m_modelPointFilterTabBar ? m_modelPointFilterTabBar->currentIndex() : 0;
@@ -3222,6 +3238,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
         }
         for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex, ++row) {
             const configtool::PointTemplate &point = service.points.at(pointIndex);
+            auto *northVisibleItem = new QTableWidgetItem();
             auto *categoryItem = new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category));
             auto *nameItem = new QTableWidgetItem(point.doName);
             auto *descriptionItem = new QTableWidgetItem(point.description);
@@ -3232,6 +3249,11 @@ void MainWindow::refreshModelDetail(int modelIndex)
             auto *dataTypeItem = new QTableWidgetItem(point.dataType);
             auto *unitItem = new QTableWidgetItem(point.unit);
 
+            northVisibleItem->setFlags((northVisibleItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+            northVisibleItem->setCheckState(point.northVisible ? Qt::Checked : Qt::Unchecked);
+            northVisibleItem->setData(Qt::UserRole, serviceIndex);
+            northVisibleItem->setData(Qt::UserRole + 1, pointIndex);
+            northVisibleItem->setData(Qt::UserRole + 2, point.pointId);
             categoryItem->setData(Qt::UserRole, serviceIndex);
             categoryItem->setData(Qt::UserRole + 1, pointIndex);
             categoryItem->setData(Qt::UserRole + 2, point.pointId);
@@ -3240,6 +3262,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
 
             if (duplicateRefs.contains(point.dataRef())) {
                 const QColor duplicateColor(QStringLiteral("#c0392b"));
+                northVisibleItem->setForeground(duplicateColor);
                 categoryItem->setForeground(duplicateColor);
                 nameItem->setForeground(duplicateColor);
                 descriptionItem->setForeground(duplicateColor);
@@ -3251,15 +3274,16 @@ void MainWindow::refreshModelDetail(int modelIndex)
                 unitItem->setForeground(duplicateColor);
             }
 
-            m_modelPointsTable->setItem(row, 0, categoryItem);
-            m_modelPointsTable->setItem(row, 1, nameItem);
-            m_modelPointsTable->setItem(row, 2, descriptionItem);
-            m_modelPointsTable->setItem(row, 3, ldNameItem);
-            m_modelPointsTable->setItem(row, 4, lnTypeItem);
-            m_modelPointsTable->setItem(row, 5, lnInstItem);
-            m_modelPointsTable->setItem(row, 6, dataRefItem);
-            m_modelPointsTable->setItem(row, 7, dataTypeItem);
-            m_modelPointsTable->setItem(row, 8, unitItem);
+            m_modelPointsTable->setItem(row, 0, northVisibleItem);
+            m_modelPointsTable->setItem(row, 1, categoryItem);
+            m_modelPointsTable->setItem(row, 2, nameItem);
+            m_modelPointsTable->setItem(row, 3, descriptionItem);
+            m_modelPointsTable->setItem(row, 4, ldNameItem);
+            m_modelPointsTable->setItem(row, 5, lnTypeItem);
+            m_modelPointsTable->setItem(row, 6, lnInstItem);
+            m_modelPointsTable->setItem(row, 7, dataRefItem);
+            m_modelPointsTable->setItem(row, 8, dataTypeItem);
+            m_modelPointsTable->setItem(row, 9, unitItem);
 
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
             categoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
@@ -3271,15 +3295,30 @@ void MainWindow::refreshModelDetail(int modelIndex)
             categoryCombo->setCurrentIndex(categoryComboIndex >= 0 ? categoryComboIndex : 0);
             connect(categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                     this, &MainWindow::onModelPointCategoryChanged);
-            m_modelPointsTable->setCellWidget(row, 0, categoryCombo);
+            m_modelPointsTable->setCellWidget(row, 1, categoryCombo);
         }
     }
     m_updatingModelPointsTable = false;
     m_updatingModelPointCategory = false;
 
+    int hiddenNorthPointCount = 0;
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            if (!point.northVisible) {
+                ++hiddenNorthPointCount;
+            }
+        }
+    }
+
     if (duplicateRefs.isEmpty()) {
         m_modelValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
-        m_modelValidationLabel->setText(QStringLiteral("当前模型点位的 DataRef 唯一。"));
+        QString message = QStringLiteral("当前模型点位的 DataRef 唯一。");
+        if (!model.northVisible) {
+            message += QStringLiteral(" 当前模型北向不可见，导出时不会生成 northmodel。");
+        } else if (hiddenNorthPointCount > 0) {
+            message += QStringLiteral(" 已隐藏 %1 个北向点位。").arg(hiddenNorthPointCount);
+        }
+        m_modelValidationLabel->setText(message);
     } else {
         m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
         m_modelValidationLabel->setText(

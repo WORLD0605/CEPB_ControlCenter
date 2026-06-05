@@ -81,9 +81,14 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
 
     QDir mutableAppDir(appDir);
     const QString modelDirPath = mutableAppDir.filePath(QStringLiteral("model"));
+    const QString northModelDirPath = QDir(modelDirPath).filePath(QStringLiteral("northmodel"));
     const QString deviceDirPath = mutableAppDir.filePath(QStringLiteral("dev"));
     if (!mutableAppDir.mkpath(QStringLiteral("model"))) {
         report.addIssue(ImportIssueSeverity::Error, modelDirPath, QStringLiteral("无法创建 model 目录"));
+        return false;
+    }
+    if (!QDir(modelDirPath).mkpath(QStringLiteral("northmodel"))) {
+        report.addIssue(ImportIssueSeverity::Error, northModelDirPath, QStringLiteral("无法创建 northmodel 目录"));
         return false;
     }
     if (!mutableAppDir.mkpath(QStringLiteral("dev"))) {
@@ -94,6 +99,10 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
     QString cleanupErrorMessage;
     if (!removeJsonFilesInDirectory(modelDirPath, cleanupErrorMessage)) {
         report.addIssue(ImportIssueSeverity::Error, modelDirPath, cleanupErrorMessage);
+        return false;
+    }
+    if (!removeJsonFilesInDirectory(northModelDirPath, cleanupErrorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, northModelDirPath, cleanupErrorMessage);
         return false;
     }
     if (!removeJsonFilesInDirectory(deviceDirPath, cleanupErrorMessage)) {
@@ -107,6 +116,13 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
+        }
+        if (model.northVisible) {
+            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileNameForExport(model));
+            if (!writeJsonFile(northFilePath, serializeNorthModel(model), errorMessage)) {
+                report.addIssue(ImportIssueSeverity::Error, northFilePath, errorMessage);
+                return false;
+            }
         }
         ++report.exportedModelCount;
     }
@@ -221,10 +237,15 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     }
 
     const QString modelDirPath = mutableAppDir.filePath(QStringLiteral("model"));
+    const QString northModelDirPath = QDir(modelDirPath).filePath(QStringLiteral("northmodel"));
     const QString deviceDirPath = mutableAppDir.filePath(QStringLiteral("dev"));
     const QString etcDirPath = mutableAppDir.filePath(QStringLiteral("etc"));
     if (!mutableAppDir.mkpath(QStringLiteral("model"))) {
         report.addIssue(ImportIssueSeverity::Error, modelDirPath, QStringLiteral("无法创建 model 目录"));
+        return false;
+    }
+    if (!QDir(modelDirPath).mkpath(QStringLiteral("northmodel"))) {
+        report.addIssue(ImportIssueSeverity::Error, northModelDirPath, QStringLiteral("无法创建 northmodel 目录"));
         return false;
     }
     if (!mutableAppDir.mkpath(QStringLiteral("dev"))) {
@@ -241,6 +262,10 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         report.addIssue(ImportIssueSeverity::Error, modelDirPath, cleanupErrorMessage);
         return false;
     }
+    if (!removeJsonFilesInDirectory(northModelDirPath, cleanupErrorMessage)) {
+        report.addIssue(ImportIssueSeverity::Error, northModelDirPath, cleanupErrorMessage);
+        return false;
+    }
     if (!removeJsonFilesInDirectory(deviceDirPath, cleanupErrorMessage)) {
         report.addIssue(ImportIssueSeverity::Error, deviceDirPath, cleanupErrorMessage);
         return false;
@@ -252,6 +277,13 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
+        }
+        if (model.northVisible) {
+            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileNameForExport(model));
+            if (!writeJsonFile(northFilePath, serializeNorthModel(model), errorMessage)) {
+                report.addIssue(ImportIssueSeverity::Error, northFilePath, errorMessage);
+                return false;
+            }
         }
         ++report.exportedModelCount;
     }

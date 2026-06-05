@@ -231,6 +231,7 @@ struct PointTemplate {
     ModelServiceType category = ModelServiceType::Measurement;
     PointSignalType signalType = PointSignalType::Yc;
     ControlKind controlKind = ControlKind::None;
+    bool northVisible = true;
     QString name;
     QString description;
     QString ldName;
@@ -265,6 +266,7 @@ struct ModelTemplate {
     QString modelId;
     QString name;
     QString displayName;
+    bool northVisible = true;
     QString deviceType;
     QString manufacturerId;
     QString manufacturerDesc;

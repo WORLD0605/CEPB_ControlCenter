@@ -382,6 +382,7 @@ private:
     QLineEdit *m_modelManufacturerIdEdit = nullptr;
     QLineEdit *m_modelManufacturerDescEdit = nullptr;
     QLineEdit *m_modelSchemaEdit = nullptr;
+    QCheckBox *m_modelNorthVisibleCheck = nullptr;
     QLineEdit *m_deviceIdEdit = nullptr;
     QLineEdit *m_deviceDescEdit = nullptr;
     QLineEdit *m_deviceModelEdit = nullptr;

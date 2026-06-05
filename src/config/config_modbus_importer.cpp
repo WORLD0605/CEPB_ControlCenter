@@ -57,6 +57,7 @@ bool ModbusConfigImporter::importModelDirectory(const QString &modelDir,
     for (const QFileInfo &entry : entries) {
         ok = importModelFile(entry.filePath(), project, report) && ok;
     }
+    applyNorthModelVisibility(modelDir, project, report);
 
     return ok;
 }
@@ -103,6 +104,8 @@ bool ModbusConfigImporter::importModelFile(const QString &filePath,
     model.modelId = profile.value(QStringLiteral("model")).toString();
     model.name = model.modelId;
     model.displayName = profile.value(QStringLiteral("modelDesc")).toString();
+    model.northVisible = !root.contains(QStringLiteral("northVisible"))
+        || root.value(QStringLiteral("northVisible")).toBool(true);
     model.deviceType = profile.value(QStringLiteral("devType")).toString();
     model.manufacturerId = profile.value(QStringLiteral("manufacturerId")).toString();
     model.manufacturerDesc = profile.value(QStringLiteral("manufacturerDesc")).toString();

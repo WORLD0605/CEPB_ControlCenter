@@ -95,6 +95,8 @@ PointTemplate parsePointTemplate(const QJsonObject &pointObject,
     point.pointId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     point.category = serviceType;
     point.signalType = signalTypeForService(serviceType);
+    point.northVisible = !pointObject.contains(QStringLiteral("northVisible"))
+        || pointObject.value(QStringLiteral("northVisible")).toBool(true);
     point.name = pointObject.value(QStringLiteral("DOname")).toString();
     point.description = pointObject.value(QStringLiteral("description")).toString();
     point.ldName = pointObject.value(QStringLiteral("LDname")).toString();
@@ -435,7 +437,7 @@ QString exportedServiceDescription(ModelServiceType type)
     return QStringLiteral("遥测");
 }
 
-QJsonObject serializeModel(const ModelTemplate &model)
+QJsonObject serializeModel(const ModelTemplate &model, bool northOnly)
 {
     QJsonObject profile;
     profile.insert(QStringLiteral("devType"), model.deviceType);
@@ -452,6 +454,9 @@ QJsonObject serializeModel(const ModelTemplate &model)
         const ServiceTemplate *service = model.findService(serviceType);
         if (service) {
             for (const PointTemplate &point : service->points) {
+                if (northOnly && !point.northVisible) {
+                    continue;
+                }
                 pointsArray.append(serializePoint(point));
             }
         }
@@ -476,6 +481,109 @@ QJsonObject serializeModel(const ModelTemplate &model)
     root.insert(QStringLiteral("schema"), model.schema);
     root.insert(QStringLiteral("services"), servicesArray);
     return root;
+}
+
+QJsonObject serializeModel(const ModelTemplate &model)
+{
+    return serializeModel(model, false);
+}
+
+QJsonObject serializeNorthModel(const ModelTemplate &model)
+{
+    return serializeModel(model, true);
+}
+
+QString normalizedExportedServiceId(const ServiceTemplate &service)
+{
+    if (service.serviceId == QStringLiteral("measurement")
+        || service.serviceId == QStringLiteral("status")
+        || service.serviceId.trimmed().isEmpty()) {
+        return exportedServiceId(service.type);
+    }
+
+    return service.serviceId;
+}
+
+QMap<QString, QSet<QString>> loadNorthModelRefsByService(const QString &filePath,
+                                                         ImportReport &report)
+{
+    QMap<QString, QSet<QString>> refsByService;
+    QJsonDocument document;
+    QString errorMessage;
+    if (!loadJsonDocument(filePath, document, errorMessage)) {
+        report.addIssue(ImportIssueSeverity::Warning, filePath,
+                        QStringLiteral("无法读取 northmodel，已按模型不可见处理：%1").arg(errorMessage));
+        return refsByService;
+    }
+
+    const QJsonArray services = document.object().value(QStringLiteral("services")).toArray();
+    for (const QJsonValue &serviceValue : services) {
+        if (!serviceValue.isObject()) {
+            continue;
+        }
+        const QJsonObject serviceObject = serviceValue.toObject();
+        const QString serviceId = serviceObject.value(QStringLiteral("serviceId")).toString();
+        if (serviceId.trimmed().isEmpty()) {
+            continue;
+        }
+        const QJsonArray points = serviceObject.value(QStringLiteral("DOs")).toArray();
+        for (const QJsonValue &pointValue : points) {
+            if (!pointValue.isObject()) {
+                continue;
+            }
+            const QJsonObject pointObject = pointValue.toObject();
+            const QString dataRef = pointObject.value(QStringLiteral("LDname")).toString()
+                + QLatin1Char('.')
+                + pointObject.value(QStringLiteral("LNtype")).toString()
+                + QLatin1Char('.')
+                + pointObject.value(QStringLiteral("LNinst")).toString()
+                + QLatin1Char('.')
+                + pointObject.value(QStringLiteral("DOname")).toString();
+            if (!dataRef.isEmpty() && dataRef != QStringLiteral("...")) {
+                refsByService[serviceId].insert(dataRef);
+            }
+        }
+    }
+
+    return refsByService;
+}
+
+void applyNorthModelVisibility(const QString &modelDir,
+                               ConfigProject &project,
+                               ImportReport &report)
+{
+    QDir northDir(QDir(modelDir).filePath(QStringLiteral("northmodel")));
+    if (!northDir.exists()) {
+        return;
+    }
+
+    const QString modelDirPath = QDir(modelDir).absolutePath();
+    for (ModelTemplate &model : project.models) {
+        if (QFileInfo(model.source.filePath).absoluteDir().absolutePath() != modelDirPath) {
+            continue;
+        }
+
+        const QString northFilePath = northDir.filePath(modelFileNameForExport(model));
+        if (!QFileInfo::exists(northFilePath)) {
+            model.northVisible = false;
+            for (ServiceTemplate &service : model.services) {
+                for (PointTemplate &point : service.points) {
+                    point.northVisible = false;
+                }
+            }
+            continue;
+        }
+
+        model.northVisible = true;
+        const QMap<QString, QSet<QString>> refsByService = loadNorthModelRefsByService(northFilePath, report);
+        for (ServiceTemplate &service : model.services) {
+            const QString serviceId = normalizedExportedServiceId(service);
+            const QSet<QString> allowedRefs = refsByService.value(serviceId);
+            for (PointTemplate &point : service.points) {
+                point.northVisible = allowedRefs.contains(point.dataRef());
+            }
+        }
+    }
 }
 
 QHash<QString, QString> buildDataRefDescriptionMap(const ModelTemplate *model)

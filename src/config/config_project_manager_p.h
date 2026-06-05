@@ -50,6 +50,10 @@ QString modbusIniSetLine(const ModbusSetPoint &setPoint);
 QString modelFileNameForExport(const ModelTemplate &model);
 QString deviceFileNameForExport(const ProtocolDeviceInstance &device);
 QJsonObject serializeModel(const ModelTemplate &model);
+QJsonObject serializeNorthModel(const ModelTemplate &model);
+void applyNorthModelVisibility(const QString &modelDir,
+                               ConfigProject &project,
+                               ImportReport &report);
 const ModelTemplate *findModelById(const ConfigProject &project,
                                    const QString &modelId);
 QSet<QString> duplicateDataRefsForModel(const ModelTemplate &model);

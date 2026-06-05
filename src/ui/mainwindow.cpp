@@ -358,7 +358,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelDetailLayout->setSpacing(8);
     auto *modelFormFrame = new QFrame(this);
     modelFormFrame->setFrameShape(QFrame::StyledPanel);
-    modelFormFrame->setMaximumHeight(180);
+    modelFormFrame->setMaximumHeight(210);
     auto *modelFormLayout = new QFormLayout(modelFormFrame);
     modelFormLayout->setContentsMargins(10, 8, 10, 8);
     modelFormLayout->setVerticalSpacing(4);
@@ -369,6 +369,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelManufacturerIdEdit = new QLineEdit(this);
     m_modelManufacturerDescEdit = new QLineEdit(this);
     m_modelSchemaEdit = new QLineEdit(this);
+    m_modelNorthVisibleCheck = new QCheckBox(QStringLiteral("北向可见"), this);
+    m_modelNorthVisibleCheck->setChecked(true);
     modelFormLayout->addRow("模型ID:", m_modelIdEdit);
     modelFormLayout->addRow("展示名称:", m_modelDisplayNameEdit);
     modelFormLayout->addRow("设备类型:", m_modelDeviceTypeEdit);
@@ -376,6 +378,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelFormLayout->addRow("厂家ID:", m_modelManufacturerIdEdit);
     modelFormLayout->addRow("厂家描述:", m_modelManufacturerDescEdit);
     modelFormLayout->addRow("Schema:", m_modelSchemaEdit);
+    modelFormLayout->addRow(QStringLiteral("北向:"), m_modelNorthVisibleCheck);
     modelDetailLayout->addWidget(modelFormFrame);
     auto *pointToolbar = new QHBoxLayout();
     pointToolbar->addWidget(new QLabel("模型点位:"));
@@ -406,9 +409,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelValidationLabel->setWordWrap(true);
     m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
     modelDetailLayout->addWidget(m_modelValidationLabel);
-    m_modelPointsTable = new QTableWidget(0, 6, this);
-    m_modelPointsTable->setColumnCount(9);
-    m_modelPointsTable->setHorizontalHeaderLabels({"类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
+    m_modelPointsTable = new QTableWidget(0, 10, this);
+    m_modelPointsTable->setColumnCount(10);
+    m_modelPointsTable->setHorizontalHeaderLabels({"北向可见", "类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
     m_modelPointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_modelPointsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -426,15 +429,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->verticalHeader()->setVisible(false);
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
     m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_modelPointsTable->setColumnWidth(0, 70);
-    m_modelPointsTable->setColumnWidth(1, 130);
-    m_modelPointsTable->setColumnWidth(2, 220);
-    m_modelPointsTable->setColumnWidth(3, 90);
-    m_modelPointsTable->setColumnWidth(4, 120);
-    m_modelPointsTable->setColumnWidth(5, 70);
-    m_modelPointsTable->setColumnWidth(6, 260);
-    m_modelPointsTable->setColumnWidth(7, 90);
-    m_modelPointsTable->setColumnWidth(8, 70);
+    m_modelPointsTable->setColumnWidth(0, 76);
+    m_modelPointsTable->setColumnWidth(1, 70);
+    m_modelPointsTable->setColumnWidth(2, 130);
+    m_modelPointsTable->setColumnWidth(3, 220);
+    m_modelPointsTable->setColumnWidth(4, 90);
+    m_modelPointsTable->setColumnWidth(5, 120);
+    m_modelPointsTable->setColumnWidth(6, 70);
+    m_modelPointsTable->setColumnWidth(7, 260);
+    m_modelPointsTable->setColumnWidth(8, 90);
+    m_modelPointsTable->setColumnWidth(9, 70);
     modelDetailLayout->addWidget(m_modelPointsTable, 1);
     modelDetailLayout->setStretch(2, 1);
     modelDetailLayout->setStretch(3, 8);
@@ -1262,6 +1266,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_modelManufacturerDescEdit, &QLineEdit::textEdited,
             this, &MainWindow::onModelFieldEdited);
     connect(m_modelSchemaEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onModelFieldEdited);
+    connect(m_modelNorthVisibleCheck, &QCheckBox::toggled,
             this, &MainWindow::onModelFieldEdited);
     connect(m_addPointBtn, &QPushButton::clicked,
             this, &MainWindow::onAddPointClicked);
