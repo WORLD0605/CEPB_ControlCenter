@@ -94,6 +94,8 @@ constexpr int LogicOnlineLinkColumnDevice = 0;
 constexpr int LogicOnlineLinkColumnFollowDevice = 1;
 constexpr int ConfigIssueRoleTargetType = Qt::UserRole + 1;
 constexpr int ConfigIssueRoleTargetKey = Qt::UserRole + 2;
+constexpr const char *ModelEditorOriginalModelIdProperty = "originalModelId";
+constexpr const char *DeviceEditorOriginalDeviceIdProperty = "originalDeviceId";
 
 using configtool::buildModbusDataIndex;
 using configtool::isModbusDevice;
@@ -376,6 +378,55 @@ QColor importIssueSeverityColor(configtool::ImportIssueSeverity severity)
     return QColor(QStringLiteral("#c0392b"));
 }
 
+int importIssueProblemCount(const QList<configtool::ImportIssue> &issues)
+{
+    int count = 0;
+    for (const configtool::ImportIssue &issue : issues) {
+        if (issue.severity != configtool::ImportIssueSeverity::Info) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+configtool::ImportIssueSeverity importSeverityForConfigIssue(configtool::ConfigIssueSeverity severity)
+{
+    switch (severity) {
+    case configtool::ConfigIssueSeverity::Info:
+        return configtool::ImportIssueSeverity::Info;
+    case configtool::ConfigIssueSeverity::Warning:
+        return configtool::ImportIssueSeverity::Warning;
+    case configtool::ConfigIssueSeverity::Error:
+        return configtool::ImportIssueSeverity::Error;
+    }
+
+    return configtool::ImportIssueSeverity::Error;
+}
+
+QString formatConfigIssueForIssueTable(const configtool::ConfigIssue &issue)
+{
+    QStringList parts;
+    if (!issue.module.trimmed().isEmpty()) {
+        parts << issue.module.trimmed();
+    }
+    if (!issue.objectId.trimmed().isEmpty()) {
+        parts << issue.objectId.trimmed();
+    }
+    parts << issue.message;
+    return parts.join(QStringLiteral(" / "));
+}
+
+void appendConfigIssueForIssueTable(const configtool::ConfigIssue &issue,
+                                    const QString &filePath,
+                                    QList<configtool::ImportIssue> &issues)
+{
+    configtool::ImportIssue importIssue;
+    importIssue.severity = importSeverityForConfigIssue(issue.severity);
+    importIssue.filePath = filePath;
+    importIssue.message = formatConfigIssueForIssueTable(issue);
+    issues.append(importIssue);
+}
+
 bool resolveLogicIssueTarget(const QString &message, QString *targetType, QString *targetKey)
 {
     const QStringList rawParts = message.split(QStringLiteral(" / "));
@@ -601,6 +652,34 @@ void MainWindow::onExportIec104ConfigClicked()
     m_lastConfigExportOk = true;
 }
 
+void MainWindow::onCheckConfigIssuesClicked()
+{
+    const QList<configtool::ImportIssue> issues = collectCurrentConfigIssues();
+    refreshConfigIssueTable(issues, QStringLiteral("检查"));
+    if (m_mainTabWidget && m_configIssuePage) {
+        m_mainTabWidget->setCurrentWidget(m_configIssuePage);
+    }
+
+    const int problemCount = importIssueProblemCount(issues);
+    int infoCount = 0;
+    for (const configtool::ImportIssue &issue : issues) {
+        if (issue.severity == configtool::ImportIssueSeverity::Info) {
+            ++infoCount;
+        }
+    }
+    if (problemCount == 0) {
+        statusBar()->showMessage(infoCount > 0
+                                     ? QStringLiteral("当前检查完成：无错误或警告，提示 %1 条").arg(infoCount)
+                                     : QStringLiteral("当前检查完成：未发现问题"),
+                                 5000);
+    } else {
+        statusBar()->showMessage(QStringLiteral("当前检查完成：问题 %1 项，提示 %2 条")
+                                     .arg(problemCount)
+                                     .arg(infoCount),
+                                 5000);
+    }
+}
+
 void MainWindow::refreshConfigIssueTable(const QList<configtool::ImportIssue> &issues,
                                          const QString &source)
 {
@@ -674,8 +753,168 @@ void MainWindow::refreshConfigIssueTable(const QList<configtool::ImportIssue> &i
         }
     }
     if (m_configIssueCountValueLabel) {
-        m_configIssueCountValueLabel->setText(QString::number(issues.size()));
+        m_configIssueCountValueLabel->setText(QString::number(importIssueProblemCount(issues)));
     }
+}
+
+QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
+{
+    QList<configtool::ImportIssue> issues;
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const QString projectPath = project.sourceRoot.isEmpty() ? project.projectName : project.sourceRoot;
+
+    auto appendIssue = [&](configtool::ImportIssueSeverity severity,
+                           const QString &filePath,
+                           const QString &message) {
+        configtool::ImportIssue issue;
+        issue.severity = severity;
+        issue.filePath = filePath;
+        issue.message = message;
+        issues.append(issue);
+    };
+    auto objectPath = [](const QString &sourcePath, const QString &fallback) {
+        return sourcePath.trimmed().isEmpty() ? fallback : sourcePath;
+    };
+
+    if (project.projectId.trimmed().isEmpty()) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    projectPath,
+                    QStringLiteral("当前没有可检查的配置工程"));
+    }
+
+    QSet<QString> seenModelIds;
+    QSet<QString> duplicateModelIds;
+    for (const configtool::ModelTemplate &model : project.models) {
+        const QString modelId = model.modelId.trimmed();
+        if (modelId.isEmpty()) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        objectPath(model.source.filePath, projectPath),
+                        QStringLiteral("存在模型 modelId 为空"));
+        } else if (seenModelIds.contains(modelId)) {
+            duplicateModelIds.insert(modelId);
+        } else {
+            seenModelIds.insert(modelId);
+        }
+
+        const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
+        if (!duplicateRefs.isEmpty()) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        objectPath(model.source.filePath, model.modelId),
+                        QStringLiteral("模型存在重复 DataRef：%1")
+                            .arg(QStringList(duplicateRefs.begin(), duplicateRefs.end()).join(QStringLiteral("，"))));
+        }
+    }
+    for (const QString &modelId : duplicateModelIds) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    projectPath,
+                    QStringLiteral("模型 modelId 重复：%1").arg(modelId));
+    }
+
+    QSet<QString> seenDeviceIds;
+    QSet<QString> duplicateDeviceIds;
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        const QString deviceId = device.deviceId.trimmed();
+        const QString devicePath = objectPath(device.source.filePath, device.deviceId);
+        if (deviceId.isEmpty()) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        devicePath.isEmpty() ? projectPath : devicePath,
+                        QStringLiteral("存在设备 DeviceId 为空"));
+        } else if (seenDeviceIds.contains(deviceId)) {
+            duplicateDeviceIds.insert(deviceId);
+        } else {
+            seenDeviceIds.insert(deviceId);
+        }
+
+        if (!device.modelId.trimmed().isEmpty() && !findModelById(project, device.modelId)) {
+            appendIssue(configtool::ImportIssueSeverity::Warning,
+                        devicePath,
+                        QStringLiteral("设备 %1 引用的模型 %2 在当前工程中不存在")
+                            .arg(device.deviceId, device.modelId));
+        }
+
+        if (device.protocol == configtool::ProtocolType::Iec104) {
+            const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
+            if (!duplicateAddresses.isEmpty()) {
+                appendIssue(configtool::ImportIssueSeverity::Error,
+                            devicePath,
+                            QStringLiteral("设备存在重复 104 地址：%1")
+                                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，"))));
+            }
+            for (const configtool::PointBinding &binding : device.bindings) {
+                if (binding.enabled && binding.address.trimmed().isEmpty()) {
+                    appendIssue(configtool::ImportIssueSeverity::Error,
+                                devicePath,
+                                QStringLiteral("设备 %1 存在启用但未填写地址的点位：%2")
+                                    .arg(device.deviceId, binding.dataRef));
+                    break;
+                }
+            }
+        } else if (isModbusDevice(device)) {
+            const QString type = device.transport.protocolOptions
+                                     .value(QStringLiteral("type"))
+                                     .toString(QStringLiteral("TCP"))
+                                     .trimmed()
+                                     .toUpper();
+            if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
+                appendIssue(configtool::ImportIssueSeverity::Error,
+                            devicePath,
+                            QStringLiteral("Modbus 设备 %1 的 type 必须为 TCP 或 RTU").arg(device.deviceId));
+            }
+            bool portOk = false;
+            device.transport.port.trimmed().toInt(&portOk);
+            if (type == QStringLiteral("TCP") && (device.transport.ip.trimmed().isEmpty() || !portOk)) {
+                appendIssue(configtool::ImportIssueSeverity::Error,
+                            devicePath,
+                            QStringLiteral("Modbus TCP 设备 %1 缺少 ip 或数字 port").arg(device.deviceId));
+            }
+            if (type == QStringLiteral("RTU")) {
+                const QJsonObject rtu = device.transport.serial;
+                if (uiJsonValueToString(rtu.value(QStringLiteral("serialPort"))).trimmed().isEmpty()
+                    || uiJsonValueToString(rtu.value(QStringLiteral("baud"))).trimmed().isEmpty()
+                    || uiJsonValueToString(rtu.value(QStringLiteral("dataBits"))).trimmed().isEmpty()
+                    || uiJsonValueToString(rtu.value(QStringLiteral("stopBits"))).trimmed().isEmpty()
+                    || uiJsonValueToString(rtu.value(QStringLiteral("parity"))).trimmed().isEmpty()) {
+                    appendIssue(configtool::ImportIssueSeverity::Error,
+                                devicePath,
+                                QStringLiteral("Modbus RTU 设备 %1 缺少完整 rtu 参数").arg(device.deviceId));
+                }
+            }
+            for (const configtool::PointBinding &binding : device.bindings) {
+                if (!binding.enabled) {
+                    continue;
+                }
+                if (binding.address.trimmed().isEmpty()) {
+                    appendIssue(configtool::ImportIssueSeverity::Error,
+                                devicePath,
+                                QStringLiteral("Modbus 设备 %1 存在启用但未生成 dataIndex 的点位：%2")
+                                    .arg(device.deviceId, binding.dataRef));
+                    break;
+                }
+                if (!binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
+                    appendIssue(configtool::ImportIssueSeverity::Error,
+                                devicePath,
+                                QStringLiteral("Modbus 设备 %1 的点位 %2 未填写寄存器地址")
+                                    .arg(device.deviceId, binding.dataRef));
+                    break;
+                }
+            }
+        }
+    }
+    for (const QString &deviceId : duplicateDeviceIds) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    projectPath,
+                    QStringLiteral("设备 DeviceId 重复：%1").arg(deviceId));
+    }
+
+    const QList<configtool::ConfigIssue> logicIssues =
+        configtool::validateLogicCenterConfig(project.logicCenter, &project);
+    for (const configtool::ConfigIssue &issue : logicIssues) {
+        appendConfigIssueForIssueTable(issue,
+                                       QStringLiteral("cepLogicCenter/etc/LogicCenter_Config.json"),
+                                       issues);
+    }
+
+    return issues;
 }
 
 QStringList MainWindow::configTransferRelativePaths(const QString &projectRoot) const
@@ -1323,7 +1562,14 @@ void MainWindow::onModelFieldEdited()
     }
 
     configtool::ModelTemplate &model = project.models[modelIndex];
-    model.modelId = m_modelIdEdit->text().trimmed();
+    QString oldModelId = m_modelIdEdit
+        ? m_modelIdEdit->property(ModelEditorOriginalModelIdProperty).toString().trimmed()
+        : QString();
+    if (oldModelId.isEmpty()) {
+        oldModelId = model.modelId.trimmed();
+    }
+    const QString newModelId = m_modelIdEdit->text().trimmed();
+    model.modelId = newModelId;
     model.name = model.modelId;
     model.displayName = m_modelDisplayNameEdit->text().trimmed();
     model.deviceType = m_modelDeviceTypeEdit->text().trimmed();
@@ -1332,10 +1578,142 @@ void MainWindow::onModelFieldEdited()
     model.manufacturerDesc = m_modelManufacturerDescEdit->text().trimmed();
     model.schema = m_modelSchemaEdit->text().trimmed();
 
+    const int renamedReferenceCount = renameModelReferences(oldModelId, newModelId);
+    if (m_modelIdEdit && !newModelId.isEmpty() && oldModelId != newModelId) {
+        m_modelIdEdit->setProperty(ModelEditorOriginalModelIdProperty, newModelId);
+    }
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
     }
+    if (renamedReferenceCount > 0) {
+        statusBar()->showMessage(QStringLiteral("已同步更新 %1 处模型引用").arg(renamedReferenceCount), 5000);
+    }
+}
+
+int MainWindow::renameModelReferences(const QString &oldModelId, const QString &newModelId)
+{
+    const QString oldId = oldModelId.trimmed();
+    const QString newId = newModelId.trimmed();
+    if (oldId.isEmpty() || newId.isEmpty() || oldId == newId) {
+        return 0;
+    }
+
+    int updateCount = 0;
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    for (configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId.trimmed() == oldId) {
+            device.modelId = newId;
+            ++updateCount;
+        }
+        const QString oldPointRefPrefix = oldId + QLatin1Char('#');
+        const QString newPointRefPrefix = newId + QLatin1Char('#');
+        for (configtool::PointBinding &binding : device.bindings) {
+            if (binding.pointRef.startsWith(oldPointRefPrefix)) {
+                binding.pointRef = newPointRefPrefix + binding.pointRef.mid(oldPointRefPrefix.size());
+                ++updateCount;
+            }
+        }
+    }
+
+    return updateCount;
+}
+
+int MainWindow::renameModelPointReferences(const QString &modelId,
+                                           const QString &oldDataRef,
+                                           const QString &newDataRef)
+{
+    const QString targetModelId = modelId.trimmed();
+    const QString oldRef = oldDataRef.trimmed();
+    const QString newRef = newDataRef.trimmed();
+    if (targetModelId.isEmpty() || oldRef.isEmpty() || newRef.isEmpty() || oldRef == newRef) {
+        return 0;
+    }
+
+    int updateCount = 0;
+    QSet<QString> affectedDeviceIds;
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    const QString oldPointRef = targetModelId + QLatin1Char('#') + oldRef;
+    const QString newPointRef = targetModelId + QLatin1Char('#') + newRef;
+
+    for (configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId.trimmed() != targetModelId) {
+            continue;
+        }
+
+        const QString deviceId = device.deviceId.trimmed();
+        if (!deviceId.isEmpty()) {
+            affectedDeviceIds.insert(deviceId);
+        }
+        for (configtool::PointBinding &binding : device.bindings) {
+            if (binding.dataRef.trimmed() == oldRef) {
+                binding.dataRef = newRef;
+                ++updateCount;
+            }
+            if (binding.pointRef.trimmed() == oldPointRef) {
+                binding.pointRef = newPointRef;
+                ++updateCount;
+            }
+        }
+    }
+
+    if (affectedDeviceIds.isEmpty()) {
+        return updateCount;
+    }
+
+    auto isAffectedDevice = [&](const QString &deviceId) {
+        return affectedDeviceIds.contains(deviceId.trimmed());
+    };
+    auto renamePointRef = [&](const QString &deviceId, QString &dataRef) {
+        if (isAffectedDevice(deviceId) && dataRef.trimmed() == oldRef) {
+            dataRef = newRef;
+            ++updateCount;
+        }
+    };
+    auto renameRealtimeRefs = [&](QString &expr) {
+        if (expr.isEmpty()) {
+            return;
+        }
+        const QString before = expr;
+        for (const QString &deviceId : affectedDeviceIds) {
+            const QRegularExpression pattern(QStringLiteral("\\{rt:%1#%2\\}")
+                                                 .arg(QRegularExpression::escape(deviceId),
+                                                      QRegularExpression::escape(oldRef)));
+            expr.replace(pattern, QStringLiteral("{rt:%1#%2}").arg(deviceId, newRef));
+        }
+        if (expr != before) {
+            ++updateCount;
+        }
+    };
+
+    configtool::LogicCenterConfig &logic = project.logicCenter;
+    for (configtool::LogicComputationPoint &point : logic.computationPoints) {
+        renamePointRef(point.deviceId, point.dataRef);
+        for (configtool::LogicOperand &operand : point.operands) {
+            renamePointRef(operand.deviceId, operand.dataRef);
+        }
+    }
+
+    for (configtool::LogicControlRule &rule : logic.controlRules) {
+        renamePointRef(rule.matchDeviceId, rule.matchDataRef);
+        for (configtool::LogicControlTarget &target : rule.targets) {
+            renamePointRef(target.deviceId, target.dataRef);
+            renameRealtimeRefs(target.expr);
+        }
+    }
+
+    for (configtool::AgcAvcGroup &group : logic.agcAvcGroups) {
+        for (configtool::AgcAvcDevice &device : group.devices) {
+            renamePointRef(device.deviceId, device.ctrlDataRefP);
+            renamePointRef(device.deviceId, device.ctrlDataRefQ);
+            const QString onlineDeviceId = device.onlineDeviceId.trimmed().isEmpty()
+                ? device.deviceId
+                : device.onlineDeviceId;
+            renamePointRef(onlineDeviceId, device.onlineDataRef);
+        }
+    }
+
+    return updateCount;
 }
 
 void MainWindow::onAddPointClicked()
@@ -1744,7 +2122,14 @@ void MainWindow::onDeviceFieldEdited()
     }
 
     configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
-    device.deviceId = m_deviceIdEdit->text().trimmed();
+    QString oldDeviceId = m_deviceIdEdit
+        ? m_deviceIdEdit->property(DeviceEditorOriginalDeviceIdProperty).toString().trimmed()
+        : QString();
+    if (oldDeviceId.isEmpty()) {
+        oldDeviceId = device.deviceId.trimmed();
+    }
+    const QString newDeviceId = m_deviceIdEdit->text().trimmed();
+    device.deviceId = newDeviceId;
     device.deviceDesc = m_deviceDescEdit->text().trimmed();
     device.transport.stationAddress = m_deviceStationAddressEdit->text().trimmed();
     device.transport.ip = m_deviceIpEdit->text().trimmed();
@@ -1780,12 +2165,79 @@ void MainWindow::onDeviceFieldEdited()
         device.transport.serial = rtu;
     }
 
+    const int renamedReferenceCount = renameLogicDeviceReferences(oldDeviceId, newDeviceId);
+    if (m_deviceIdEdit && !newDeviceId.isEmpty() && oldDeviceId != newDeviceId) {
+        m_deviceIdEdit->setProperty(DeviceEditorOriginalDeviceIdProperty, newDeviceId);
+    }
     refreshConfigObjectViews();
     refreshDeviceDetail(deviceIndex);
     refreshDeviceEditor(deviceIndex);
     if (deviceIndex < m_configDeviceTable->rowCount()) {
         m_configDeviceTable->selectRow(deviceIndex);
     }
+    if (renamedReferenceCount > 0) {
+        statusBar()->showMessage(QStringLiteral("已同步更新 %1 处 DeviceId 引用").arg(renamedReferenceCount), 5000);
+    }
+}
+
+int MainWindow::renameLogicDeviceReferences(const QString &oldDeviceId, const QString &newDeviceId)
+{
+    const QString oldId = oldDeviceId.trimmed();
+    const QString newId = newDeviceId.trimmed();
+    if (oldId.isEmpty() || newId.isEmpty() || oldId == newId) {
+        return 0;
+    }
+
+    int updateCount = 0;
+    auto renameDeviceId = [&](QString &deviceId) {
+        if (deviceId.trimmed() != oldId) {
+            return;
+        }
+        deviceId = newId;
+        ++updateCount;
+    };
+    auto renameRealtimeRefs = [&](QString &expr) {
+        if (expr.isEmpty()) {
+            return;
+        }
+        const QString before = expr;
+        const QRegularExpression pattern(QStringLiteral("\\{rt:%1#").arg(QRegularExpression::escape(oldId)));
+        expr.replace(pattern, QStringLiteral("{rt:%1#").arg(newId));
+        if (expr != before) {
+            ++updateCount;
+        }
+    };
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    for (configtool::LogicComputationPoint &point : logic.computationPoints) {
+        renameDeviceId(point.deviceId);
+        for (configtool::LogicOperand &operand : point.operands) {
+            renameDeviceId(operand.deviceId);
+        }
+    }
+
+    for (configtool::LogicControlRule &rule : logic.controlRules) {
+        renameDeviceId(rule.matchDeviceId);
+        for (configtool::LogicControlTarget &target : rule.targets) {
+            renameDeviceId(target.deviceId);
+            renameRealtimeRefs(target.expr);
+        }
+    }
+
+    for (configtool::AgcAvcGroup &group : logic.agcAvcGroups) {
+        renameDeviceId(group.virtualDeviceId);
+        for (configtool::AgcAvcDevice &agcDevice : group.devices) {
+            renameDeviceId(agcDevice.deviceId);
+            renameDeviceId(agcDevice.onlineDeviceId);
+        }
+    }
+
+    for (configtool::LogicOnlineStatusLink &link : logic.onlineStatusLinks) {
+        renameDeviceId(link.deviceId);
+        renameDeviceId(link.linkToDeviceId);
+    }
+
+    return updateCount;
 }
 
 void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
@@ -1917,6 +2369,7 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
     }
 
     configtool::PointTemplate &point = service.points[pointIndex];
+    const QString oldDataRef = point.dataRef();
     const QString value = text.trimmed();
     switch (column) {
     case 1:
@@ -1943,6 +2396,11 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
         break;
     default:
         break;
+    }
+    const QString newDataRef = point.dataRef();
+    const int renamedReferenceCount = renameModelPointReferences(model.modelId, oldDataRef, newDataRef);
+    if (renamedReferenceCount > 0) {
+        statusBar()->showMessage(QStringLiteral("已同步更新 %1 处点位引用").arg(renamedReferenceCount), 5000);
     }
 }
 
@@ -2400,7 +2858,7 @@ void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &repo
     m_configSourceRootValueLabel->setText(project.sourceRoot.isEmpty() ? QStringLiteral("-") : project.sourceRoot);
     m_configModelCountValueLabel->setText(QString::number(project.models.size()));
     m_configDeviceCountValueLabel->setText(QString::number(project.devices.size()));
-    m_configIssueCountValueLabel->setText(QString::number(report.issues.size()));
+    m_configIssueCountValueLabel->setText(QString::number(importIssueProblemCount(report.issues)));
 
     QString statusMessage = QStringLiteral("导入结果: 模型 %1，设备 %2")
         .arg(report.importedModelCount)
@@ -2409,7 +2867,7 @@ void MainWindow::refreshConfigImportSummary(const configtool::ImportReport &repo
         statusMessage += QStringLiteral("，未发现错误或警告。");
     } else {
         statusMessage += QStringLiteral("，问题数 %1。")
-            .arg(report.issues.size());
+            .arg(importIssueProblemCount(report.issues));
     }
     statusBar()->showMessage(statusMessage, 8000);
     refreshConfigIssueTable(report.issues, QStringLiteral("导入"));
@@ -2716,6 +3174,9 @@ void MainWindow::refreshModelDetail(int modelIndex)
 {
     const configtool::ConfigProject &project = m_configProjectManager.project();
     if (modelIndex < 0 || modelIndex >= project.models.size()) {
+        if (m_modelIdEdit && !m_modelIdEdit->hasFocus()) {
+            m_modelIdEdit->setProperty(ModelEditorOriginalModelIdProperty, QString());
+        }
         for (QLineEdit *edit : {m_modelIdEdit, m_modelDisplayNameEdit, m_modelDeviceTypeEdit,
                                 m_modelVersionEdit, m_modelManufacturerIdEdit,
                                 m_modelManufacturerDescEdit, m_modelSchemaEdit}) {
@@ -2728,6 +3189,9 @@ void MainWindow::refreshModelDetail(int modelIndex)
 
     const configtool::ModelTemplate &model = project.models.at(modelIndex);
     const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
+    if (m_modelIdEdit && !m_modelIdEdit->hasFocus()) {
+        m_modelIdEdit->setProperty(ModelEditorOriginalModelIdProperty, model.modelId);
+    }
     for (auto pair : {qMakePair(m_modelIdEdit, model.modelId),
                       qMakePair(m_modelDisplayNameEdit, model.displayName),
                       qMakePair(m_modelDeviceTypeEdit, model.deviceType),
@@ -2890,6 +3354,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 {
     const configtool::ConfigProject &project = m_configProjectManager.project();
     if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        if (m_deviceIdEdit && !m_deviceIdEdit->hasFocus()) {
+            m_deviceIdEdit->setProperty(DeviceEditorOriginalDeviceIdProperty, QString());
+        }
         for (QLineEdit *edit : {m_deviceIdEdit, m_deviceDescEdit, m_deviceModelEdit,
                                 m_deviceStationAddressEdit, m_deviceIpEdit,
                                 m_devicePortEdit}) {
@@ -2923,6 +3390,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     }
 
     const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
+    if (m_deviceIdEdit && !m_deviceIdEdit->hasFocus()) {
+        m_deviceIdEdit->setProperty(DeviceEditorOriginalDeviceIdProperty, device.deviceId);
+    }
     for (auto pair : {qMakePair(m_deviceIdEdit, device.deviceId),
                       qMakePair(m_deviceDescEdit, device.deviceDesc),
                       qMakePair(m_deviceModelEdit, device.modelId),
@@ -3236,7 +3706,7 @@ void MainWindow::refreshLogicCenterOverview()
             }
         }
         m_logicIssueCountLabel->setText(QStringLiteral("%1 项（错误 %2，警告 %3，提示 %4）")
-            .arg(issues.size())
+            .arg(errorCount + warningCount)
             .arg(errorCount)
             .arg(warningCount)
             .arg(infoCount));

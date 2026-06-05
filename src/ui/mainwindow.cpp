@@ -593,6 +593,11 @@ MainWindow::MainWindow(QWidget *parent)
         this);
     configIssueHint->setWordWrap(true);
     configIssueLayout->addWidget(configIssueHint);
+    auto *configIssueToolbar = new QHBoxLayout();
+    m_checkConfigIssuesBtn = new QPushButton(QStringLiteral("检查当前问题"), this);
+    configIssueToolbar->addWidget(m_checkConfigIssuesBtn);
+    configIssueToolbar->addStretch();
+    configIssueLayout->addLayout(configIssueToolbar);
     m_configIssueTable = new QTableWidget(0, 5, this);
     m_configIssueTable->setHorizontalHeaderLabels({
         QStringLiteral("来源"),
@@ -1242,6 +1247,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConfigDeviceActivated);
     connect(m_configIssueTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onConfigIssueActivated);
+    connect(m_checkConfigIssuesBtn, &QPushButton::clicked,
+            this, &MainWindow::onCheckConfigIssuesClicked);
     connect(m_modelIdEdit, &QLineEdit::textEdited,
             this, &MainWindow::onModelFieldEdited);
     connect(m_modelDisplayNameEdit, &QLineEdit::textEdited,

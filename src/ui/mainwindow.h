@@ -72,6 +72,7 @@ private slots:
     void onBrowseConfigImportDirClicked();
     void onImportIec104ConfigClicked();
     void onExportIec104ConfigClicked();
+    void onCheckConfigIssuesClicked();
     void onUploadConfigClicked();
     void onDownloadConfigClicked();
     void onConfigModelSelectionChanged();
@@ -169,6 +170,7 @@ private:
                                   QProgressDialog *progress = nullptr);
     void refreshConfigIssueTable(const QList<configtool::ImportIssue> &issues,
                                  const QString &source);
+    QList<configtool::ImportIssue> collectCurrentConfigIssues() const;
     void navigateToConfigIssue(int row);
     void refreshConfigImportSummary(const configtool::ImportReport &report);
     void refreshConfigObjectViews();
@@ -182,6 +184,11 @@ private:
     void refreshModelOverview(int modelIndex);
     void refreshDeviceDetail(int deviceIndex);
     void refreshDeviceEditor(int deviceIndex);
+    int renameModelReferences(const QString &oldModelId, const QString &newModelId);
+    int renameModelPointReferences(const QString &modelId,
+                                   const QString &oldDataRef,
+                                   const QString &newDataRef);
+    int renameLogicDeviceReferences(const QString &oldDeviceId, const QString &newDeviceId);
     void selectModelPointById(const QString &pointId);
     int currentConfigModelIndex() const;
     int currentConfigDeviceIndex() const;
@@ -251,6 +258,7 @@ private:
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_exportIec104ConfigBtn = nullptr;
+    QPushButton *m_checkConfigIssuesBtn = nullptr;
     QPushButton *m_uploadConfigBtn = nullptr;
     QPushButton *m_downloadConfigBtn = nullptr;
     QLineEdit *m_configRemoteHostEdit = nullptr;
