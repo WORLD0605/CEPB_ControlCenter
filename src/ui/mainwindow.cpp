@@ -1118,7 +1118,46 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicOnlineLinkTable->setColumnWidth(1, 220);
     logicOnlineLayout->addWidget(m_logicOnlineLinkTable, 1);
 
+    m_programControlPage = new QWidget(this);
+    auto *programControlLayout = new QVBoxLayout(m_programControlPage);
+    programControlLayout->setContentsMargins(0, 0, 0, 0);
+    programControlLayout->setSpacing(8);
+
+    auto *programControlToolbar = new QHBoxLayout();
+    programControlToolbar->addWidget(new QLabel(QStringLiteral("设备连接参数复用“配置概览”中的设备、用户、密码、端口和 APP 目录。"), this));
+    programControlToolbar->addStretch();
+    m_refreshProgramStatusBtn = new QPushButton(QStringLiteral("刷新状态"), this);
+    programControlToolbar->addWidget(m_refreshProgramStatusBtn);
+    programControlLayout->addLayout(programControlToolbar);
+
+    m_programControlTable = new QTableWidget(0, 7, this);
+    m_programControlTable->setHorizontalHeaderLabels({
+        QStringLiteral("状态"),
+        QStringLiteral("APP"),
+        QStringLiteral("PID"),
+        QStringLiteral("命令"),
+        QStringLiteral("启动"),
+        QStringLiteral("停止"),
+        QStringLiteral("重启")
+    });
+    m_programControlTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_programControlTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_programControlTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_programControlTable->setAlternatingRowColors(true);
+    m_programControlTable->verticalHeader()->setVisible(false);
+    m_programControlTable->horizontalHeader()->setStretchLastSection(true);
+    m_programControlTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_programControlTable->setColumnWidth(0, 120);
+    m_programControlTable->setColumnWidth(1, 180);
+    m_programControlTable->setColumnWidth(2, 150);
+    m_programControlTable->setColumnWidth(3, 360);
+    m_programControlTable->setColumnWidth(4, 90);
+    m_programControlTable->setColumnWidth(5, 150);
+    m_programControlTable->setColumnWidth(6, 90);
+    programControlLayout->addWidget(m_programControlTable, 1);
+
     m_mainTabWidget->addTab(debugPage, "调试控制");
+    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("程序控制"));
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_configIssuePage, "问题列表");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
@@ -1168,6 +1207,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onUploadConfigClicked);
     connect(m_downloadConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onDownloadConfigClicked);
+    connect(m_refreshProgramStatusBtn, &QPushButton::clicked,
+            this, &MainWindow::onRefreshProgramStatusClicked);
     for (QLineEdit *edit : {m_logicAgcAvcGroupIdEdit, m_logicAgcAvcVirtualDeviceIdEdit}) {
         connect(edit, &QLineEdit::textEdited,
                 this, &MainWindow::onLogicAgcAvcBasicEdited);
@@ -1386,6 +1427,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onCommandReply);
 
     applyCurrentAppView();
+    refreshProgramControlTable(QString());
     refreshLogicCenterOverview();
 }
 

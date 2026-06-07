@@ -128,6 +128,11 @@ private slots:
     void onGenerateLogicVirtualOnlineLinksClicked();
     void onLogicOnlineLinkItemChanged(QTableWidgetItem *item);
     void onLogicOnlineLinkCellDoubleClicked(int row, int column);
+    void onRefreshProgramStatusClicked();
+    void onStartProgramClicked();
+    void onStopProgramClicked();
+    void onForceStopProgramClicked();
+    void onRestartProgramClicked();
 
     void onConnected();
     void onDisconnected();
@@ -228,6 +233,12 @@ private:
     int currentLogicControlRuleIndex() const;
     void refreshLogicControlTargetTable();
     void refreshLogicControlPreview();
+    QStringList managedProgramAppNames() const;
+    bool runProgramControlCommand(const QString &command,
+                                  const QString &title,
+                                  QString *output = nullptr);
+    void refreshProgramControlTable(const QString &statusOutput);
+    void setProgramControlRowPending(const QString &appName, const QString &statusText);
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -302,6 +313,7 @@ private:
     QWidget *m_logicComputationPointPage = nullptr;
     QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_logicOnlineLinkPage = nullptr;
+    QWidget *m_programControlPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -342,6 +354,8 @@ private:
     QPushButton *m_deleteLogicOnlineLinkBtn = nullptr;
     QPushButton *m_generateLogicVirtualOnlineLinksBtn = nullptr;
     QTableWidget *m_logicOnlineLinkTable = nullptr;
+    QPushButton *m_refreshProgramStatusBtn = nullptr;
+    QTableWidget *m_programControlTable = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

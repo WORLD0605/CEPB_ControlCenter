@@ -23,6 +23,7 @@ set(SOURCES
     src/ui/mainwindow.cpp
     src/ui/mainwindow_debug.cpp
     src/ui/mainwindow_config.cpp
+    src/ui/mainwindow_program.cpp
     src/ui/point_selector_dialog.cpp
 )
 
