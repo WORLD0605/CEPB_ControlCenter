@@ -391,9 +391,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointFilterTabBar->setExpanding(false);
     m_modelPointFilterTabBar->setCurrentIndex(0);
     pointToolbar->addWidget(m_modelPointFilterTabBar);
-    m_showAutoDerivedModelPointsCheck = new QCheckBox(QStringLiteral("显示自动派生点"), this);
-    m_showAutoDerivedModelPointsCheck->setChecked(false);
-    pointToolbar->addWidget(m_showAutoDerivedModelPointsCheck);
     pointToolbar->addStretch();
     pointToolbar->addWidget(new QLabel("新建到:"));
     m_newPointCategoryCombo = new QComboBox(this);
@@ -930,18 +927,13 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("单点映射/改名"),
         QStringLiteral("原点缩放"),
         QStringLiteral("遥信 OR"),
-        QStringLiteral("遥信 AND"),
-        QStringLiteral("派生设备")
+        QStringLiteral("遥信 AND")
     };
     for (int index = 0; index < logicTemplateButtons.size(); ++index) {
         auto *button = new QPushButton(logicTemplateButtons.at(index), this);
         button->setMinimumHeight(32);
         logicTemplateLayout->addWidget(button, index / 3, index % 3);
         connect(button, &QPushButton::clicked, this, [this, index]() {
-            if (index == 4) {
-                generateLogicDerivedDeviceMappingVisual();
-                return;
-            }
             generateLogicComputationTemplate(index);
         });
     }
@@ -1092,7 +1084,7 @@ MainWindow::MainWindow(QWidget *parent)
     logicOnlineLayout->setContentsMargins(0, 0, 0, 0);
     logicOnlineLayout->setSpacing(8);
     auto *logicOnlineHint = new QLabel(
-        QStringLiteral("在线状态联动用于让虚拟设备或派生设备跟随真实设备的 DevUpdate 状态。双击设备列可从当前工程设备中选择。"),
+        QStringLiteral("在线状态联动用于让虚拟设备跟随真实设备的 DevUpdate 状态。双击设备列可从当前工程设备中选择。"),
         this);
     logicOnlineHint->setWordWrap(true);
     logicOnlineLayout->addWidget(logicOnlineHint);
@@ -1101,12 +1093,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_addLogicOnlineLinkBtn = new QPushButton(QStringLiteral("新增联动"), this);
     m_deleteLogicOnlineLinkBtn = new QPushButton(QStringLiteral("删除联动"), this);
     m_generateLogicVirtualOnlineLinksBtn = new QPushButton(QStringLiteral("虚拟设备跟随真实设备"), this);
-    m_generateLogicDerivedOnlineLinkBtn = new QPushButton(QStringLiteral("派生设备跟随真实设备"), this);
     logicOnlineToolbar->addWidget(m_addLogicOnlineLinkBtn);
     logicOnlineToolbar->addWidget(m_deleteLogicOnlineLinkBtn);
     logicOnlineToolbar->addSpacing(12);
     logicOnlineToolbar->addWidget(m_generateLogicVirtualOnlineLinksBtn);
-    logicOnlineToolbar->addWidget(m_generateLogicDerivedOnlineLinkBtn);
     logicOnlineToolbar->addStretch();
     logicOnlineLayout->addLayout(logicOnlineToolbar);
 
@@ -1269,8 +1259,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeleteLogicOnlineLinkClicked);
     connect(m_generateLogicVirtualOnlineLinksBtn, &QPushButton::clicked,
             this, &MainWindow::onGenerateLogicVirtualOnlineLinksClicked);
-    connect(m_generateLogicDerivedOnlineLinkBtn, &QPushButton::clicked,
-            this, &MainWindow::onGenerateLogicDerivedOnlineLinkClicked);
     connect(m_logicOnlineLinkTable, &QTableWidget::itemChanged,
             this, &MainWindow::onLogicOnlineLinkItemChanged);
     connect(m_logicOnlineLinkTable, &QTableWidget::cellDoubleClicked,
@@ -1319,8 +1307,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeletePointClicked);
     connect(m_modelPointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onModelPointFilterChanged);
-    connect(m_showAutoDerivedModelPointsCheck, &QCheckBox::toggled,
-            this, [this]() { refreshModelDetail(currentConfigModelIndex()); });
     connect(m_modelPointDataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onModelPointDataRefFilterTextChanged);
     connect(m_modelPointDescriptionFilterEdit, &QLineEdit::textChanged,

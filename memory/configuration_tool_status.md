@@ -126,3 +126,26 @@ metadata:
 实现已完成：`serializeDevice()` 检测到设备扩展属性 `derivedIec104Virtual=true` 时，按上述规则导出。这样附属设备身份和北向模型关系仍然存在，但不会作为独立 104 南向采集连接，也不会导出测点。
 
 构建验证通过：`D:\QT\Tools\Ninja\ninja.exe -C build`。
+
+## 2026-06-07 104 同通道派生方案回退
+
+重新评估后，104 同 IP、端口、公共地址下拆分多个逻辑设备的能力不再放在配置工具和 LogicCenter 计算点里实现，改由南向 104APP 承担。
+
+配置工具侧调整：
+
+- 移除“计算点”页里的“派生设备”批量生成入口。
+- 移除“在线联动”页里的“派生设备跟随真实设备”快捷按钮，仅保留通用在线联动表和“虚拟设备跟随真实设备”能力。
+- 保存/导出时不再自动扫描 104 同通道设备组。
+- 不再自动选择主设备/附属设备。
+- 不再自动生成主设备镜像点、点级 `extensions.generatedBy=iec104SameChannelDerivedDevice`、`computation_points` 或 `onlineStatus_link`。
+- 不再把附属设备按空 `addr/ipa/port/meas_points` 导出；所有 104 设备均按用户配置的正常设备导出，保留自己的 `DeviceId`、`Model`、`ipa`、`port`、`addr` 和 `meas_points`。
+- 模型点编辑器移除“显示自动派生点”开关。
+
+新的职责边界：
+
+- 配置工具只负责让用户正常配置多个 104 模型和设备。
+- 多个 104 设备可以拥有相同 `ipa + port + addr`，但它们之间的 IOA 应保持唯一。
+- 后续配置工具可增加“同通道 104 设备之间 IOA 唯一性检查”，仅做校验提示，不做自动改写。
+- 104APP 后续应负责识别/承载同一物理 104 通道下的多个逻辑设备：只建立一条物理连接，并按 IOA 将数据分发到对应逻辑 `DeviceId#DataRef`。
+
+构建验证通过：`D:\QT\Tools\Ninja\ninja.exe -C build`。

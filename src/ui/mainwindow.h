@@ -126,7 +126,6 @@ private slots:
     void onAddLogicOnlineLinkClicked();
     void onDeleteLogicOnlineLinkClicked();
     void onGenerateLogicVirtualOnlineLinksClicked();
-    void onGenerateLogicDerivedOnlineLinkClicked();
     void onLogicOnlineLinkItemChanged(QTableWidgetItem *item);
     void onLogicOnlineLinkCellDoubleClicked(int row, int column);
 
@@ -156,7 +155,6 @@ private:
     void applyModelPointCellText(int row, int column, const QString &text);
     void applyDeviceBindingCellText(int row, int column, const QString &text);
     void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
-    int applyIec104SameChannelDerivedDeviceMappings();
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
@@ -214,7 +212,6 @@ private:
     void generateLogicSourcePointScaleTemplateVisual();
     void generateLogicStatusOrTemplateVisual();
     void generateLogicStatusAndTemplateVisual();
-    void generateLogicDerivedDeviceMappingVisual();
     void generateLogicStatusTemplateVisual(configtool::LogicComputationTemplateType type,
                                            const QString &templateName,
                                            const QString &operatorText,
@@ -294,7 +291,6 @@ private:
     QTableWidget *m_deviceBindingsTable = nullptr;
     QTabWidget *m_mainTabWidget = nullptr;
     QTabBar *m_modelPointFilterTabBar = nullptr;
-    QCheckBox *m_showAutoDerivedModelPointsCheck = nullptr;
     QLineEdit *m_modelPointDataRefFilterEdit = nullptr;
     QLineEdit *m_modelPointDescriptionFilterEdit = nullptr;
     QLineEdit *m_deviceBindingDataRefFilterEdit = nullptr;
@@ -345,7 +341,6 @@ private:
     QPushButton *m_addLogicOnlineLinkBtn = nullptr;
     QPushButton *m_deleteLogicOnlineLinkBtn = nullptr;
     QPushButton *m_generateLogicVirtualOnlineLinksBtn = nullptr;
-    QPushButton *m_generateLogicDerivedOnlineLinkBtn = nullptr;
     QTableWidget *m_logicOnlineLinkTable = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;

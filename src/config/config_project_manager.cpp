@@ -692,14 +692,9 @@ QList<PointBinding> bindingsForExport(const ProtocolDeviceInstance &device,
 QJsonObject serializeDevice(const ProtocolDeviceInstance &device,
                             const ModelTemplate *model)
 {
-    const bool derivedIec104Virtual =
-        device.extensions.value(QStringLiteral("derivedIec104Virtual")).toBool(false);
-
     const QHash<QString, QString> descriptionMap = buildDataRefDescriptionMap(model);
     const QHash<QString, int> orderMap = buildModelPointOrderMap(model);
-    const QList<PointBinding> exportBindings = derivedIec104Virtual
-        ? QList<PointBinding>()
-        : bindingsForExport(device, orderMap);
+    const QList<PointBinding> exportBindings = bindingsForExport(device, orderMap);
 
     QJsonArray bindingArray;
     for (const PointBinding &binding : exportBindings) {
@@ -710,13 +705,13 @@ QJsonObject serializeDevice(const ProtocolDeviceInstance &device,
     root.insert(QStringLiteral("DeviceDesc"), device.deviceDesc);
     root.insert(QStringLiteral("DeviceId"), device.deviceId);
     root.insert(QStringLiteral("Model"), device.modelId);
-    root.insert(QStringLiteral("addr"), derivedIec104Virtual ? QString() : device.transport.stationAddress);
-    root.insert(QStringLiteral("ipa"), derivedIec104Virtual ? QString() : device.transport.ip);
-    if (!derivedIec104Virtual && device.transport.source.rawExtra.contains(QStringLiteral("ipb"))) {
+    root.insert(QStringLiteral("addr"), device.transport.stationAddress);
+    root.insert(QStringLiteral("ipa"), device.transport.ip);
+    if (device.transport.source.rawExtra.contains(QStringLiteral("ipb"))) {
         root.insert(QStringLiteral("ipb"), device.transport.source.rawExtra.value(QStringLiteral("ipb")));
     }
     root.insert(QStringLiteral("meas_points"), bindingArray);
-    root.insert(QStringLiteral("port"), derivedIec104Virtual ? QString() : device.transport.port);
+    root.insert(QStringLiteral("port"), device.transport.port);
     return root;
 }
 
