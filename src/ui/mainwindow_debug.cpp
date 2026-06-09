@@ -5,6 +5,9 @@
 #include <QColor>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QHash>
 #include <QLabel>
 #include <QLineEdit>
@@ -17,8 +20,42 @@
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QVBoxLayout>
 
 #include <algorithm>
+
+namespace {
+
+QString controlTypeText(int ctrlType)
+{
+    switch (ctrlType) {
+    case 0:
+        return QStringLiteral("0 - 遥控选择");
+    case 1:
+        return QStringLiteral("1 - 遥控执行");
+    case 2:
+        return QStringLiteral("2 - 遥控取消");
+    case 3:
+        return QStringLiteral("3 - 遥调选择");
+    case 4:
+        return QStringLiteral("4 - 遥调执行");
+    case 5:
+        return QStringLiteral("5 - 遥调取消");
+    case 6:
+        return QStringLiteral("6 - 遥控直接控制");
+    case 7:
+        return QStringLiteral("7 - 遥调直接控制");
+    default:
+        return QString::number(ctrlType);
+    }
+}
+
+bool isServiceChannelApp(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("ServiceChannel"), Qt::CaseInsensitive) == 0;
+}
+
+} // namespace
 
 void MainWindow::onConnectClicked()
 {
@@ -79,6 +116,7 @@ void MainWindow::onConnected()
         m_dataRefFilterEdit->setEnabled(true);
         m_descriptionFilterEdit->setEnabled(true);
         m_autoRefreshCombo->setEnabled(true);
+        updateControlCommandUi();
         requestServiceChannelData(false);
         updateAutoRefreshTimer();
     }
@@ -88,6 +126,8 @@ void MainWindow::onDisconnected()
 {
     m_autoRefreshTimer->stop();
     m_highlightRefreshTimer->stop();
+    m_controlResponseTimer->stop();
+    m_waitingControlResponse = false;
     updateUIState(false);
     appendSystem("已断开", "#ff4500");
     m_statusLabel->setText("未连接");
@@ -97,6 +137,8 @@ void MainWindow::onDisconnected()
         m_previousServiceChannelItemMap.clear();
         m_timeHighlightUntilMap.clear();
         m_valueHighlightUntilMap.clear();
+        m_controlStatusTextMap.clear();
+        m_controlStatusColorMap.clear();
         refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
         m_deviceFilterCombo->setEnabled(false);
@@ -105,6 +147,11 @@ void MainWindow::onDisconnected()
         m_descriptionFilterEdit->clear();
         m_descriptionFilterEdit->setEnabled(false);
         m_autoRefreshCombo->setEnabled(false);
+        if (m_controlStatusLabel) {
+            m_controlStatusLabel->setText(QStringLiteral("控制: -"));
+            m_controlStatusLabel->setStyleSheet(QString());
+        }
+        updateControlCommandUi();
     }
 }
 
@@ -112,6 +159,8 @@ void MainWindow::onError(const QString &err)
 {
     m_autoRefreshTimer->stop();
     m_highlightRefreshTimer->stop();
+    m_controlResponseTimer->stop();
+    m_waitingControlResponse = false;
     appendSystem("错误: " + err, "#ff4444");
     updateUIState(false);
     m_statusLabel->setText("连接错误");
@@ -119,15 +168,44 @@ void MainWindow::onError(const QString &err)
 
 void MainWindow::onLogLine(const QString &line)
 {
+    if (handleControlResponseLogLine(line)) {
+        return;
+    }
+
     appendLog(line);
 }
 
 void MainWindow::onCommandReply(const QString &reply)
 {
     if (currentAppConfig().viewMode == AppViewMode::DataTable) {
-        const QList<ServiceChannelDataItem> items = parseServiceChannelDataReply(reply);
+        const QString appName = currentAppConfig().name;
+        const QString pendingCommand = m_pendingDataTableCommand;
+        m_pendingDataTableCommand.clear();
+
+        if (pendingCommand == QStringLiteral("ctrlcmd")) {
+            appendReply(reply);
+            if (reply.startsWith(QStringLiteral("ctrlcmd sent:"), Qt::CaseInsensitive)) {
+                appendSystem(QStringLiteral("控制命令已发送，等待 CTRLRESP..."), "#ffcc66");
+            }
+            updateControlCommandUi();
+            return;
+        }
+
+        QStringList dataReplyLines;
+        for (const QString &line : reply.split('\n')) {
+            if (!handleControlResponseLogLine(line)) {
+                dataReplyLines.append(line);
+            }
+        }
+
+        const QList<ServiceChannelDataItem> items = parseServiceChannelDataReply(dataReplyLines.join('\n'));
         if (items.isEmpty()) {
-            appendSystem("未解析到 ServiceChannel 数据: " + reply, "#ffcc66");
+            if (pendingCommand == QStringLiteral("dataread") && !dataReplyLines.isEmpty()) {
+                appendSystem(QStringLiteral("未解析到 %1 数据: %2").arg(appName, reply), "#ffcc66");
+            } else {
+                appendReply(reply);
+            }
+            updateControlCommandUi();
             return;
         }
 
@@ -154,7 +232,8 @@ void MainWindow::onCommandReply(const QString &reply)
         for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
             m_previousServiceChannelItemMap.insert(serviceChannelItemKey(item), item);
         }
-        appendSystem(QString("ServiceChannel 数据已加载，共 %1 条").arg(items.size()), "#87ceeb");
+        appendSystem(QStringLiteral("%1 数据已加载，共 %2 条").arg(appName).arg(items.size()), "#87ceeb");
+        updateControlCommandUi();
         return;
     }
 
@@ -201,6 +280,7 @@ void MainWindow::updateUIState(bool connected)
     m_appCombo->setEnabled(!connected);
     m_cmdEdit->setEnabled(connected && terminalMode);
     m_refreshDataBtn->setEnabled(connected && !terminalMode);
+    updateControlCommandUi();
     m_deviceFilterCombo->setEnabled(connected && !terminalMode);
     m_dataRefFilterEdit->setEnabled(connected && !terminalMode);
     m_descriptionFilterEdit->setEnabled(connected && !terminalMode);
@@ -229,6 +309,7 @@ void MainWindow::applyCurrentAppView()
         updateAutoRefreshTimer();
         updateHighlightRefreshTimer();
     }
+    updateControlCommandUi();
 }
 
 AppConfig MainWindow::currentAppConfig() const
@@ -248,7 +329,7 @@ void MainWindow::requestServiceChannelData(bool logRequest)
     }
 
     if (!m_client->isConnected()) {
-        appendSystem("未连接 ServiceChannel，无法刷新数据", "#ffcc66");
+        appendSystem(QStringLiteral("未连接 %1，无法刷新数据").arg(currentAppConfig().name), "#ffcc66");
         return;
     }
 
@@ -259,7 +340,9 @@ void MainWindow::requestServiceChannelData(bool logRequest)
     if (logRequest) {
         appendSystem("=> dataread all", "#aaaaaa");
     }
+    m_pendingDataTableCommand = QStringLiteral("dataread");
     m_client->sendCommand("dataread all");
+    updateControlCommandUi();
 }
 
 void MainWindow::onDeviceFilterChanged(int /*index*/)
@@ -280,6 +363,36 @@ void MainWindow::onDescriptionFilterTextChanged(const QString & /*text*/)
 void MainWindow::onAutoRefreshIntervalChanged(int /*index*/)
 {
     updateAutoRefreshTimer();
+}
+
+void MainWindow::onSendControlClicked()
+{
+    if (!m_dataTable || !m_dataTable->selectionModel()) {
+        return;
+    }
+
+    const QModelIndex currentIndex = m_dataTable->currentIndex();
+    if (currentIndex.isValid()) {
+        openControlCommandDialog(currentIndex.row());
+        return;
+    }
+
+    const QModelIndexList selectedIndexes = m_dataTable->selectionModel()->selectedIndexes();
+    if (!selectedIndexes.isEmpty()) {
+        openControlCommandDialog(selectedIndexes.first().row());
+    }
+}
+
+void MainWindow::onDataTableCellDoubleClicked(int row, int /*column*/)
+{
+    if (isServiceChannelControlRow(row)) {
+        openControlCommandDialog(row);
+    }
+}
+
+void MainWindow::onDataTableSelectionChanged()
+{
+    updateControlCommandUi();
 }
 
 QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QString &reply) const
@@ -339,21 +452,25 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
         auto *descriptionItem = new QTableWidgetItem(item.description);
         auto *dataTimeItem = new QTableWidgetItem(item.dataTime);
         auto *valueItem = new QTableWidgetItem(item.value);
+        auto *controlStatusItem = new QTableWidgetItem(m_controlStatusTextMap.value(itemKey));
 
         deviceIdItem->setForeground(defaultTextColor);
         dataRefItem->setForeground(defaultTextColor);
         descriptionItem->setForeground(defaultTextColor);
         dataTimeItem->setForeground(timeChanged ? changedTextColor : defaultTextColor);
         valueItem->setForeground(valueChanged ? changedTextColor : defaultTextColor);
+        controlStatusItem->setForeground(m_controlStatusColorMap.value(itemKey, defaultTextColor));
 
         m_dataTable->setItem(row, 0, deviceIdItem);
         m_dataTable->setItem(row, 1, dataRefItem);
         m_dataTable->setItem(row, 2, descriptionItem);
         m_dataTable->setItem(row, 3, dataTimeItem);
         m_dataTable->setItem(row, 4, valueItem);
+        m_dataTable->setItem(row, 5, controlStatusItem);
     }
 
     m_dataTable->resizeRowsToContents();
+    updateControlCommandUi();
 }
 
 void MainWindow::refreshDeviceFilterOptions()
@@ -519,6 +636,339 @@ void MainWindow::copySelectedTableCells()
     }
 
     QApplication::clipboard()->setText(copiedText);
+}
+
+void MainWindow::updateControlCommandUi()
+{
+    if (!m_sendControlBtn || !m_dataTable) {
+        return;
+    }
+
+    const bool enabled = m_client->isConnected() &&
+                         !m_client->isExecutingCommand() &&
+                         isServiceChannelControlRow(m_dataTable->currentRow());
+    m_sendControlBtn->setEnabled(enabled);
+}
+
+bool MainWindow::handleControlResponseLogLine(const QString &line)
+{
+    const int eventIndex = line.indexOf(QStringLiteral("CTRLRESP "));
+    if (eventIndex < 0) {
+        return false;
+    }
+
+    const QString eventText = line.mid(eventIndex).trimmed();
+    QHash<QString, QString> fields;
+    static const QRegularExpression fieldPattern(R"((\w+)=([^\s]+))");
+    QRegularExpressionMatchIterator it = fieldPattern.globalMatch(eventText);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        fields.insert(match.captured(1), match.captured(2));
+    }
+
+    const QString deviceId = fields.value(QStringLiteral("DeviceId")).trimmed();
+    const QString dataRef = fields.value(QStringLiteral("DataRefer")).trimmed();
+    const QString ctrlType = fields.value(QStringLiteral("CtrlType")).trimmed();
+    const QString ctrlVal = fields.value(QStringLiteral("CtrlVal")).trimmed();
+    const QString result = fields.value(QStringLiteral("Result")).trimmed();
+    const QString errorCode = fields.value(QStringLiteral("ErrorCode")).trimmed();
+
+    if (deviceId.isEmpty() || dataRef.isEmpty()) {
+        appendLog(line);
+        return true;
+    }
+
+    appendLog(line);
+
+    const QString normalizedResult = result.toLower();
+    const bool resultOk = normalizedResult.isEmpty() ||
+                          normalizedResult == QStringLiteral("0") ||
+                          normalizedResult == QStringLiteral("true") ||
+                          normalizedResult == QStringLiteral("ok") ||
+                          normalizedResult == QStringLiteral("success");
+    const bool errorOk = errorCode.isEmpty() || errorCode == QStringLiteral("0");
+    const bool success = resultOk && errorOk;
+
+    const bool matchesPending = m_waitingControlResponse &&
+                                m_pendingControlDeviceId == deviceId &&
+                                m_pendingControlDataRef == dataRef &&
+                                (m_pendingControlType < 0 || QString::number(m_pendingControlType) == ctrlType);
+
+    const QString statusText = success
+        ? QStringLiteral("成功 CtrlType=%1 Value=%2").arg(ctrlType, ctrlVal)
+        : QStringLiteral("失败 Result=%1 Error=%2").arg(result.isEmpty() ? QStringLiteral("-") : result,
+                                                       errorCode.isEmpty() ? QStringLiteral("-") : errorCode);
+    setControlStatus(deviceId,
+                     dataRef,
+                     statusText,
+                     success ? QColor(QStringLiteral("#32cd32")) : QColor(QStringLiteral("#ff4444")));
+
+    if (matchesPending) {
+        m_controlResponseTimer->stop();
+        m_waitingControlResponse = false;
+        appendSystem(QStringLiteral("控制响应%1：%2#%3，CtrlType=%4，CtrlVal=%5，Result=%6，ErrorCode=%7")
+                         .arg(success ? QStringLiteral("成功") : QStringLiteral("失败"),
+                              deviceId,
+                              dataRef,
+                              ctrlType,
+                              ctrlVal,
+                              result.isEmpty() ? QStringLiteral("-") : result,
+                              errorCode.isEmpty() ? QStringLiteral("-") : errorCode),
+                     success ? "#32cd32" : "#ff4444");
+        requestServiceChannelData(false);
+    } else {
+        appendSystem(QStringLiteral("收到控制响应：%1#%2，%3").arg(deviceId, dataRef, statusText),
+                     success ? "#32cd32" : "#ff4444");
+    }
+
+    return true;
+}
+
+void MainWindow::handleControlResponseTimeout()
+{
+    if (!m_waitingControlResponse) {
+        return;
+    }
+
+    const QString deviceId = m_pendingControlDeviceId;
+    const QString dataRef = m_pendingControlDataRef;
+    m_waitingControlResponse = false;
+    setControlStatus(deviceId,
+                     dataRef,
+                     QStringLiteral("响应超时 CtrlType=%1 Value=%2")
+                         .arg(m_pendingControlType)
+                         .arg(m_pendingControlValue),
+                     QColor(QStringLiteral("#ffcc66")));
+    appendSystem(QStringLiteral("控制命令已发送，但 15 秒内未收到 CTRLRESP：%1#%2").arg(deviceId, dataRef), "#ffcc66");
+}
+
+QString MainWindow::controlCommandKey(const QString &deviceId, const QString &dataRef) const
+{
+    return deviceId + QLatin1Char('#') + dataRef;
+}
+
+void MainWindow::setControlStatus(const QString &deviceId,
+                                  const QString &dataRef,
+                                  const QString &statusText,
+                                  const QColor &color)
+{
+    const QString key = controlCommandKey(deviceId, dataRef);
+    m_controlStatusTextMap.insert(key, statusText);
+    m_controlStatusColorMap.insert(key, color);
+
+    if (m_controlStatusLabel) {
+        m_controlStatusLabel->setText(QStringLiteral("控制: %1").arg(statusText));
+        m_controlStatusLabel->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(color.name()));
+    }
+
+    applyServiceChannelFilter();
+}
+
+void MainWindow::openControlCommandDialog(int row)
+{
+    if (!isServiceChannelControlRow(row)) {
+        return;
+    }
+
+    ServiceChannelDataItem item;
+    item.deviceId = m_dataTable->item(row, 0)->text().trimmed();
+    item.dataRef = m_dataTable->item(row, 1)->text().trimmed();
+    item.description = m_dataTable->item(row, 2)->text().trimmed();
+    item.dataTime = m_dataTable->item(row, 3)->text().trimmed();
+    item.value = m_dataTable->item(row, 4)->text().trimmed();
+
+    configtool::ControlKind controlKind = configtool::ControlKind::None;
+    isServiceChannelControlPoint(item, &controlKind);
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("发送控制命令"));
+    dialog.resize(640, dialog.height());
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = new QFormLayout();
+
+    auto *deviceEdit = new QLineEdit(item.deviceId, &dialog);
+    deviceEdit->setReadOnly(true);
+    form->addRow(QStringLiteral("DeviceId:"), deviceEdit);
+
+    auto *dataRefEdit = new QLineEdit(item.dataRef, &dialog);
+    dataRefEdit->setReadOnly(true);
+    dataRefEdit->setMinimumWidth(480);
+    form->addRow(QStringLiteral("DataRef:"), dataRefEdit);
+
+    auto *descriptionEdit = new QLineEdit(item.description, &dialog);
+    descriptionEdit->setReadOnly(true);
+    descriptionEdit->setMinimumWidth(480);
+    form->addRow(QStringLiteral("描述:"), descriptionEdit);
+
+    auto *ctrlValEdit = new QLineEdit(&dialog);
+    ctrlValEdit->setPlaceholderText(QStringLiteral("输入 CtrlVal"));
+    ctrlValEdit->setText(item.value);
+    ctrlValEdit->selectAll();
+    form->addRow(QStringLiteral("CtrlVal:"), ctrlValEdit);
+
+    auto *ctrlTypeCombo = new QComboBox(&dialog);
+    for (int ctrlType = 0; ctrlType <= 7; ++ctrlType) {
+        ctrlTypeCombo->addItem(controlTypeText(ctrlType), ctrlType);
+    }
+    const int defaultCtrlType = controlKind == configtool::ControlKind::RemoteAdjust ? 4 : 1;
+    ctrlTypeCombo->setCurrentIndex(ctrlTypeCombo->findData(defaultCtrlType));
+    form->addRow(QStringLiteral("CtrlType:"), ctrlTypeCombo);
+
+    layout->addLayout(form);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("发送"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    ctrlValEdit->setFocus();
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QString ctrlVal = ctrlValEdit->text().trimmed();
+    if (ctrlVal.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("CtrlVal 不能为空"));
+        return;
+    }
+
+    sendServiceChannelControlCommand(item, ctrlVal, ctrlTypeCombo->currentData().toInt());
+}
+
+bool MainWindow::isServiceChannelControlRow(int row) const
+{
+    if (!m_dataTable || row < 0 || row >= m_dataTable->rowCount()) {
+        return false;
+    }
+
+    if (!isServiceChannelApp(currentAppConfig())) {
+        return false;
+    }
+
+    const QTableWidgetItem *deviceItem = m_dataTable->item(row, 0);
+    const QTableWidgetItem *dataRefItem = m_dataTable->item(row, 1);
+    const QTableWidgetItem *descriptionItem = m_dataTable->item(row, 2);
+    if (!deviceItem || !dataRefItem || !descriptionItem) {
+        return false;
+    }
+
+    ServiceChannelDataItem item;
+    item.deviceId = deviceItem->text().trimmed();
+    item.dataRef = dataRefItem->text().trimmed();
+    item.description = descriptionItem->text().trimmed();
+    return isServiceChannelControlPoint(item);
+}
+
+bool MainWindow::isServiceChannelControlPoint(const ServiceChannelDataItem &item,
+                                              configtool::ControlKind *controlKind) const
+{
+    if (controlKind) {
+        *controlKind = configtool::ControlKind::None;
+    }
+
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.deviceId.trimmed() != item.deviceId) {
+            continue;
+        }
+
+        const configtool::ModelTemplate *matchedModel = nullptr;
+        for (const configtool::ModelTemplate &model : project.models) {
+            if (model.modelId == device.modelId) {
+                matchedModel = &model;
+                break;
+            }
+        }
+
+        if (!matchedModel) {
+            break;
+        }
+
+        for (const configtool::ServiceTemplate &service : matchedModel->services) {
+            if (service.type != configtool::ModelServiceType::Control) {
+                continue;
+            }
+
+            for (const configtool::PointTemplate &point : service.points) {
+                if (point.dataRef() == item.dataRef ||
+                    point.pointRef(matchedModel->modelId) == item.dataRef) {
+                    if (controlKind) {
+                        *controlKind = point.controlKind;
+                    }
+                    return true;
+                }
+            }
+        }
+    }
+
+    const QString dataRef = item.dataRef.trimmed();
+    const QString lowerDataRef = dataRef.toLower();
+    const QString description = item.description.trimmed();
+    const bool looksLikeControlSuffix = lowerDataRef.endsWith(QStringLiteral("_ctrl"));
+    const bool looksLikeControlDescription = description.contains(QStringLiteral("控制")) ||
+                                             description.contains(QStringLiteral("遥控")) ||
+                                             description.contains(QStringLiteral("遥调"));
+
+    if (looksLikeControlSuffix || looksLikeControlDescription) {
+        if (controlKind) {
+            *controlKind = inferControlKindFromText(item);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+configtool::ControlKind MainWindow::inferControlKindFromText(const ServiceChannelDataItem &item) const
+{
+    const QString lowerText = (item.dataRef + QLatin1Char(' ') + item.description).toLower();
+    if (item.description.contains(QStringLiteral("遥调")) ||
+        item.description.contains(QStringLiteral("设定")) ||
+        lowerText.contains(QStringLiteral("totalp_ctrl")) ||
+        lowerText.contains(QStringLiteral("totalq_ctrl")) ||
+        lowerText.contains(QStringLiteral("voltage_ctrl")) ||
+        lowerText.contains(QStringLiteral("p_ctrl")) ||
+        lowerText.contains(QStringLiteral("q_ctrl"))) {
+        return configtool::ControlKind::RemoteAdjust;
+    }
+
+    return configtool::ControlKind::RemoteControl;
+}
+
+void MainWindow::sendServiceChannelControlCommand(const ServiceChannelDataItem &item,
+                                                  const QString &ctrlVal,
+                                                  int ctrlType)
+{
+    if (!m_client->isConnected()) {
+        appendSystem(QStringLiteral("未连接 ServiceChannel，无法发送控制命令"), "#ffcc66");
+        return;
+    }
+
+    if (m_client->isExecutingCommand()) {
+        appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送控制命令"), "#ffcc66");
+        return;
+    }
+
+    const QString command = QStringLiteral("ctrlcmd %1 %2 %3 %4")
+        .arg(item.deviceId, item.dataRef, ctrlVal, QString::number(ctrlType));
+    appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
+    m_waitingControlResponse = true;
+    m_pendingControlDeviceId = item.deviceId;
+    m_pendingControlDataRef = item.dataRef;
+    m_pendingControlValue = ctrlVal;
+    m_pendingControlType = ctrlType;
+    setControlStatus(item.deviceId,
+                     item.dataRef,
+                     QStringLiteral("等待响应 CtrlType=%1 Value=%2").arg(ctrlType).arg(ctrlVal),
+                     QColor(QStringLiteral("#ffcc66")));
+    m_controlResponseTimer->start();
+    m_pendingDataTableCommand = QStringLiteral("ctrlcmd");
+    m_client->sendCommand(command);
+    updateControlCommandUi();
 }
 
 QString MainWindow::serviceChannelItemKey(const ServiceChannelDataItem &item) const

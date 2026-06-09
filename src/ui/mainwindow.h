@@ -86,6 +86,9 @@ private slots:
     void onDataRefFilterTextChanged(const QString &text);
     void onDescriptionFilterTextChanged(const QString &text);
     void onAutoRefreshIntervalChanged(int index);
+    void onSendControlClicked();
+    void onDataTableCellDoubleClicked(int row, int column);
+    void onDataTableSelectionChanged();
     void onBrowseConfigImportDirClicked();
     void onImportIec104ConfigClicked();
     void onExportIec104ConfigClicked();
@@ -182,6 +185,22 @@ private:
     void updateAutoRefreshTimer();
     void updateHighlightRefreshTimer();
     void copySelectedTableCells();
+    void updateControlCommandUi();
+    void openControlCommandDialog(int row);
+    bool handleControlResponseLogLine(const QString &line);
+    void handleControlResponseTimeout();
+    QString controlCommandKey(const QString &deviceId, const QString &dataRef) const;
+    void setControlStatus(const QString &deviceId,
+                          const QString &dataRef,
+                          const QString &statusText,
+                          const QColor &color);
+    bool isServiceChannelControlRow(int row) const;
+    bool isServiceChannelControlPoint(const ServiceChannelDataItem &item,
+                                      configtool::ControlKind *controlKind = nullptr) const;
+    configtool::ControlKind inferControlKindFromText(const ServiceChannelDataItem &item) const;
+    void sendServiceChannelControlCommand(const ServiceChannelDataItem &item,
+                                          const QString &ctrlVal,
+                                          int ctrlType);
     void pasteClipboardIntoModelPointsTable();
     void pasteClipboardIntoDeviceBindingsTable();
     void applyModelPointCellText(int row, int column, const QString &text);
@@ -294,11 +313,14 @@ private:
     configtool::ConfigProjectManager m_configProjectManager;
     QTimer *m_autoRefreshTimer = nullptr;
     QTimer *m_highlightRefreshTimer = nullptr;
+    QTimer *m_controlResponseTimer = nullptr;
     QList<AppConfig> m_appConfigs;
     QList<ServiceChannelDataItem> m_serviceChannelItems;
     QHash<QString, ServiceChannelDataItem> m_previousServiceChannelItemMap;
     QHash<QString, QDateTime> m_timeHighlightUntilMap;
     QHash<QString, QDateTime> m_valueHighlightUntilMap;
+    QHash<QString, QString> m_controlStatusTextMap;
+    QHash<QString, QColor> m_controlStatusColorMap;
     bool m_updatingModelPointsTable = false;
     bool m_updatingModelPointCategory = false;
     bool m_updatingDeviceBindingsTable = false;
@@ -328,6 +350,12 @@ private:
     QString m_programControlCommandTitle;
     QString m_programControlCommandAppName;
     QByteArray m_programControlCommandBuffer;
+    QString m_pendingDataTableCommand;
+    bool m_waitingControlResponse = false;
+    QString m_pendingControlDeviceId;
+    QString m_pendingControlDataRef;
+    QString m_pendingControlValue;
+    int m_pendingControlType = -1;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
@@ -360,7 +388,9 @@ private:
     QLineEdit *m_dataRefFilterEdit = nullptr;
     QLineEdit *m_descriptionFilterEdit = nullptr;
     QComboBox *m_autoRefreshCombo = nullptr;
+    QLabel *m_controlStatusLabel = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
+    QPushButton *m_sendControlBtn = nullptr;
     QTableWidget *m_dataTable = nullptr;
     QTableWidget *m_configModelTable = nullptr;
     QTableWidget *m_configDeviceTable = nullptr;

@@ -458,12 +458,15 @@ MainWindow::MainWindow(QWidget *parent)
     , m_client(new DebugConsoleClient(this))
     , m_autoRefreshTimer(new QTimer(this))
     , m_highlightRefreshTimer(new QTimer(this))
+    , m_controlResponseTimer(new QTimer(this))
 {
     m_highlightRefreshTimer->setInterval(500);
+    m_controlResponseTimer->setSingleShot(true);
+    m_controlResponseTimer->setInterval(15000);
 
     m_appConfigs = {
         {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
-        {"cepiec104", 6666, "cepiec104>", AppViewMode::Terminal}
+        {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable}
     };
 
     setWindowTitle("CEPB Control Center");
@@ -588,14 +591,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_autoRefreshCombo->setCurrentIndex(0);
     m_autoRefreshCombo->setEnabled(false);
     dataToolbar->addWidget(m_autoRefreshCombo);
+    m_controlStatusLabel = new QLabel(QStringLiteral("控制: -"));
+    m_controlStatusLabel->setMinimumWidth(220);
+    dataToolbar->addWidget(m_controlStatusLabel);
     dataToolbar->addStretch();
+    m_sendControlBtn = new QPushButton(QStringLiteral("发送控制"));
+    m_sendControlBtn->setEnabled(false);
+    dataToolbar->addWidget(m_sendControlBtn);
     m_refreshDataBtn = new QPushButton("刷新数据");
     m_refreshDataBtn->setEnabled(false);
     dataToolbar->addWidget(m_refreshDataBtn);
     dataLayout->addLayout(dataToolbar);
 
-    m_dataTable = new QTableWidget(0, 5);
-    m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "Description", "DataTime", "Value"});
+    m_dataTable = new QTableWidget(0, 6);
+    m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "Description", "DataTime", "Value", "CtrlStatus"});
     m_dataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_dataTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_dataTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -611,6 +620,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_dataTable->setColumnWidth(2, 380);
     m_dataTable->setColumnWidth(3, 170);
     m_dataTable->setColumnWidth(4, 90);
+    m_dataTable->setColumnWidth(5, 180);
     dataLayout->addWidget(m_dataTable, 1);
 
     m_contentStack->addWidget(terminalPage);
@@ -1669,6 +1679,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_refreshDataBtn, &QPushButton::clicked,
             this, [this]() { requestServiceChannelData(); });
+    connect(m_sendControlBtn, &QPushButton::clicked,
+            this, &MainWindow::onSendControlClicked);
     connect(m_deviceFilterCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onDeviceFilterChanged);
     connect(m_dataRefFilterEdit, &QLineEdit::textChanged,
@@ -1881,8 +1893,14 @@ MainWindow::MainWindow(QWidget *parent)
                 applyServiceChannelFilter();
                 updateHighlightRefreshTimer();
             });
+    connect(m_controlResponseTimer, &QTimer::timeout,
+            this, &MainWindow::handleControlResponseTimeout);
     connect(new QShortcut(QKeySequence::Copy, m_dataTable), &QShortcut::activated,
             this, [this]() { copySelectedTableCells(); });
+    connect(m_dataTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::onDataTableCellDoubleClicked);
+    connect(m_dataTable, &QTableWidget::itemSelectionChanged,
+            this, &MainWindow::onDataTableSelectionChanged);
     connect(new QShortcut(QKeySequence::Paste, m_modelPointsTable), &QShortcut::activated,
             this, [this]() { pasteClipboardIntoModelPointsTable(); });
     connect(new QShortcut(QKeySequence::Paste, m_deviceBindingsTable), &QShortcut::activated,
@@ -1897,9 +1915,15 @@ MainWindow::MainWindow(QWidget *parent)
                 QAction *copyAction = menu.addAction("复制");
                 copyAction->setEnabled(m_dataTable->selectionModel() &&
                                        !m_dataTable->selectionModel()->selectedIndexes().isEmpty());
+                QAction *controlAction = menu.addAction(QStringLiteral("发送控制..."));
+                controlAction->setEnabled(isServiceChannelControlRow(m_dataTable->rowAt(position.y())) &&
+                                          m_client->isConnected() &&
+                                          !m_client->isExecutingCommand());
                 QAction *selectedAction = menu.exec(m_dataTable->viewport()->mapToGlobal(position));
                 if (selectedAction == copyAction) {
                     copySelectedTableCells();
+                } else if (selectedAction == controlAction) {
+                    openControlCommandDialog(m_dataTable->rowAt(position.y()));
                 }
             });
 
