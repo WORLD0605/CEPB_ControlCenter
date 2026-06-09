@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CEPB_ControlCenter VERSION 0.2.0 LANGUAGES CXX)
+project(CEPB_ControlCenter VERSION 0.9 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,6 +25,8 @@ set(SOURCES
     src/ui/mainwindow_config.cpp
     src/ui/mainwindow_program.cpp
     src/ui/point_selector_dialog.cpp
+    src/ui/app_icon/app_icon.qrc
+    src/ui/theme_icons.qrc
 )
 
 set(HEADERS
@@ -45,6 +47,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 if(WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_sources(${PROJECT_NAME} PRIVATE app_icon.rc)
 endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE

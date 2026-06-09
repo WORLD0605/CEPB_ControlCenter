@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPalette>
 #include <QPushButton>
 #include <QSettings>
 #include <QShortcut>
@@ -33,6 +34,424 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+
+namespace {
+
+QPalette lightThemePalette()
+{
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor(245, 246, 248));
+    palette.setColor(QPalette::WindowText, QColor(28, 31, 35));
+    palette.setColor(QPalette::Base, QColor(255, 255, 255));
+    palette.setColor(QPalette::AlternateBase, QColor(239, 242, 246));
+    palette.setColor(QPalette::ToolTipBase, QColor(255, 255, 255));
+    palette.setColor(QPalette::ToolTipText, QColor(28, 31, 35));
+    palette.setColor(QPalette::Text, QColor(28, 31, 35));
+    palette.setColor(QPalette::Button, QColor(245, 246, 248));
+    palette.setColor(QPalette::ButtonText, QColor(28, 31, 35));
+    palette.setColor(QPalette::BrightText, QColor(255, 255, 255));
+    palette.setColor(QPalette::Link, QColor(27, 94, 163));
+    palette.setColor(QPalette::Highlight, QColor(36, 116, 191));
+    palette.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+    palette.setColor(QPalette::Disabled, QPalette::Text, QColor(125, 132, 141));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(125, 132, 141));
+    return palette;
+}
+
+QPalette darkThemePalette()
+{
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor(35, 38, 42));
+    palette.setColor(QPalette::WindowText, QColor(232, 235, 239));
+    palette.setColor(QPalette::Base, QColor(27, 30, 34));
+    palette.setColor(QPalette::AlternateBase, QColor(42, 46, 51));
+    palette.setColor(QPalette::ToolTipBase, QColor(48, 52, 58));
+    palette.setColor(QPalette::ToolTipText, QColor(232, 235, 239));
+    palette.setColor(QPalette::Text, QColor(232, 235, 239));
+    palette.setColor(QPalette::Button, QColor(45, 49, 55));
+    palette.setColor(QPalette::ButtonText, QColor(232, 235, 239));
+    palette.setColor(QPalette::BrightText, QColor(255, 255, 255));
+    palette.setColor(QPalette::Link, QColor(114, 173, 232));
+    palette.setColor(QPalette::Highlight, QColor(64, 128, 191));
+    palette.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+    palette.setColor(QPalette::Disabled, QPalette::Text, QColor(135, 141, 149));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(135, 141, 149));
+    return palette;
+}
+
+bool paletteLooksDark(const QPalette &palette)
+{
+    return palette.color(QPalette::Window).lightness() < 128;
+}
+
+QString themeStyleSheet(bool darkMode)
+{
+    if (darkMode) {
+        return QStringLiteral(
+            "QWidget {"
+            "  background-color: #23272e;"
+            "  color: #e8edf3;"
+            "  selection-background-color: #2f80d0;"
+            "  selection-color: #ffffff;"
+            "}"
+            "QMainWindow, QDialog { background-color: #20242b; }"
+            "QLabel { background: transparent; color: #dce3ec; }"
+            "QLabel#onlineRuleHint { color: #aeb9c7; }"
+            "QStatusBar {"
+            "  background-color: #1b1f25;"
+            "  border-top: 1px solid #343a44;"
+            "  color: #c9d2dd;"
+            "}"
+            "QTabWidget::pane {"
+            "  background-color: #272c34;"
+            "  border: 1px solid #3b424d;"
+            "  border-radius: 4px;"
+            "  top: -1px;"
+            "}"
+            "QTabBar::tab {"
+            "  background-color: #20242b;"
+            "  color: #b9c4d1;"
+            "  border: 1px solid #343b46;"
+            "  border-bottom: none;"
+            "  padding: 7px 14px;"
+            "  margin-right: 2px;"
+            "  border-top-left-radius: 4px;"
+            "  border-top-right-radius: 4px;"
+            "}"
+            "QTabBar::tab:selected {"
+            "  background-color: #2e3540;"
+            "  color: #ffffff;"
+            "  border-color: #4d8fd5;"
+            "}"
+            "QTabBar::tab:hover:!selected { background-color: #29303a; color: #edf3f9; }"
+            "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {"
+            "  background-color: #151a20;"
+            "  color: #f0f4f8;"
+            "  border: 1px solid #566171;"
+            "  border-radius: 3px;"
+            "  padding: 4px 7px;"
+            "}"
+            "QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,"
+            "QTextEdit:focus, QPlainTextEdit:focus {"
+            "  border: 1px solid #62a8ee;"
+            "  background-color: #11161c;"
+            "}"
+            "QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {"
+            "  background-color: #252b33;"
+            "  color: #8994a2;"
+            "  border-color: #3b424d;"
+            "}"
+            "QComboBox { padding-right: 28px; }"
+            "QComboBox::drop-down {"
+            "  subcontrol-origin: padding;"
+            "  subcontrol-position: top right;"
+            "  width: 26px;"
+            "  border-left: 1px solid #566171;"
+            "  background-color: #202630;"
+            "  border-top-right-radius: 3px;"
+            "  border-bottom-right-radius: 3px;"
+            "}"
+            "QComboBox::down-arrow {"
+            "  image: url(:/theme/icons/chevron-down-light.svg);"
+            "  width: 10px;"
+            "  height: 10px;"
+            "  margin-right: 8px;"
+            "}"
+            "QComboBox::drop-down:disabled { background-color: #252b33; border-left-color: #3b424d; }"
+            "QComboBox::down-arrow:disabled { border-top-color: #7f8a98; }"
+            "QComboBox#modelPointCategoryCombo {"
+            "  padding: 2px 19px 2px 5px;"
+            "  min-height: 20px;"
+            "}"
+            "QComboBox#modelPointCategoryCombo::drop-down { width: 18px; }"
+            "QComboBox#modelPointCategoryCombo::down-arrow {"
+            "  width: 9px;"
+            "  height: 9px;"
+            "  margin-right: 5px;"
+            "}"
+            "QSpinBox, QDoubleSpinBox { padding-right: 23px; }"
+            "QSpinBox::up-button, QDoubleSpinBox::up-button,"
+            "QSpinBox::down-button, QDoubleSpinBox::down-button {"
+            "  subcontrol-origin: border;"
+            "  width: 19px;"
+            "  background-color: #202630;"
+            "  border-left: 1px solid #566171;"
+            "}"
+            "QSpinBox::up-button, QDoubleSpinBox::up-button {"
+            "  subcontrol-position: top right;"
+            "  border-top-right-radius: 3px;"
+            "  border-bottom: 1px solid #404956;"
+            "}"
+            "QSpinBox::down-button, QDoubleSpinBox::down-button {"
+            "  subcontrol-position: bottom right;"
+            "  border-bottom-right-radius: 3px;"
+            "}"
+            "QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,"
+            "QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {"
+            "  background-color: #2a6aa8;"
+            "}"
+            "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {"
+            "  image: url(:/theme/icons/spin-up-light.svg);"
+            "  width: 8px;"
+            "  height: 8px;"
+            "}"
+            "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {"
+            "  image: url(:/theme/icons/spin-down-light.svg);"
+            "  width: 8px;"
+            "  height: 8px;"
+            "}"
+            "QPushButton {"
+            "  background-color: #35404c;"
+            "  color: #f0f4f8;"
+            "  border: 1px solid #596779;"
+            "  border-radius: 4px;"
+            "  padding: 5px 13px;"
+            "  min-height: 22px;"
+            "}"
+            "QPushButton:hover { background-color: #405065; border-color: #77a9dd; }"
+            "QPushButton:pressed { background-color: #2b6fb3; border-color: #7cb8f2; }"
+            "QPushButton:disabled {"
+            "  background-color: #2a3038;"
+            "  color: #7f8a98;"
+            "  border-color: #3b434e;"
+            "}"
+            "QPushButton:flat {"
+            "  background: transparent;"
+            "  border: 1px solid transparent;"
+            "  color: #d8e1eb;"
+            "}"
+            "QPushButton:flat:hover { background-color: #303844; border-color: #4d5968; }"
+            "QPushButton#programControlCellButton {"
+            "  min-height: 0;"
+            "  padding: 2px 10px;"
+            "}"
+            "QTableWidget, QTableView {"
+            "  background-color: #171c22;"
+            "  alternate-background-color: #202630;"
+            "  color: #edf3f9;"
+            "  gridline-color: #343c47;"
+            "  border: 1px solid #3b424d;"
+            "  border-radius: 3px;"
+            "}"
+            "QHeaderView::section {"
+            "  background-color: #303844;"
+            "  color: #f3f7fb;"
+            "  border: none;"
+            "  border-right: 1px solid #444d5a;"
+            "  border-bottom: 1px solid #4a5360;"
+            "  padding: 6px 8px;"
+            "  font-weight: 600;"
+            "}"
+            "QTableWidget::item { padding: 4px 6px; }"
+            "QTableWidget::item:selected, QTableView::item:selected {"
+            "  background-color: #2f80d0;"
+            "  color: #ffffff;"
+            "}"
+            "QGroupBox, QFrame[frameShape=\"6\"] {"
+            "  background-color: #272d36;"
+            "  border: 1px solid #3f4855;"
+            "  border-radius: 4px;"
+            "}"
+            "QGroupBox {"
+            "  margin-top: 18px;"
+            "  padding: 10px 8px 8px 8px;"
+            "  font-weight: 600;"
+            "}"
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+            "QSplitter::handle { background-color: #3d4652; }"
+            "QScrollBar:vertical, QScrollBar:horizontal { background-color: #20242b; }"
+            "QScrollBar::handle { background-color: #4b5665; border-radius: 3px; }"
+            "QToolTip {"
+            "  background-color: #11161c;"
+            "  color: #f0f4f8;"
+            "  border: 1px solid #596779;"
+            "}"
+        );
+    }
+
+    return QStringLiteral(
+        "QWidget {"
+        "  background-color: #eef2f6;"
+        "  color: #20252b;"
+        "  selection-background-color: #1f6fb8;"
+        "  selection-color: #ffffff;"
+        "}"
+        "QMainWindow, QDialog { background-color: #e8edf3; }"
+        "QLabel { background: transparent; color: #20252b; }"
+        "QLabel#onlineRuleHint { color: #52606f; }"
+        "QStatusBar {"
+        "  background-color: #f7f9fb;"
+        "  border-top: 1px solid #c8d1dc;"
+        "  color: #38434f;"
+        "}"
+        "QTabWidget::pane {"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #c7d0dc;"
+        "  border-radius: 4px;"
+        "  top: -1px;"
+        "}"
+        "QTabBar::tab {"
+        "  background-color: #dfe6ee;"
+        "  color: #34404d;"
+        "  border: 1px solid #c3ccd8;"
+        "  border-bottom: none;"
+        "  padding: 7px 14px;"
+        "  margin-right: 2px;"
+        "  border-top-left-radius: 4px;"
+        "  border-top-right-radius: 4px;"
+        "}"
+        "QTabBar::tab:selected {"
+        "  background-color: #ffffff;"
+        "  color: #111820;"
+        "  border-color: #3e7db8;"
+        "}"
+        "QTabBar::tab:hover:!selected { background-color: #edf3f8; color: #111820; }"
+        "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {"
+        "  background-color: #ffffff;"
+        "  color: #111820;"
+        "  border: 1px solid #9aa8b8;"
+        "  border-radius: 3px;"
+        "  padding: 4px 7px;"
+        "}"
+        "QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,"
+        "QTextEdit:focus, QPlainTextEdit:focus {"
+        "  border: 1px solid #1f6fb8;"
+        "  background-color: #ffffff;"
+        "}"
+        "QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {"
+        "  background-color: #e3e9f0;"
+        "  color: #667282;"
+        "  border-color: #c1cad6;"
+        "}"
+        "QComboBox { padding-right: 28px; }"
+        "QComboBox::drop-down {"
+        "  subcontrol-origin: padding;"
+        "  subcontrol-position: top right;"
+        "  width: 26px;"
+        "  border-left: 1px solid #a8b5c4;"
+        "  background-color: #eef3f8;"
+        "  border-top-right-radius: 3px;"
+        "  border-bottom-right-radius: 3px;"
+        "}"
+        "QComboBox::down-arrow {"
+        "  image: url(:/theme/icons/chevron-down-dark.svg);"
+        "  width: 10px;"
+        "  height: 10px;"
+        "  margin-right: 8px;"
+        "}"
+        "QComboBox::drop-down:disabled { background-color: #e3e9f0; border-left-color: #c1cad6; }"
+        "QComboBox::down-arrow:disabled { border-top-color: #8c98a7; }"
+        "QComboBox#modelPointCategoryCombo {"
+        "  padding: 2px 19px 2px 5px;"
+        "  min-height: 20px;"
+        "}"
+        "QComboBox#modelPointCategoryCombo::drop-down { width: 18px; }"
+        "QComboBox#modelPointCategoryCombo::down-arrow {"
+        "  width: 9px;"
+        "  height: 9px;"
+        "  margin-right: 5px;"
+        "}"
+        "QSpinBox, QDoubleSpinBox { padding-right: 23px; }"
+        "QSpinBox::up-button, QDoubleSpinBox::up-button,"
+        "QSpinBox::down-button, QDoubleSpinBox::down-button {"
+        "  subcontrol-origin: border;"
+        "  width: 19px;"
+        "  background-color: #eef3f8;"
+        "  border-left: 1px solid #a8b5c4;"
+        "}"
+        "QSpinBox::up-button, QDoubleSpinBox::up-button {"
+        "  subcontrol-position: top right;"
+        "  border-top-right-radius: 3px;"
+        "  border-bottom: 1px solid #c8d1dc;"
+        "}"
+        "QSpinBox::down-button, QDoubleSpinBox::down-button {"
+        "  subcontrol-position: bottom right;"
+        "  border-bottom-right-radius: 3px;"
+        "}"
+        "QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,"
+        "QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {"
+        "  background-color: #d8e9f8;"
+        "}"
+        "QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {"
+        "  image: url(:/theme/icons/spin-up-dark.svg);"
+        "  width: 8px;"
+        "  height: 8px;"
+        "}"
+        "QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {"
+        "  image: url(:/theme/icons/spin-down-dark.svg);"
+        "  width: 8px;"
+        "  height: 8px;"
+        "}"
+        "QPushButton {"
+        "  background-color: #f7f9fb;"
+        "  color: #17202a;"
+        "  border: 1px solid #95a6b8;"
+        "  border-radius: 4px;"
+        "  padding: 5px 13px;"
+        "  min-height: 22px;"
+        "}"
+        "QPushButton:hover { background-color: #eaf3fb; border-color: #3e7db8; }"
+        "QPushButton:pressed { background-color: #d4e7f8; border-color: #1f6fb8; }"
+        "QPushButton:disabled {"
+        "  background-color: #e7edf3;"
+        "  color: #8c98a7;"
+        "  border-color: #c8d1dc;"
+        "}"
+        "QPushButton:flat {"
+        "  background: transparent;"
+        "  border: 1px solid transparent;"
+        "  color: #25313d;"
+        "}"
+        "QPushButton:flat:hover { background-color: #e2e9f0; border-color: #b4c0ce; }"
+        "QPushButton#programControlCellButton {"
+        "  min-height: 0;"
+        "  padding: 2px 10px;"
+        "}"
+        "QTableWidget, QTableView {"
+        "  background-color: #ffffff;"
+        "  alternate-background-color: #f4f7fa;"
+        "  color: #17202a;"
+        "  gridline-color: #d5dde7;"
+        "  border: 1px solid #c7d0dc;"
+        "  border-radius: 3px;"
+        "}"
+        "QHeaderView::section {"
+        "  background-color: #dde6ef;"
+        "  color: #17202a;"
+        "  border: none;"
+        "  border-right: 1px solid #c2ccd8;"
+        "  border-bottom: 1px solid #b8c4d1;"
+        "  padding: 6px 8px;"
+        "  font-weight: 600;"
+        "}"
+        "QTableWidget::item { padding: 4px 6px; }"
+        "QTableWidget::item:selected, QTableView::item:selected {"
+        "  background-color: #1f6fb8;"
+        "  color: #ffffff;"
+        "}"
+        "QGroupBox, QFrame[frameShape=\"6\"] {"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #c7d0dc;"
+        "  border-radius: 4px;"
+        "}"
+        "QGroupBox {"
+        "  margin-top: 18px;"
+        "  padding: 10px 8px 8px 8px;"
+        "  font-weight: 600;"
+        "}"
+        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
+        "QSplitter::handle { background-color: #c9d3df; }"
+        "QScrollBar:vertical, QScrollBar:horizontal { background-color: #e8edf3; }"
+        "QScrollBar::handle { background-color: #a9b6c5; border-radius: 3px; }"
+        "QToolTip {"
+        "  background-color: #ffffff;"
+        "  color: #111820;"
+        "  border: 1px solid #95a6b8;"
+        "}"
+    );
+}
+
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -221,7 +640,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *transferRow = new QHBoxLayout();
     transferRow->addWidget(new QLabel(QStringLiteral("设备:")));
     m_configRemoteHostEdit = new QLineEdit(QStringLiteral("192.168.7.10"), this);
-    m_configRemoteHostEdit->setMinimumWidth(130);
+    m_configRemoteHostEdit->setMinimumWidth(100);
     transferRow->addWidget(m_configRemoteHostEdit);
     transferRow->addWidget(new QLabel(QStringLiteral("用户:")));
     m_configRemoteUserEdit = new QLineEdit(QStringLiteral("root"), this);
@@ -236,12 +655,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_configRemotePortEdit = new QSpinBox(this);
     m_configRemotePortEdit->setRange(1, 65535);
     m_configRemotePortEdit->setValue(10022);
-    m_configRemotePortEdit->setMaximumWidth(84);
+    m_configRemotePortEdit->setMaximumWidth(120);
     transferRow->addWidget(m_configRemotePortEdit);
-    transferRow->addWidget(new QLabel(QStringLiteral("APP目录:")));
-    m_configRemoteBaseDirEdit = new QLineEdit(QStringLiteral("/home/cepgateway/app"), this);
-    m_configRemoteBaseDirEdit->setMinimumWidth(220);
-    transferRow->addWidget(m_configRemoteBaseDirEdit, 1);
+
     m_uploadConfigBtn = new QPushButton(QStringLiteral("上传到设备"), this);
     m_downloadConfigBtn = new QPushButton(QStringLiteral("从设备下载"), this);
     transferRow->addWidget(m_uploadConfigBtn);
@@ -460,8 +876,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
     m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_modelPointsTable->setColumnWidth(0, 26);
-    m_modelPointsTable->setColumnWidth(1, 76);
-    m_modelPointsTable->setColumnWidth(2, 70);
+    m_modelPointsTable->setColumnWidth(1, 62);
+    m_modelPointsTable->setColumnWidth(2, 82);
     m_modelPointsTable->setColumnWidth(3, 130);
     m_modelPointsTable->setColumnWidth(4, 220);
     m_modelPointsTable->setColumnWidth(5, 90);
@@ -868,8 +1284,8 @@ MainWindow::MainWindow(QWidget *parent)
     auto *onlineRuleHint = new QLabel(
         QStringLiteral("在线判定信息不填写时，以该 DeviceId 的通信状态作为状态判定；仅填写设备在线判断ID时，以填写的设备ID的通信状态作为状态判定；若填写了设备在线判定点位以及判定值，则以该点位是否等于判定值作为依据。"),
         this);
+    onlineRuleHint->setObjectName(QStringLiteral("onlineRuleHint"));
     onlineRuleHint->setWordWrap(true);
-    onlineRuleHint->setStyleSheet(QStringLiteral("QLabel { color: #b0b0b0; }"));
     agcAvcLayout->addWidget(onlineRuleHint);
 
     auto *agcAvcOptionsPanel = new QWidget(this);
@@ -1150,9 +1566,9 @@ MainWindow::MainWindow(QWidget *parent)
     programControlLayout->setSpacing(8);
 
     auto *programConnectionRow = new QHBoxLayout();
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("设备:"), this));
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("IP:"), this));
     m_programRemoteHostEdit = new QLineEdit(QStringLiteral("192.168.7.10"), this);
-    m_programRemoteHostEdit->setMinimumWidth(130);
+    m_programRemoteHostEdit->setMinimumWidth(100);
     programConnectionRow->addWidget(m_programRemoteHostEdit);
     programConnectionRow->addWidget(new QLabel(QStringLiteral("用户:"), this));
     m_programRemoteUserEdit = new QLineEdit(QStringLiteral("root"), this);
@@ -1167,9 +1583,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_programRemotePortEdit = new QSpinBox(this);
     m_programRemotePortEdit->setRange(1, 65535);
     m_programRemotePortEdit->setValue(10022);
-    m_programRemotePortEdit->setMaximumWidth(84);
+    m_programRemotePortEdit->setMaximumWidth(120);
     programConnectionRow->addWidget(m_programRemotePortEdit);
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("使用 systemd 服务控制"), this));
+
     programConnectionRow->addStretch();
     m_connectProgramControlBtn = new QPushButton(QStringLiteral("连接"), this);
     m_disconnectProgramControlBtn = new QPushButton(QStringLiteral("断开"), this);
@@ -1229,6 +1645,11 @@ MainWindow::MainWindow(QWidget *parent)
     statusBar()->addWidget(m_statusLabel);
     statusBar()->addWidget(m_modelValidationLabel, 1);
 
+    m_themeToggleBtn = new QPushButton(this);
+    m_themeToggleBtn->setFlat(true);
+    m_themeToggleBtn->setMaximumWidth(58);
+    statusBar()->addPermanentWidget(m_themeToggleBtn);
+
     m_versionLabel = new QLabel(QStringLiteral("v") + QStringLiteral(APP_VERSION), this);
     m_versionLabel->setStyleSheet(QStringLiteral("color: #888888; font-size: 11px;"));
     statusBar()->addPermanentWidget(m_versionLabel);
@@ -1237,6 +1658,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConnectClicked);
     connect(m_disconnectBtn, &QPushButton::clicked,
             this, &MainWindow::onDisconnectClicked);
+    connect(m_themeToggleBtn, &QPushButton::clicked,
+            this, &MainWindow::onThemeToggleClicked);
     connect(m_appCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onAppSelectionChanged);
     connect(m_sendBtn, &QPushButton::clicked,
@@ -1491,6 +1914,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_client, &DebugConsoleClient::commandReplyReceived,
             this, &MainWindow::onCommandReply);
 
+    m_themeMode = loadThemeMode();
+    applyTheme(m_themeMode);
+
     applyCurrentAppView();
     m_navigationCurrentState = currentNavigationState();
     connect(m_mainTabWidget, &QTabWidget::currentChanged,
@@ -1510,6 +1936,84 @@ MainWindow::~MainWindow()
         QApplication::instance()->removeEventFilter(this);
     }
     closeProgramControlShell();
+}
+
+MainWindow::ThemeMode MainWindow::loadThemeMode() const
+{
+    QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+    const QString mode = settings.value(QStringLiteral("ui/themeMode")).toString();
+    if (mode == QStringLiteral("light")) {
+        return ThemeMode::Light;
+    }
+    if (mode == QStringLiteral("dark")) {
+        return ThemeMode::Dark;
+    }
+
+    const QApplication *app = qobject_cast<QApplication *>(QApplication::instance());
+    return app && paletteLooksDark(app->palette()) ? ThemeMode::Dark : ThemeMode::Light;
+}
+
+void MainWindow::saveThemeMode(ThemeMode mode) const
+{
+    QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+    settings.setValue(QStringLiteral("ui/themeMode"),
+                      mode == ThemeMode::Dark ? QStringLiteral("dark") : QStringLiteral("light"));
+}
+
+void MainWindow::applyTheme(ThemeMode mode)
+{
+    m_themeMode = mode;
+
+    QApplication *app = qobject_cast<QApplication *>(QApplication::instance());
+    if (app) {
+        app->setPalette(mode == ThemeMode::Dark ? darkThemePalette() : lightThemePalette());
+        app->setStyleSheet(themeStyleSheet(mode == ThemeMode::Dark));
+    }
+
+    if (m_logView) {
+        const QString background = mode == ThemeMode::Dark ? QStringLiteral("#1e1e1e")
+                                                           : QStringLiteral("#ffffff");
+        const QString foreground = mode == ThemeMode::Dark ? QStringLiteral("#d4d4d4")
+                                                           : QStringLiteral("#202124");
+        m_logView->setStyleSheet(QStringLiteral(
+            "QTextEdit {"
+            "  font-family: Consolas, 'Courier New', monospace;"
+            "  font-size: 12px;"
+            "  background-color: %1;"
+            "  color: %2;"
+            "}").arg(background, foreground));
+    }
+
+    if (m_themeToggleBtn) {
+        const bool darkMode = mode == ThemeMode::Dark;
+        m_themeToggleBtn->setText(darkMode ? QStringLiteral("暗色") : QStringLiteral("亮色"));
+        m_themeToggleBtn->setToolTip(darkMode ? QStringLiteral("切换到亮色主题")
+                                               : QStringLiteral("切换到暗色主题"));
+    }
+}
+
+void MainWindow::onThemeToggleClicked()
+{
+    const ThemeMode nextMode = m_themeMode == ThemeMode::Dark ? ThemeMode::Light
+                                                              : ThemeMode::Dark;
+    applyTheme(nextMode);
+    saveThemeMode(nextMode);
+
+    if (currentAppConfig().viewMode == AppViewMode::DataTable) {
+        applyServiceChannelFilter();
+    }
+}
+
+QColor MainWindow::serviceChannelDefaultTextColor() const
+{
+    return m_themeMode == ThemeMode::Dark ? QColor(QStringLiteral("#f0f4f8"))
+                                          : QColor(QStringLiteral("#17202a"));
+}
+
+QColor MainWindow::serviceChannelChangedTextColor() const
+{
+    return m_themeMode == ThemeMode::Dark ? QColor(QStringLiteral("#67d26f"))
+                                          : QColor(QStringLiteral("#188038"));
 }
 
 QPair<int, int> MainWindow::currentNavigationState() const

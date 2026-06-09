@@ -320,8 +320,8 @@ QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QSt
 
 void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem> &items)
 {
-    const QColor defaultTextColor("#ffffff");
-    const QColor changedTextColor("#32cd32");
+    const QColor defaultTextColor = serviceChannelDefaultTextColor();
+    const QColor changedTextColor = serviceChannelChangedTextColor();
     const QDateTime now = QDateTime::currentDateTime();
 
     m_dataTable->setRowCount(items.size());

@@ -3602,6 +3602,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
             m_modelPointsTable->setItem(row, ModelPointColumnUnit, unitItem);
 
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
+            categoryCombo->setObjectName(QStringLiteral("modelPointCategoryCombo"));
             categoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
             categoryCombo->addItem(QStringLiteral("遥信"), static_cast<int>(configtool::ModelServiceType::Status));
             categoryCombo->addItem(QStringLiteral("控制"), static_cast<int>(configtool::ModelServiceType::Control));

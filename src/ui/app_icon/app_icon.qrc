@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/app">
+        <file>cepb_control_center_icon.png</file>
+    </qresource>
+</RCC>

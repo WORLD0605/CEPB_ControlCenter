@@ -58,6 +58,11 @@ public:
     ~MainWindow();
 
 private:
+    enum class ThemeMode {
+        Light,
+        Dark
+    };
+
     enum class ProgramControlCommandKind {
         Verify,
         RefreshStatus,
@@ -278,6 +283,12 @@ private:
     void startProgramStatusRefresh();
     void refreshProgramControlTable(const QString &statusOutput);
     void setProgramControlRowPending(const QString &appName, const QString &statusText);
+    ThemeMode loadThemeMode() const;
+    void saveThemeMode(ThemeMode mode) const;
+    void applyTheme(ThemeMode mode);
+    void onThemeToggleClicked();
+    QColor serviceChannelDefaultTextColor() const;
+    QColor serviceChannelChangedTextColor() const;
 
     DebugConsoleClient *m_client = nullptr;
     configtool::ConfigProjectManager m_configProjectManager;
@@ -299,6 +310,7 @@ private:
     bool m_restoringConfigUndo = false;
     bool m_restoringNavigation = false;
     bool m_lastConfigExportOk = false;
+    ThemeMode m_themeMode = ThemeMode::Light;
     QPair<int, int> m_navigationCurrentState = qMakePair(-1, -1);
     QList<QPair<int, int>> m_navigationBackStack;
     QList<QPair<int, int>> m_navigationForwardStack;
@@ -480,6 +492,7 @@ private:
     QCheckBox *m_modbusDebugCheck = nullptr;
     QGroupBox *m_modbusParamsGroupBox = nullptr;
     QLabel *m_statusLabel = nullptr;
+    QPushButton *m_themeToggleBtn = nullptr;
     QLabel *m_versionLabel = nullptr;
 };
 

@@ -605,6 +605,20 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
     const QStringList appNames = managedProgramAppNames();
     m_programControlTable->setRowCount(appNames.size());
 
+    auto makeCellButton = [](const QString &text, QWidget *parent) {
+        auto *button = new QPushButton(text, parent);
+        button->setObjectName(QStringLiteral("programControlCellButton"));
+        return button;
+    };
+    auto wrapCellButton = [](QPushButton *button) {
+        auto *container = new QWidget(button->parentWidget());
+        auto *layout = new QHBoxLayout(container);
+        layout->setContentsMargins(8, 3, 8, 3);
+        layout->setSpacing(0);
+        layout->addWidget(button);
+        return container;
+    };
+
     for (int row = 0; row < appNames.size(); ++row) {
         const QString appName = appNames.at(row);
         ProgramStatus status = statusByApp.value(appName);
@@ -638,21 +652,21 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         m_programControlTable->setItem(row, ProgramColumnApp, appItem);
         m_programControlTable->setItem(row, ProgramColumnPid, makeProgramItem(pidText));
 
-        auto *startButton = new QPushButton(QStringLiteral("启动"), this);
+        auto *startButton = makeCellButton(QStringLiteral("启动"), this);
         startButton->setProperty("appName", appName);
         startButton->setEnabled(!running);
         connect(startButton, &QPushButton::clicked, this, &MainWindow::onStartProgramClicked);
-        m_programControlTable->setCellWidget(row, ProgramColumnStart, startButton);
+        m_programControlTable->setCellWidget(row, ProgramColumnStart, wrapCellButton(startButton));
 
         auto *stopContainer = new QWidget(this);
         auto *stopLayout = new QHBoxLayout(stopContainer);
-        stopLayout->setContentsMargins(0, 0, 0, 0);
-        stopLayout->setSpacing(4);
-        auto *stopButton = new QPushButton(QStringLiteral("停止"), stopContainer);
+        stopLayout->setContentsMargins(8, 3, 8, 3);
+        stopLayout->setSpacing(6);
+        auto *stopButton = makeCellButton(QStringLiteral("停止"), stopContainer);
         stopButton->setProperty("appName", appName);
         stopButton->setEnabled(running);
         connect(stopButton, &QPushButton::clicked, this, &MainWindow::onStopProgramClicked);
-        auto *forceStopButton = new QPushButton(QStringLiteral("强制"), stopContainer);
+        auto *forceStopButton = makeCellButton(QStringLiteral("强制"), stopContainer);
         forceStopButton->setProperty("appName", appName);
         forceStopButton->setEnabled(running);
         connect(forceStopButton, &QPushButton::clicked, this, &MainWindow::onForceStopProgramClicked);
@@ -660,13 +674,13 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         stopLayout->addWidget(forceStopButton);
         m_programControlTable->setCellWidget(row, ProgramColumnStop, stopContainer);
 
-        auto *restartButton = new QPushButton(QStringLiteral("重启"), this);
+        auto *restartButton = makeCellButton(QStringLiteral("重启"), this);
         restartButton->setProperty("appName", appName);
         restartButton->setEnabled(running);
         connect(restartButton, &QPushButton::clicked, this, &MainWindow::onRestartProgramClicked);
-        m_programControlTable->setCellWidget(row, ProgramColumnRestart, restartButton);
+        m_programControlTable->setCellWidget(row, ProgramColumnRestart, wrapCellButton(restartButton));
 
-        auto *autostartButton = new QPushButton(enabled ? QStringLiteral("禁用自启") : QStringLiteral("启用自启"), this);
+        auto *autostartButton = makeCellButton(enabled ? QStringLiteral("禁用自启") : QStringLiteral("启用自启"), this);
         autostartButton->setProperty("appName", appName);
         autostartButton->setProperty("autostartEnabled", enabled);
         autostartButton->setToolTip(enabled
@@ -675,7 +689,7 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         autostartButton->setEnabled(status.autostart == QStringLiteral("enabled")
                                     || status.autostart == QStringLiteral("disabled"));
         connect(autostartButton, &QPushButton::clicked, this, &MainWindow::onToggleProgramAutostartClicked);
-        m_programControlTable->setCellWidget(row, ProgramColumnAutostart, autostartButton);
+        m_programControlTable->setCellWidget(row, ProgramColumnAutostart, wrapCellButton(autostartButton));
     }
 
     m_programControlTable->resizeRowsToContents();
