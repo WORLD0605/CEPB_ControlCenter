@@ -226,6 +226,8 @@ private:
     QPair<int, int> currentModelPointLocation() const;
     QSet<QString> duplicateDataRefsForModel(const configtool::ModelTemplate &model) const;
     QSet<QString> duplicateBindingAddresses(const configtool::ProtocolDeviceInstance &device) const;
+    QSet<QString> duplicateIec104ChannelBindingAddresses(const configtool::ConfigProject &project,
+                                                         const configtool::ProtocolDeviceInstance &device) const;
     configtool::AgcAvcGroup *ensureLogicAgcAvcGroup();
     configtool::AgcAvcGroup *currentLogicAgcAvcGroup();
     void selectLogicAgcAvcPointForColumn(int dataRefColumn,

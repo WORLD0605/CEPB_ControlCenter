@@ -18,6 +18,8 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
 
     const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Iec104);
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
+    const QHash<QString, QSet<QString>> duplicateAddressesByChannel =
+        duplicateIec104BindingAddressesByChannel(exportDevices);
 
     const QDir appDirInfo(appDir);
     if (!appDirInfo.exists()) {
@@ -39,17 +41,26 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         }
     }
 
+    QSet<QString> reportedDuplicateAddressChannels;
+    for (const ProtocolDeviceInstance &device : exportDevices) {
+        const QString channelKey = iec104ChannelKey(device);
+        const QSet<QString> duplicateAddresses = duplicateAddressesByChannel.value(channelKey);
+        if (!duplicateAddresses.isEmpty()) {
+            if (reportedDuplicateAddressChannels.contains(channelKey)) {
+                continue;
+            }
+            reportedDuplicateAddressChannels.insert(channelKey);
+            report.addIssue(ImportIssueSeverity::Error,
+                            appDir,
+                            QStringLiteral("同通道 104 设备存在重复点位地址：%1（%2）")
+                                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，")),
+                                     iec104ChannelDisplayName(device)));
+        }
+    }
+
     for (const ProtocolDeviceInstance &device : exportDevices) {
         if (device.deviceId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在设备 DeviceId 为空，无法导出"));
-        }
-
-        const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
-        if (!duplicateAddresses.isEmpty()) {
-            report.addIssue(ImportIssueSeverity::Error,
-                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
-                            QStringLiteral("设备存在重复 104 地址：%1")
-                                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，"))));
         }
 
         for (const PointBinding &binding : device.bindings) {

@@ -23,6 +23,7 @@
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QJsonDocument>
@@ -120,6 +121,58 @@ using configtool::modbusKindFromString;
 using configtool::modbusMaxReadQuantity;
 using configtool::modbusTypeRegisterCount;
 using configtool::normalizedModbusKind;
+
+QString iec104ChannelKey(const configtool::ProtocolDeviceInstance &device)
+{
+    return QStringLiteral("%1|%2|%3")
+        .arg(device.transport.ip.trimmed().toLower(),
+             device.transport.port.trimmed(),
+             device.transport.stationAddress.trimmed());
+}
+
+QString iec104ChannelDisplayName(const configtool::ProtocolDeviceInstance &device)
+{
+    return QStringLiteral("IP=%1，端口=%2，104公共地址=%3")
+        .arg(device.transport.ip.trimmed(),
+             device.transport.port.trimmed(),
+             device.transport.stationAddress.trimmed());
+}
+
+QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(
+    const QList<configtool::ProtocolDeviceInstance> &devices)
+{
+    QHash<QString, QSet<QString>> seenAddressesByChannel;
+    QHash<QString, QSet<QString>> duplicateAddressesByChannel;
+
+    for (const configtool::ProtocolDeviceInstance &device : devices) {
+        if (device.protocol != configtool::ProtocolType::Iec104) {
+            continue;
+        }
+
+        const QString channelKey = iec104ChannelKey(device);
+        QSet<QString> &seenAddresses = seenAddressesByChannel[channelKey];
+        QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
+
+        for (const configtool::PointBinding &binding : device.bindings) {
+            if (!binding.enabled) {
+                continue;
+            }
+
+            const QString address = binding.address.trimmed();
+            if (address.isEmpty()) {
+                continue;
+            }
+
+            if (seenAddresses.contains(address)) {
+                duplicateAddresses.insert(address);
+            } else {
+                seenAddresses.insert(address);
+            }
+        }
+    }
+
+    return duplicateAddressesByChannel;
+}
 
 bool selfSignalFlagChecked(const QString &value)
 {
@@ -824,6 +877,9 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
 
     QSet<QString> seenDeviceIds;
     QSet<QString> duplicateDeviceIds;
+    const QHash<QString, QSet<QString>> duplicateIec104AddressesByChannel =
+        duplicateIec104BindingAddressesByChannel(project.devices);
+    QSet<QString> reportedDuplicateIec104Channels;
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
         const QString deviceId = device.deviceId.trimmed();
         const QString devicePath = objectPath(device.source.filePath, device.deviceId);
@@ -845,12 +901,17 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         }
 
         if (device.protocol == configtool::ProtocolType::Iec104) {
-            const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
+            const QString channelKey = iec104ChannelKey(device);
+            const QSet<QString> duplicateAddresses = duplicateIec104AddressesByChannel.value(channelKey);
             if (!duplicateAddresses.isEmpty()) {
-                appendIssue(configtool::ImportIssueSeverity::Error,
-                            devicePath,
-                            QStringLiteral("设备存在重复 104 地址：%1")
-                                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，"))));
+                if (!reportedDuplicateIec104Channels.contains(channelKey)) {
+                    reportedDuplicateIec104Channels.insert(channelKey);
+                    appendIssue(configtool::ImportIssueSeverity::Error,
+                                projectPath,
+                                QStringLiteral("同通道 104 设备存在重复点位地址：%1（%2）")
+                                    .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，")),
+                                         iec104ChannelDisplayName(device)));
+                }
             }
             for (const configtool::PointBinding &binding : device.bindings) {
                 if (binding.enabled && binding.address.trimmed().isEmpty()) {
@@ -3744,7 +3805,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             || debug == QStringLiteral("yes"));
     }
 
-    const QSet<QString> duplicateAddresses = duplicateBindingAddresses(device);
+    const QSet<QString> duplicateAddresses = device.protocol == configtool::ProtocolType::Iec104
+        ? duplicateIec104ChannelBindingAddresses(project, device)
+        : duplicateBindingAddresses(device);
     int emptyAddressCount = 0;
     for (const configtool::PointBinding &binding : device.bindings) {
         if (binding.enabled && binding.address.trimmed().isEmpty()) {
@@ -3979,8 +4042,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     if (!duplicateAddresses.isEmpty()) {
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
         m_deviceValidationLabel->setText(
-            QStringLiteral("检测到重复 104 地址：%1。请调整地址列，避免启用点位地址冲突。")
-                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，"))));
+            QStringLiteral("检测到同通道重复 104 地址：%1。请检查 %2 下所有设备的启用点位地址。")
+                .arg(QStringList(duplicateAddresses.begin(), duplicateAddresses.end()).join(QStringLiteral("，")),
+                     iec104ChannelDisplayName(device)));
     } else if (emptyAddressCount > 0) {
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
         m_deviceValidationLabel->setText(
@@ -3988,7 +4052,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 .arg(emptyAddressCount));
     } else {
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
-        m_deviceValidationLabel->setText(QStringLiteral("当前设备地址分配未发现重复。"));
+        m_deviceValidationLabel->setText(QStringLiteral("当前同通道设备地址分配未发现重复。"));
     }
 }
 
@@ -6297,4 +6361,11 @@ QSet<QString> MainWindow::duplicateBindingAddresses(const configtool::ProtocolDe
     }
 
     return duplicateAddresses;
+}
+
+QSet<QString> MainWindow::duplicateIec104ChannelBindingAddresses(
+    const configtool::ConfigProject &project,
+    const configtool::ProtocolDeviceInstance &device) const
+{
+    return duplicateIec104BindingAddressesByChannel(project.devices).value(iec104ChannelKey(device));
 }

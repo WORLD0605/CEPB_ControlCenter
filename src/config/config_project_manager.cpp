@@ -1042,6 +1042,57 @@ QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device)
     return duplicateAddresses;
 }
 
+QString iec104ChannelKey(const ProtocolDeviceInstance &device)
+{
+    return QStringLiteral("%1|%2|%3")
+        .arg(device.transport.ip.trimmed().toLower(),
+             device.transport.port.trimmed(),
+             device.transport.stationAddress.trimmed());
+}
+
+QString iec104ChannelDisplayName(const ProtocolDeviceInstance &device)
+{
+    return QStringLiteral("IP=%1，端口=%2，104公共地址=%3")
+        .arg(device.transport.ip.trimmed(),
+             device.transport.port.trimmed(),
+             device.transport.stationAddress.trimmed());
+}
+
+QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(const QList<ProtocolDeviceInstance> &devices)
+{
+    QHash<QString, QSet<QString>> seenAddressesByChannel;
+    QHash<QString, QSet<QString>> duplicateAddressesByChannel;
+
+    for (const ProtocolDeviceInstance &device : devices) {
+        if (device.protocol != ProtocolType::Iec104) {
+            continue;
+        }
+
+        const QString channelKey = iec104ChannelKey(device);
+        QSet<QString> &seenAddresses = seenAddressesByChannel[channelKey];
+        QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
+
+        for (const PointBinding &binding : device.bindings) {
+            if (!binding.enabled) {
+                continue;
+            }
+
+            const QString address = binding.address.trimmed();
+            if (address.isEmpty()) {
+                continue;
+            }
+
+            if (seenAddresses.contains(address)) {
+                duplicateAddresses.insert(address);
+            } else {
+                seenAddresses.insert(address);
+            }
+        }
+    }
+
+    return duplicateAddressesByChannel;
+}
+
 ImportIssueSeverity importSeverityForConfigIssue(ConfigIssueSeverity severity)
 {
     switch (severity) {
