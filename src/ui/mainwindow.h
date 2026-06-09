@@ -64,7 +64,9 @@ private:
         Start,
         Stop,
         ForceStop,
-        Restart
+        Restart,
+        EnableAutostart,
+        DisableAutostart
     };
 
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -145,6 +147,7 @@ private slots:
     void onStopProgramClicked();
     void onForceStopProgramClicked();
     void onRestartProgramClicked();
+    void onToggleProgramAutostartClicked();
 
     void onConnected();
     void onDisconnected();
@@ -246,6 +249,7 @@ private:
     void refreshLogicControlTargetTable();
     void refreshLogicControlPreview();
     QStringList managedProgramAppNames() const;
+    QString programServiceName(const QString &appName) const;
     bool startProgramControlCommand(const QString &command,
                                     const QString &title,
                                     ProgramControlCommandKind kind,

@@ -22,10 +22,10 @@ namespace {
 constexpr int ProgramColumnStatus = 0;
 constexpr int ProgramColumnApp = 1;
 constexpr int ProgramColumnPid = 2;
-constexpr int ProgramColumnCommand = 3;
-constexpr int ProgramColumnStart = 4;
-constexpr int ProgramColumnStop = 5;
-constexpr int ProgramColumnRestart = 6;
+constexpr int ProgramColumnStart = 3;
+constexpr int ProgramColumnStop = 4;
+constexpr int ProgramColumnRestart = 5;
+constexpr int ProgramColumnAutostart = 6;
 
 QString remoteProgramShellQuote(const QString &text)
 {
@@ -62,7 +62,48 @@ QString programPidScanSnippet(const QString &baseDir, const QString &appName)
         .arg(remoteProgramShellQuote(baseDir), remoteProgramShellQuote(appName));
 }
 
+QString programServiceNameForApp(const QString &appName)
+{
+    if (appName == QStringLiteral("ServiceChannel")) {
+        return QStringLiteral("CEP-ServiceChannel.service");
+    }
+    if (appName == QStringLiteral("IEC101ServiceChannel")) {
+        return QStringLiteral("CEP-IEC101ServiceChannel.service");
+    }
+    if (appName == QStringLiteral("cepLogicCenter")) {
+        return QStringLiteral("CEP-LogicCenter.service");
+    }
+    if (appName == QStringLiteral("cepmodbus")) {
+        return QStringLiteral("CEP-Modbus.service");
+    }
+    if (appName == QStringLiteral("cepiec104")) {
+        return QStringLiteral("CEP-IEC104.service");
+    }
+    if (appName == QStringLiteral("cepdlt645")) {
+        return QStringLiteral("CEP-DLT645.service");
+    }
+    return appName + QStringLiteral(".service");
+}
+
 QString programStatusScanCommand(const QString &baseDir, const QStringList &appNames)
+{
+    Q_UNUSED(baseDir);
+    QString command;
+    for (const QString &appName : appNames) {
+        const QString service = programServiceNameForApp(appName);
+        command += QStringLiteral(
+            "app=%2; service=%1; "
+            "active=$(systemctl show \"$service\" -p ActiveState --value --no-page 2>/dev/null || true); "
+            "sub=$(systemctl show \"$service\" -p SubState --value --no-page 2>/dev/null || true); "
+            "pid=$(systemctl show \"$service\" -p MainPID --value --no-page 2>/dev/null || true); "
+            "enabled=$(systemctl is-enabled \"$service\" 2>/dev/null || true); "
+            "echo \"$app|$service|${active:-unknown}|${sub:-unknown}|${pid:-0}|${enabled:-unknown}\"; ")
+            .arg(remoteProgramShellQuote(service), remoteProgramShellQuote(appName));
+    }
+    return command;
+}
+
+QString legacyProgramStatusScanCommand(const QString &baseDir, const QStringList &appNames)
 {
     return QStringLiteral(
         "base=%1; apps=%2; "
@@ -113,6 +154,11 @@ QStringList MainWindow::managedProgramAppNames() const
         QStringLiteral("cepiec104"),
         QStringLiteral("cepdlt645")
     };
+}
+
+QString MainWindow::programServiceName(const QString &appName) const
+{
+    return programServiceNameForApp(appName);
 }
 
 bool MainWindow::startProgramControlCommand(const QString &command,
@@ -231,20 +277,16 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
                                  QStringLiteral("刷新程序状态失败。\n\n%1").arg(output));
             statusBar()->showMessage(QStringLiteral("刷新程序状态失败"), 5000);
             break;
-        case ProgramControlCommandKind::Start: {
-            const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
-            const QString appDir = QStringLiteral("%1/%2").arg(baseDir, appName);
+        case ProgramControlCommandKind::Start:
             QMessageBox::warning(this,
                                  QStringLiteral("程序控制"),
-                                 QStringLiteral("启动 %1 失败。\n\n请确认设备上存在 %2/bin/%1 且有执行权限。\n\n%3")
-                                     .arg(appName, appDir, output));
+                                 QStringLiteral("启动 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
-        }
         case ProgramControlCommandKind::Stop:
             QMessageBox::warning(this,
                                  QStringLiteral("程序控制"),
-                                 QStringLiteral("停止 %1 后仍有进程存在，可使用“强制”停止。\n\n%2").arg(appName, output));
+                                 QStringLiteral("停止 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         case ProgramControlCommandKind::ForceStop:
@@ -257,6 +299,18 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
             QMessageBox::warning(this,
                                  QStringLiteral("程序控制"),
                                  QStringLiteral("重启 %1 失败。\n\n%2").arg(appName, output));
+            startProgramStatusRefresh();
+            break;
+        case ProgramControlCommandKind::EnableAutostart:
+            QMessageBox::warning(this,
+                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("启用 %1 开机自启失败。\n\n%2").arg(appName, output));
+            startProgramStatusRefresh();
+            break;
+        case ProgramControlCommandKind::DisableAutostart:
+            QMessageBox::warning(this,
+                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("禁用 %1 开机自启失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         }
@@ -275,6 +329,8 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
     case ProgramControlCommandKind::Stop:
     case ProgramControlCommandKind::ForceStop:
     case ProgramControlCommandKind::Restart:
+    case ProgramControlCommandKind::EnableAutostart:
+    case ProgramControlCommandKind::DisableAutostart:
         statusBar()->showMessage(QStringLiteral("%1 完成").arg(title), 3000);
         startProgramStatusRefresh();
         break;
@@ -488,7 +544,10 @@ void MainWindow::updateProgramControlBusyUi(bool busy)
     }
 
     for (int row = 0; row < m_programControlTable->rowCount(); ++row) {
-        for (int column : {ProgramColumnStart, ProgramColumnStop, ProgramColumnRestart}) {
+        for (int column : {ProgramColumnStart,
+                           ProgramColumnStop,
+                           ProgramColumnRestart,
+                           ProgramColumnAutostart}) {
             QWidget *widget = m_programControlTable->cellWidget(row, column);
             if (widget) {
                 widget->setEnabled(!busy);
@@ -510,8 +569,10 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
 {
     struct ProgramStatus {
         QString state = QStringLiteral("unknown");
+        QString subState = QStringLiteral("unknown");
+        QString service;
+        QString autostart = QStringLiteral("unknown");
         QString pids;
-        QString command;
     };
 
     QHash<QString, ProgramStatus> statusByApp;
@@ -522,34 +583,23 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         }
 
         const QStringList parts = line.split(QLatin1Char('|'));
-        if (parts.size() < 3) {
+        if (parts.size() < 6) {
             continue;
         }
 
         const QString appName = parts.value(0).trimmed();
-        const QString state = parts.value(1).trimmed();
-        if (state == QStringLiteral("match")) {
-            ProgramStatus status = statusByApp.value(appName);
-            status.state = QStringLiteral("running");
-            const QString pid = parts.value(2).trimmed();
-            if (!pid.isEmpty()) {
-                if (!status.pids.isEmpty()) {
-                    status.pids.append(QLatin1Char(' '));
-                }
-                status.pids.append(pid);
-            }
-            if (status.command.isEmpty()) {
-                status.command = parts.mid(3).join(QStringLiteral("|")).trimmed();
-            }
-            statusByApp.insert(appName, status);
-            continue;
-        }
-
         ProgramStatus status;
-        status.state = state;
-        status.pids = parts.value(2).trimmed();
-        status.command = parts.mid(3).join(QStringLiteral("|")).trimmed();
+        status.service = parts.value(1).trimmed();
+        status.state = parts.value(2).trimmed();
+        status.subState = parts.value(3).trimmed();
+        status.pids = parts.value(4).trimmed();
+        status.autostart = parts.value(5).trimmed();
         statusByApp.insert(appName, status);
+    }
+    if (statusByApp.isEmpty() && !statusOutput.trimmed().isEmpty()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("程序控制"),
+                             QStringLiteral("无法解析程序状态输出。\n\n%1").arg(statusOutput.trimmed()));
     }
 
     const QStringList appNames = managedProgramAppNames();
@@ -559,23 +609,34 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         const QString appName = appNames.at(row);
         ProgramStatus status = statusByApp.value(appName);
         if (!statusByApp.contains(appName)) {
-            status.state = QStringLiteral("stopped");
+            status.service = programServiceName(appName);
+            status.state = QStringLiteral("unknown");
+            status.subState = QStringLiteral("unknown");
+            status.pids = QStringLiteral("0");
+            status.autostart = QStringLiteral("unknown");
         }
-        const bool running = status.state == QStringLiteral("running");
+        const bool running = status.state == QStringLiteral("active");
+        const bool enabled = status.autostart == QStringLiteral("enabled");
         const QString statusText = running ? QStringLiteral("● 运行中")
-            : status.state == QStringLiteral("stopped") ? QStringLiteral("● 未运行")
-            : QStringLiteral("● 未知");
+            : status.state == QStringLiteral("inactive") ? QStringLiteral("● 未运行")
+            : status.state == QStringLiteral("failed") ? QStringLiteral("● 失败")
+            : QStringLiteral("● %1").arg(status.state);
+        const QString pidText = status.pids == QStringLiteral("0") ? QString() : status.pids;
 
         auto *statusItem = makeProgramItem(statusText);
-        statusItem->setForeground(QColor(programStatusColor(status.state)));
+        statusItem->setForeground(QColor(programStatusColor(running ? QStringLiteral("running")
+            : status.state == QStringLiteral("inactive") ? QStringLiteral("stopped")
+            : QStringLiteral("unknown"))));
         QFont statusFont = statusItem->font();
         statusFont.setBold(true);
         statusItem->setFont(statusFont);
+        statusItem->setToolTip(QStringLiteral("ActiveState=%1\nSubState=%2").arg(status.state, status.subState));
 
         m_programControlTable->setItem(row, ProgramColumnStatus, statusItem);
-        m_programControlTable->setItem(row, ProgramColumnApp, makeProgramItem(appName));
-        m_programControlTable->setItem(row, ProgramColumnPid, makeProgramItem(status.pids));
-        m_programControlTable->setItem(row, ProgramColumnCommand, makeProgramItem(status.command));
+        auto *appItem = makeProgramItem(appName);
+        appItem->setToolTip(status.service);
+        m_programControlTable->setItem(row, ProgramColumnApp, appItem);
+        m_programControlTable->setItem(row, ProgramColumnPid, makeProgramItem(pidText));
 
         auto *startButton = new QPushButton(QStringLiteral("启动"), this);
         startButton->setProperty("appName", appName);
@@ -604,6 +665,17 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         restartButton->setEnabled(running);
         connect(restartButton, &QPushButton::clicked, this, &MainWindow::onRestartProgramClicked);
         m_programControlTable->setCellWidget(row, ProgramColumnRestart, restartButton);
+
+        auto *autostartButton = new QPushButton(enabled ? QStringLiteral("禁用自启") : QStringLiteral("启用自启"), this);
+        autostartButton->setProperty("appName", appName);
+        autostartButton->setProperty("autostartEnabled", enabled);
+        autostartButton->setToolTip(enabled
+            ? QStringLiteral("当前已启用开机自启，点击后禁用")
+            : QStringLiteral("当前未启用开机自启，点击后启用"));
+        autostartButton->setEnabled(status.autostart == QStringLiteral("enabled")
+                                    || status.autostart == QStringLiteral("disabled"));
+        connect(autostartButton, &QPushButton::clicked, this, &MainWindow::onToggleProgramAutostartClicked);
+        m_programControlTable->setCellWidget(row, ProgramColumnAutostart, autostartButton);
     }
 
     m_programControlTable->resizeRowsToContents();
@@ -640,11 +712,8 @@ void MainWindow::onStartProgramClicked()
         return;
     }
 
-    const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
-    const QString appDir = QStringLiteral("%1/%2").arg(baseDir, appName);
-    const QString command = QStringLiteral(
-        "set -e; cd %1; test -x %2; nohup %2 >/dev/null 2>&1 </dev/null &")
-        .arg(remoteProgramShellQuote(appDir), remoteProgramShellQuote(QStringLiteral("./bin/%1").arg(appName)));
+    const QString service = programServiceName(appName);
+    const QString command = QStringLiteral("systemctl start %1").arg(remoteProgramShellQuote(service));
 
     if (startProgramControlCommand(command,
                                    QStringLiteral("启动 %1").arg(appName),
@@ -662,13 +731,8 @@ void MainWindow::onStopProgramClicked()
         return;
     }
 
-    const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
-    const QString scan = programPidScanSnippet(baseDir, appName);
-    const QString command = QStringLiteral(
-        "%1; if [ -z \"$pids\" ]; then echo 'no process'; exit 0; fi; "
-        "kill -TERM $pids; sleep 2; %1; "
-        "if [ -n \"$pids\" ]; then echo \"still_running:${pids# }\"; exit 3; fi")
-        .arg(scan);
+    const QString service = programServiceName(appName);
+    const QString command = QStringLiteral("systemctl stop %1").arg(remoteProgramShellQuote(service));
 
     if (startProgramControlCommand(command,
                                    QStringLiteral("停止 %1").arg(appName),
@@ -696,11 +760,8 @@ void MainWindow::onForceStopProgramClicked()
         return;
     }
 
-    const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
-    const QString scan = programPidScanSnippet(baseDir, appName);
-    const QString command = QStringLiteral(
-        "%1; if [ -z \"$pids\" ]; then echo 'no process'; exit 0; fi; kill -KILL $pids")
-        .arg(scan);
+    const QString service = programServiceName(appName);
+    const QString command = QStringLiteral("systemctl kill --signal=SIGKILL %1").arg(remoteProgramShellQuote(service));
 
     if (startProgramControlCommand(command,
                                    QStringLiteral("强制停止 %1").arg(appName),
@@ -718,15 +779,8 @@ void MainWindow::onRestartProgramClicked()
         return;
     }
 
-    const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
-    const QString appDir = QStringLiteral("%1/%2").arg(baseDir, appName);
-    const QString scan = programPidScanSnippet(baseDir, appName);
-    const QString binary = QStringLiteral("./bin/%1").arg(appName);
-    const QString command = QStringLiteral(
-        "%1; [ -z \"$pids\" ] || kill -TERM $pids; sleep 2; "
-        "%1; [ -z \"$pids\" ] || kill -KILL $pids; "
-        "cd %2; test -x %3; nohup %3 >/dev/null 2>&1 </dev/null &")
-        .arg(scan, remoteProgramShellQuote(appDir), remoteProgramShellQuote(binary));
+    const QString service = programServiceName(appName);
+    const QString command = QStringLiteral("systemctl restart %1").arg(remoteProgramShellQuote(service));
 
     if (startProgramControlCommand(command,
                                    QStringLiteral("重启 %1").arg(appName),
@@ -734,4 +788,28 @@ void MainWindow::onRestartProgramClicked()
                                    appName)) {
         setProgramControlRowPending(appName, QStringLiteral("重启中"));
     }
+}
+
+void MainWindow::onToggleProgramAutostartClicked()
+{
+    auto *button = qobject_cast<QPushButton *>(sender());
+    const QString appName = button ? button->property("appName").toString() : QString();
+    if (appName.isEmpty()) {
+        return;
+    }
+
+    const bool autostartEnabled = button->property("autostartEnabled").toBool();
+    const QString service = programServiceName(appName);
+    const QString action = autostartEnabled ? QStringLiteral("disable") : QStringLiteral("enable");
+    const ProgramControlCommandKind kind = autostartEnabled
+        ? ProgramControlCommandKind::DisableAutostart
+        : ProgramControlCommandKind::EnableAutostart;
+    const QString title = autostartEnabled
+        ? QStringLiteral("禁用 %1 开机自启").arg(appName)
+        : QStringLiteral("启用 %1 开机自启").arg(appName);
+    const QString command = QStringLiteral("systemctl %1 %2").arg(action, remoteProgramShellQuote(service));
+    startProgramControlCommand(command,
+                               title,
+                               kind,
+                               appName);
 }

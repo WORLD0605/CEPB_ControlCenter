@@ -1143,7 +1143,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_programRemotePortEdit->setValue(10022);
     m_programRemotePortEdit->setMaximumWidth(84);
     programConnectionRow->addWidget(m_programRemotePortEdit);
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("APP目录复用“配置概览”"), this));
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("使用 systemd 服务控制"), this));
     programConnectionRow->addStretch();
     m_connectProgramControlBtn = new QPushButton(QStringLiteral("连接"), this);
     m_disconnectProgramControlBtn = new QPushButton(QStringLiteral("断开"), this);
@@ -1164,10 +1164,10 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("状态"),
         QStringLiteral("APP"),
         QStringLiteral("PID"),
-        QStringLiteral("命令"),
         QStringLiteral("启动"),
         QStringLiteral("停止"),
-        QStringLiteral("重启")
+        QStringLiteral("重启"),
+        QStringLiteral("开机自启")
     });
     m_programControlTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_programControlTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -1178,11 +1178,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_programControlTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_programControlTable->setColumnWidth(0, 120);
     m_programControlTable->setColumnWidth(1, 180);
-    m_programControlTable->setColumnWidth(2, 150);
-    m_programControlTable->setColumnWidth(3, 360);
-    m_programControlTable->setColumnWidth(4, 90);
-    m_programControlTable->setColumnWidth(5, 150);
-    m_programControlTable->setColumnWidth(6, 90);
+    m_programControlTable->setColumnWidth(2, 120);
+    m_programControlTable->setColumnWidth(3, 90);
+    m_programControlTable->setColumnWidth(4, 150);
+    m_programControlTable->setColumnWidth(5, 90);
+    m_programControlTable->setColumnWidth(6, 120);
     programControlLayout->addWidget(m_programControlTable, 1);
 
     m_mainTabWidget->addTab(debugPage, "调试控制");

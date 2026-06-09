@@ -1,0 +1,20 @@
+[Unit]
+Description=CEP IEC101ServiceChannel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/cepgateway/app/IEC101ServiceChannel
+Environment="LD_LIBRARY_PATH=/home/cepgateway/app/lib/:/home/cepgateway/lib/"
+ExecStart=/home/cepgateway/app/IEC101ServiceChannel/bin/IEC101ServiceChannel -debug
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=5
+KillMode=control-group
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target
