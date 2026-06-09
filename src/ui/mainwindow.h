@@ -28,6 +28,7 @@ class QSplitter;
 class QEvent;
 class QFrame;
 class QProgressDialog;
+class QProcess;
 
 enum class AppViewMode {
     Terminal,
@@ -57,6 +58,15 @@ public:
     ~MainWindow();
 
 private:
+    enum class ProgramControlCommandKind {
+        Verify,
+        RefreshStatus,
+        Start,
+        Stop,
+        ForceStop,
+        Restart
+    };
+
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
@@ -129,6 +139,8 @@ private slots:
     void onLogicOnlineLinkItemChanged(QTableWidgetItem *item);
     void onLogicOnlineLinkCellDoubleClicked(int row, int column);
     void onRefreshProgramStatusClicked();
+    void onConnectProgramControlClicked();
+    void onDisconnectProgramControlClicked();
     void onStartProgramClicked();
     void onStopProgramClicked();
     void onForceStopProgramClicked();
@@ -234,9 +246,22 @@ private:
     void refreshLogicControlTargetTable();
     void refreshLogicControlPreview();
     QStringList managedProgramAppNames() const;
-    bool runProgramControlCommand(const QString &command,
-                                  const QString &title,
-                                  QString *output = nullptr);
+    bool startProgramControlCommand(const QString &command,
+                                    const QString &title,
+                                    ProgramControlCommandKind kind,
+                                    const QString &appName = QString());
+    void handleProgramControlShellReadyRead();
+    void finishProgramControlCommand(int exitCode, const QString &output);
+    void clearProgramControlCommandState();
+    void closeProgramControlShell();
+    QString programControlShellKey() const;
+    QString programControlRemoteTarget() const;
+    bool openProgramControlShell(const QString &title,
+                                 QString *output,
+                                 QProgressDialog *progress);
+    void updateProgramControlConnectionUi(bool connected);
+    void updateProgramControlBusyUi(bool busy);
+    void startProgramStatusRefresh();
     void refreshProgramControlTable(const QString &statusOutput);
     void setProgramControlRowPending(const QString &appName, const QString &statusText);
 
@@ -263,6 +288,15 @@ private:
     QFrame *m_modelPointDropLine = nullptr;
     QFrame *m_logicComputationDropLine = nullptr;
     QList<configtool::ConfigProject> m_configUndoStack;
+    QProcess *m_programControlShell = nullptr;
+    QString m_programControlShellKey;
+    quint64 m_programControlCommandSerial = 0;
+    bool m_programControlCommandRunning = false;
+    ProgramControlCommandKind m_programControlCommandKind = ProgramControlCommandKind::RefreshStatus;
+    QString m_programControlCommandToken;
+    QString m_programControlCommandTitle;
+    QString m_programControlCommandAppName;
+    QByteArray m_programControlCommandBuffer;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
@@ -355,6 +389,12 @@ private:
     QPushButton *m_generateLogicVirtualOnlineLinksBtn = nullptr;
     QTableWidget *m_logicOnlineLinkTable = nullptr;
     QPushButton *m_refreshProgramStatusBtn = nullptr;
+    QLineEdit *m_programRemoteHostEdit = nullptr;
+    QLineEdit *m_programRemoteUserEdit = nullptr;
+    QLineEdit *m_programRemotePasswordEdit = nullptr;
+    QSpinBox *m_programRemotePortEdit = nullptr;
+    QPushButton *m_connectProgramControlBtn = nullptr;
+    QPushButton *m_disconnectProgramControlBtn = nullptr;
     QTableWidget *m_programControlTable = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;

@@ -1123,10 +1123,39 @@ MainWindow::MainWindow(QWidget *parent)
     programControlLayout->setContentsMargins(0, 0, 0, 0);
     programControlLayout->setSpacing(8);
 
+    auto *programConnectionRow = new QHBoxLayout();
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("设备:"), this));
+    m_programRemoteHostEdit = new QLineEdit(QStringLiteral("192.168.7.10"), this);
+    m_programRemoteHostEdit->setMinimumWidth(130);
+    programConnectionRow->addWidget(m_programRemoteHostEdit);
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("用户:"), this));
+    m_programRemoteUserEdit = new QLineEdit(QStringLiteral("root"), this);
+    m_programRemoteUserEdit->setMaximumWidth(90);
+    programConnectionRow->addWidget(m_programRemoteUserEdit);
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("密码:"), this));
+    m_programRemotePasswordEdit = new QLineEdit(QStringLiteral("root"), this);
+    m_programRemotePasswordEdit->setEchoMode(QLineEdit::Password);
+    m_programRemotePasswordEdit->setMaximumWidth(90);
+    programConnectionRow->addWidget(m_programRemotePasswordEdit);
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("端口:"), this));
+    m_programRemotePortEdit = new QSpinBox(this);
+    m_programRemotePortEdit->setRange(1, 65535);
+    m_programRemotePortEdit->setValue(10022);
+    m_programRemotePortEdit->setMaximumWidth(84);
+    programConnectionRow->addWidget(m_programRemotePortEdit);
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("APP目录复用“配置概览”"), this));
+    programConnectionRow->addStretch();
+    m_connectProgramControlBtn = new QPushButton(QStringLiteral("连接"), this);
+    m_disconnectProgramControlBtn = new QPushButton(QStringLiteral("断开"), this);
+    m_disconnectProgramControlBtn->setEnabled(false);
+    programConnectionRow->addWidget(m_connectProgramControlBtn);
+    programConnectionRow->addWidget(m_disconnectProgramControlBtn);
+    programControlLayout->addLayout(programConnectionRow);
+
     auto *programControlToolbar = new QHBoxLayout();
-    programControlToolbar->addWidget(new QLabel(QStringLiteral("设备连接参数复用“配置概览”中的设备、用户、密码、端口和 APP 目录。"), this));
     programControlToolbar->addStretch();
     m_refreshProgramStatusBtn = new QPushButton(QStringLiteral("刷新状态"), this);
+    m_refreshProgramStatusBtn->setEnabled(false);
     programControlToolbar->addWidget(m_refreshProgramStatusBtn);
     programControlLayout->addLayout(programControlToolbar);
 
@@ -1207,6 +1236,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onUploadConfigClicked);
     connect(m_downloadConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onDownloadConfigClicked);
+    connect(m_connectProgramControlBtn, &QPushButton::clicked,
+            this, &MainWindow::onConnectProgramControlClicked);
+    connect(m_disconnectProgramControlBtn, &QPushButton::clicked,
+            this, &MainWindow::onDisconnectProgramControlClicked);
     connect(m_refreshProgramStatusBtn, &QPushButton::clicked,
             this, &MainWindow::onRefreshProgramStatusClicked);
     for (QLineEdit *edit : {m_logicAgcAvcGroupIdEdit, m_logicAgcAvcVirtualDeviceIdEdit}) {
@@ -1431,4 +1464,7 @@ MainWindow::MainWindow(QWidget *parent)
     refreshLogicCenterOverview();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    closeProgramControlShell();
+}
