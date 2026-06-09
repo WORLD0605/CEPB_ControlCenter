@@ -91,6 +91,8 @@ private slots:
     void onConfigDeviceSelectionChanged();
     void onConfigModelActivated(int row, int column);
     void onConfigDeviceActivated(int row, int column);
+    void onModelEditorSelectionChanged(int index);
+    void onDeviceEditorSelectionChanged(int index);
     void onConfigIssueActivated(int row, int column);
     void onNewModelClicked();
     void onModelFieldEdited();
@@ -161,6 +163,11 @@ private:
     void appendReply(const QString &text);
     void updateUIState(bool connected);
     void applyCurrentAppView();
+    QPair<int, int> currentNavigationState() const;
+    void recordNavigationState();
+    void applyNavigationState(const QPair<int, int> &state);
+    void navigateBack();
+    void navigateForward();
     AppConfig currentAppConfig() const;
     void requestServiceChannelData(bool logRequest = true);
     QList<ServiceChannelDataItem> parseServiceChannelDataReply(const QString &reply) const;
@@ -203,6 +210,7 @@ private:
     void refreshLogicControlRulePage();
     void refreshLogicOnlineLinkPage();
     void refreshSelectionOverview();
+    void refreshEditorNavigationCombos();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
     void refreshDeviceDetail(int deviceIndex);
@@ -285,8 +293,13 @@ private:
     bool m_updatingLogicComputationPointPage = false;
     bool m_updatingLogicControlRulePage = false;
     bool m_updatingLogicOnlineLinkPage = false;
+    bool m_updatingEditorNavigationCombos = false;
     bool m_restoringConfigUndo = false;
+    bool m_restoringNavigation = false;
     bool m_lastConfigExportOk = false;
+    QPair<int, int> m_navigationCurrentState = qMakePair(-1, -1);
+    QList<QPair<int, int>> m_navigationBackStack;
+    QList<QPair<int, int>> m_navigationForwardStack;
     int m_logicComputationDragRow = -1;
     int m_modelPointDragRow = -1;
     QFrame *m_modelPointDropLine = nullptr;
@@ -438,6 +451,8 @@ private:
     QLabel *m_deviceDetailBindingCountLabel = nullptr;
     QLabel *m_modelValidationLabel = nullptr;
     QLabel *m_deviceValidationLabel = nullptr;
+    QComboBox *m_modelEditorCombo = nullptr;
+    QComboBox *m_deviceEditorCombo = nullptr;
     QLineEdit *m_modelIdEdit = nullptr;
     QComboBox *m_newPointCategoryCombo = nullptr;
     QLineEdit *m_modelDisplayNameEdit = nullptr;

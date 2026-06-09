@@ -1400,6 +1400,7 @@ void MainWindow::onConfigModelSelectionChanged()
     refreshModelOverview(modelIndex);
     refreshModelDetail(modelIndex);
     refreshSelectionOverview();
+    refreshEditorNavigationCombos();
 }
 
 void MainWindow::onConfigDeviceSelectionChanged()
@@ -1421,6 +1422,7 @@ void MainWindow::onConfigDeviceSelectionChanged()
     if (m_deleteDeviceBtn) {
         m_deleteDeviceBtn->setEnabled(currentConfigDeviceIndex() >= 0);
     }
+    refreshEditorNavigationCombos();
 }
 
 void MainWindow::onConfigModelActivated(int row, int /*column*/)
@@ -1444,6 +1446,54 @@ void MainWindow::onConfigDeviceActivated(int row, int /*column*/)
     refreshDeviceDetail(row);
     refreshDeviceEditor(row);
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
+}
+
+void MainWindow::onModelEditorSelectionChanged(int index)
+{
+    if (m_updatingEditorNavigationCombos || !m_modelEditorCombo || index < 0) {
+        return;
+    }
+
+    bool ok = false;
+    const int row = m_modelEditorCombo->itemData(index).toInt(&ok);
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (!ok || row < 0 || row >= project.models.size()) {
+        return;
+    }
+
+    if (m_configModelTable) {
+        m_configModelTable->selectRow(row);
+    }
+    refreshModelOverview(row);
+    refreshModelDetail(row);
+    refreshSelectionOverview();
+    if (m_mainTabWidget && m_modelEditorPage) {
+        m_mainTabWidget->setCurrentWidget(m_modelEditorPage);
+    }
+}
+
+void MainWindow::onDeviceEditorSelectionChanged(int index)
+{
+    if (m_updatingEditorNavigationCombos || !m_deviceEditorCombo || index < 0) {
+        return;
+    }
+
+    bool ok = false;
+    const int row = m_deviceEditorCombo->itemData(index).toInt(&ok);
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (!ok || row < 0 || row >= project.devices.size()) {
+        return;
+    }
+
+    if (m_configDeviceTable) {
+        m_configDeviceTable->selectRow(row);
+    }
+    refreshDeviceDetail(row);
+    refreshDeviceEditor(row);
+    refreshSelectionOverview();
+    if (m_mainTabWidget && m_deviceEditorPage) {
+        m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
+    }
 }
 
 void MainWindow::onConfigIssueActivated(int row, int /*column*/)
@@ -3017,6 +3067,7 @@ void MainWindow::refreshConfigObjectViews()
     }
 
     refreshSelectionOverview();
+    refreshEditorNavigationCombos();
     refreshLogicCenterOverview();
     refreshLogicAgcAvcPage();
     refreshLogicComputationPointPage();
@@ -3038,6 +3089,22 @@ int formulaOperandCount(const QString &formula)
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
+    if (event->type() == QEvent::MouseButtonPress
+        || event->type() == QEvent::MouseButtonRelease) {
+        auto *mouseEvent = static_cast<QMouseEvent *>(event);
+        if (mouseEvent->button() == Qt::BackButton
+            || mouseEvent->button() == Qt::ForwardButton) {
+            if (event->type() == QEvent::MouseButtonRelease) {
+                if (mouseEvent->button() == Qt::BackButton) {
+                    navigateBack();
+                } else {
+                    navigateForward();
+                }
+            }
+            return true;
+        }
+    }
+
     auto dropPosition = [](QDropEvent *dropEvent) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         return dropEvent->position().toPoint();
@@ -3280,9 +3347,46 @@ void MainWindow::refreshSelectionOverview()
     m_deviceGroupBox->setTitle(deviceGroupTitle);
 }
 
+void MainWindow::refreshEditorNavigationCombos()
+{
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const int modelIndex = currentConfigModelIndex();
+    const int deviceIndex = currentConfigDeviceIndex();
+
+    m_updatingEditorNavigationCombos = true;
+    if (m_modelEditorCombo) {
+        QSignalBlocker blocker(m_modelEditorCombo);
+        m_modelEditorCombo->clear();
+        for (int row = 0; row < project.models.size(); ++row) {
+            m_modelEditorCombo->addItem(modelChoiceText(project.models.at(row)), row);
+        }
+        m_modelEditorCombo->setEnabled(!project.models.isEmpty());
+        const int comboIndex = m_modelEditorCombo->findData(modelIndex);
+        m_modelEditorCombo->setCurrentIndex(comboIndex >= 0 ? comboIndex : -1);
+    }
+
+    if (m_deviceEditorCombo) {
+        QSignalBlocker blocker(m_deviceEditorCombo);
+        m_deviceEditorCombo->clear();
+        for (int row = 0; row < project.devices.size(); ++row) {
+            m_deviceEditorCombo->addItem(deviceChoiceText(project.devices.at(row)), row);
+        }
+        m_deviceEditorCombo->setEnabled(!project.devices.isEmpty());
+        const int comboIndex = m_deviceEditorCombo->findData(deviceIndex);
+        m_deviceEditorCombo->setCurrentIndex(comboIndex >= 0 ? comboIndex : -1);
+    }
+    m_updatingEditorNavigationCombos = false;
+}
+
 void MainWindow::refreshModelDetail(int modelIndex)
 {
     const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (m_modelEditorCombo && !m_updatingEditorNavigationCombos) {
+        QSignalBlocker blocker(m_modelEditorCombo);
+        const int comboIndex = m_modelEditorCombo->findData(modelIndex);
+        m_modelEditorCombo->setCurrentIndex(comboIndex >= 0 ? comboIndex : -1);
+    }
+
     if (modelIndex < 0 || modelIndex >= project.models.size()) {
         if (m_modelIdEdit && !m_modelIdEdit->hasFocus()) {
             m_modelIdEdit->setProperty(ModelEditorOriginalModelIdProperty, QString());
@@ -3544,6 +3648,12 @@ void MainWindow::refreshDeviceDetail(int deviceIndex)
 void MainWindow::refreshDeviceEditor(int deviceIndex)
 {
     const configtool::ConfigProject &project = m_configProjectManager.project();
+    if (m_deviceEditorCombo && !m_updatingEditorNavigationCombos) {
+        QSignalBlocker blocker(m_deviceEditorCombo);
+        const int comboIndex = m_deviceEditorCombo->findData(deviceIndex);
+        m_deviceEditorCombo->setCurrentIndex(comboIndex >= 0 ? comboIndex : -1);
+    }
+
     if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
         if (m_deviceIdEdit && !m_deviceIdEdit->hasFocus()) {
             m_deviceIdEdit->setProperty(DeviceEditorOriginalDeviceIdProperty, QString());

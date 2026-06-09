@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
@@ -360,6 +361,14 @@ MainWindow::MainWindow(QWidget *parent)
     auto *modelDetailLayout = new QVBoxLayout(m_modelEditorPage);
     modelDetailLayout->setContentsMargins(0, 0, 0, 0);
     modelDetailLayout->setSpacing(8);
+    auto *modelNavLayout = new QHBoxLayout();
+    modelNavLayout->setSpacing(8);
+    modelNavLayout->addWidget(new QLabel(QStringLiteral("当前模型:"), this));
+    m_modelEditorCombo = new QComboBox(this);
+    m_modelEditorCombo->setMinimumWidth(320);
+    m_modelEditorCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    modelNavLayout->addWidget(m_modelEditorCombo, 1);
+    modelDetailLayout->addLayout(modelNavLayout);
     auto *modelFormFrame = new QFrame(this);
     modelFormFrame->setFrameShape(QFrame::StyledPanel);
     modelFormFrame->setMaximumHeight(210);
@@ -465,12 +474,21 @@ MainWindow::MainWindow(QWidget *parent)
     modelDetailLayout->setStretch(0, 0);
     modelDetailLayout->setStretch(1, 0);
     modelDetailLayout->setStretch(2, 0);
-    modelDetailLayout->setStretch(3, 1);
+    modelDetailLayout->setStretch(3, 0);
+    modelDetailLayout->setStretch(4, 1);
 
     m_deviceEditorPage = new QWidget(this);
     auto *deviceEditorLayout = new QVBoxLayout(m_deviceEditorPage);
     deviceEditorLayout->setContentsMargins(0, 0, 0, 0);
     deviceEditorLayout->setSpacing(8);
+    auto *deviceNavLayout = new QHBoxLayout();
+    deviceNavLayout->setSpacing(8);
+    deviceNavLayout->addWidget(new QLabel(QStringLiteral("当前设备:"), this));
+    m_deviceEditorCombo = new QComboBox(this);
+    m_deviceEditorCombo->setMinimumWidth(320);
+    m_deviceEditorCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    deviceNavLayout->addWidget(m_deviceEditorCombo, 1);
+    deviceEditorLayout->addLayout(deviceNavLayout);
     auto *deviceTopPanel = new QWidget(this);
     auto *deviceTopLayout = new QHBoxLayout(deviceTopPanel);
     deviceTopLayout->setContentsMargins(0, 0, 0, 0);
@@ -600,7 +618,8 @@ MainWindow::MainWindow(QWidget *parent)
     deviceEditorLayout->setStretch(1, 0);
     deviceEditorLayout->setStretch(2, 0);
     deviceEditorLayout->setStretch(3, 0);
-    deviceEditorLayout->setStretch(4, 1);
+    deviceEditorLayout->setStretch(4, 0);
+    deviceEditorLayout->setStretch(5, 1);
 
     auto *deviceDetailPage = new QWidget(this);
     auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
@@ -1362,6 +1381,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConfigModelActivated);
     connect(m_configDeviceTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onConfigDeviceActivated);
+    connect(m_modelEditorCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onModelEditorSelectionChanged);
+    connect(m_deviceEditorCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceEditorSelectionChanged);
     connect(m_configIssueTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onConfigIssueActivated);
     connect(m_checkConfigIssuesBtn, &QPushButton::clicked,
@@ -1469,11 +1492,89 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onCommandReply);
 
     applyCurrentAppView();
+    m_navigationCurrentState = currentNavigationState();
+    connect(m_mainTabWidget, &QTabWidget::currentChanged,
+            this, [this](int) { recordNavigationState(); });
+    connect(m_contentStack, &QStackedWidget::currentChanged,
+            this, [this](int) { recordNavigationState(); });
+    if (QApplication::instance()) {
+        QApplication::instance()->installEventFilter(this);
+    }
     refreshProgramControlTable(QString());
     refreshLogicCenterOverview();
 }
 
 MainWindow::~MainWindow()
 {
+    if (QApplication::instance()) {
+        QApplication::instance()->removeEventFilter(this);
+    }
     closeProgramControlShell();
+}
+
+QPair<int, int> MainWindow::currentNavigationState() const
+{
+    return qMakePair(m_mainTabWidget ? m_mainTabWidget->currentIndex() : -1,
+                     m_contentStack ? m_contentStack->currentIndex() : -1);
+}
+
+void MainWindow::recordNavigationState()
+{
+    if (m_restoringNavigation) {
+        return;
+    }
+
+    const QPair<int, int> state = currentNavigationState();
+    if (state.first < 0 || state == m_navigationCurrentState) {
+        return;
+    }
+
+    if (m_navigationCurrentState.first >= 0) {
+        m_navigationBackStack.append(m_navigationCurrentState);
+        constexpr int MaxNavigationHistory = 100;
+        while (m_navigationBackStack.size() > MaxNavigationHistory) {
+            m_navigationBackStack.removeFirst();
+        }
+    }
+    m_navigationCurrentState = state;
+    m_navigationForwardStack.clear();
+}
+
+void MainWindow::applyNavigationState(const QPair<int, int> &state)
+{
+    if (!m_mainTabWidget || state.first < 0 || state.first >= m_mainTabWidget->count()) {
+        return;
+    }
+
+    m_restoringNavigation = true;
+    if (m_contentStack && state.second >= 0 && state.second < m_contentStack->count()) {
+        m_contentStack->setCurrentIndex(state.second);
+    }
+    m_mainTabWidget->setCurrentIndex(state.first);
+    m_navigationCurrentState = currentNavigationState();
+    m_restoringNavigation = false;
+}
+
+void MainWindow::navigateBack()
+{
+    if (m_navigationBackStack.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("没有更早的界面"), 2000);
+        return;
+    }
+
+    m_navigationForwardStack.append(currentNavigationState());
+    const QPair<int, int> state = m_navigationBackStack.takeLast();
+    applyNavigationState(state);
+}
+
+void MainWindow::navigateForward()
+{
+    if (m_navigationForwardStack.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("没有更后的界面"), 2000);
+        return;
+    }
+
+    m_navigationBackStack.append(currentNavigationState());
+    const QPair<int, int> state = m_navigationForwardStack.takeLast();
+    applyNavigationState(state);
 }
