@@ -307,6 +307,7 @@ private:
     QComboBox *m_appCombo = nullptr;
     QPushButton *m_connectBtn = nullptr;
     QPushButton *m_disconnectBtn = nullptr;
+    QPushButton *m_selectConfigImportDirBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_exportIec104ConfigBtn = nullptr;
     QPushButton *m_checkConfigIssuesBtn = nullptr;

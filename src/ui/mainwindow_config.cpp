@@ -75,12 +75,24 @@ constexpr int LogicAgcAvcDeviceColumnQMin = 8;
 constexpr int LogicAgcAvcDeviceColumnQMax = 9;
 constexpr int LogicAgcAvcDeviceColumnScaleP = 10;
 constexpr int LogicAgcAvcDeviceColumnScaleQ = 11;
-constexpr int LogicComputationColumnOutputDevice = 0;
-constexpr int LogicComputationColumnOutputPoint = 1;
-constexpr int LogicComputationColumnFormula = 2;
-constexpr int LogicComputationColumnDropOperands = 3;
-constexpr int LogicComputationColumnOperands = 4;
-constexpr int LogicComputationColumnDescription = 5;
+constexpr int ModelPointColumnDragHandle = 0;
+constexpr int ModelPointColumnNorthVisible = 1;
+constexpr int ModelPointColumnCategory = 2;
+constexpr int ModelPointColumnDoName = 3;
+constexpr int ModelPointColumnDescription = 4;
+constexpr int ModelPointColumnLdName = 5;
+constexpr int ModelPointColumnLnType = 6;
+constexpr int ModelPointColumnLnInst = 7;
+constexpr int ModelPointColumnDataRef = 8;
+constexpr int ModelPointColumnDataType = 9;
+constexpr int ModelPointColumnUnit = 10;
+constexpr int LogicComputationColumnDragHandle = 0;
+constexpr int LogicComputationColumnOutputDevice = 1;
+constexpr int LogicComputationColumnOutputPoint = 2;
+constexpr int LogicComputationColumnFormula = 3;
+constexpr int LogicComputationColumnDropOperands = 4;
+constexpr int LogicComputationColumnOperands = 5;
+constexpr int LogicComputationColumnDescription = 6;
 constexpr int LogicControlRuleColumnDevice = 0;
 constexpr int LogicControlRuleColumnPoint = 1;
 constexpr int LogicControlRuleColumnTargetCount = 2;
@@ -521,7 +533,7 @@ void MainWindow::onBrowseConfigImportDirClicked()
         m_configImportDirEdit->setText(projectRoot);
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         settings.setValue(QStringLiteral("config/lastBrowseDir"), projectRoot);
-        onImportIec104ConfigClicked();
+        statusBar()->showMessage(QStringLiteral("已选择配置工程目录"), 5000);
     }
 }
 
@@ -1899,15 +1911,8 @@ void MainWindow::onCopyPointClicked()
 void MainWindow::onDeletePointClicked()
 {
     const int modelIndex = currentConfigModelIndex();
-    const QPair<int, int> pointLocation = currentModelPointLocation();
-    if (modelIndex < 0 || pointLocation.first < 0 || pointLocation.second < 0) {
+    if (modelIndex < 0) {
         QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个点位。"));
-        return;
-    }
-
-    if (QMessageBox::question(this,
-                              QStringLiteral("删除点位"),
-                              QStringLiteral("确定删除当前选中的模型点位吗？")) != QMessageBox::Yes) {
         return;
     }
 
@@ -1917,19 +1922,79 @@ void MainWindow::onDeletePointClicked()
     }
 
     configtool::ModelTemplate &model = project.models[modelIndex];
-    if (pointLocation.first >= model.services.size()) {
+    QSet<QString> seenLocations;
+    QList<QPair<int, int>> pointLocations;
+    const QModelIndexList indexes = m_modelPointsTable->selectionModel()
+        ? m_modelPointsTable->selectionModel()->selectedIndexes()
+        : QModelIndexList();
+    for (const QModelIndex &index : indexes) {
+        QTableWidgetItem *handleItem = m_modelPointsTable->item(index.row(), ModelPointColumnDragHandle);
+        if (!handleItem) {
+            continue;
+        }
+
+        const int serviceIndex = handleItem->data(Qt::UserRole).toInt();
+        const int pointIndex = handleItem->data(Qt::UserRole + 1).toInt();
+        const QString key = QStringLiteral("%1:%2").arg(serviceIndex).arg(pointIndex);
+        if (seenLocations.contains(key)) {
+            continue;
+        }
+        if (serviceIndex >= 0
+            && serviceIndex < model.services.size()
+            && pointIndex >= 0
+            && pointIndex < model.services.at(serviceIndex).points.size()) {
+            seenLocations.insert(key);
+            pointLocations.append(qMakePair(serviceIndex, pointIndex));
+        }
+    }
+
+    if (pointLocations.isEmpty()) {
+        const QPair<int, int> pointLocation = currentModelPointLocation();
+        if (pointLocation.first >= 0
+            && pointLocation.first < model.services.size()
+            && pointLocation.second >= 0
+            && pointLocation.second < model.services.at(pointLocation.first).points.size()) {
+            pointLocations.append(pointLocation);
+        }
+    }
+
+    if (pointLocations.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个点位。"));
         return;
     }
 
-    configtool::ServiceTemplate &service = model.services[pointLocation.first];
-    if (pointLocation.second >= service.points.size()) {
+    if (QMessageBox::question(this,
+                              QStringLiteral("删除点位"),
+                              pointLocations.size() == 1
+                                  ? QStringLiteral("确定删除当前选中的模型点位吗？")
+                                  : QStringLiteral("确定删除选中的 %1 个模型点位吗？").arg(pointLocations.size()))
+        != QMessageBox::Yes) {
         return;
     }
 
-    service.points.removeAt(pointLocation.second);
+    std::sort(pointLocations.begin(), pointLocations.end(), [](const QPair<int, int> &left,
+                                                               const QPair<int, int> &right) {
+        if (left.first != right.first) {
+            return left.first > right.first;
+        }
+        return left.second > right.second;
+    });
+
+    for (const QPair<int, int> &pointLocation : pointLocations) {
+        if (pointLocation.first >= 0
+            && pointLocation.first < model.services.size()
+            && pointLocation.second >= 0
+            && pointLocation.second < model.services.at(pointLocation.first).points.size()) {
+            model.services[pointLocation.first].points.removeAt(pointLocation.second);
+        }
+    }
+
     refreshConfigObjectViews();
     refreshModelDetail(modelIndex);
-    statusBar()->showMessage(QStringLiteral("已删除模型点位"), 3000);
+    statusBar()->showMessage(pointLocations.size() == 1
+                                 ? QStringLiteral("已删除模型点位")
+                                 : QStringLiteral("已删除 %1 个模型点位").arg(pointLocations.size()),
+                             3000);
 }
 
 void MainWindow::onCreateDeviceFromModelClicked()
@@ -2328,7 +2393,7 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
         return;
     }
 
-    QTableWidgetItem *anchorItem = m_modelPointsTable->item(item->row(), 0);
+    QTableWidgetItem *anchorItem = m_modelPointsTable->item(item->row(), ModelPointColumnDragHandle);
     if (!anchorItem) {
         return;
     }
@@ -2355,7 +2420,7 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
     const int editedRow = item->row();
     const int editedColumn = item->column();
     const QString pointId = service.points.at(pointIndex).pointId;
-    if (editedColumn == 0) {
+    if (editedColumn == ModelPointColumnNorthVisible) {
         service.points[pointIndex].northVisible = item->checkState() == Qt::Checked;
     } else {
         applyModelPointCellText(item->row(), item->column(), item->text());
@@ -2372,7 +2437,7 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
 
 void MainWindow::applyModelPointCellText(int row, int column, const QString &text)
 {
-    QTableWidgetItem *anchorItem = m_modelPointsTable->item(row, 0);
+    QTableWidgetItem *anchorItem = m_modelPointsTable->item(row, ModelPointColumnDragHandle);
     if (!anchorItem) {
         return;
     }
@@ -2400,26 +2465,26 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
     const QString oldDataRef = point.dataRef();
     const QString value = text.trimmed();
     switch (column) {
-    case 2:
+    case ModelPointColumnDoName:
         point.name = value;
         point.doName = point.name;
         break;
-    case 3:
+    case ModelPointColumnDescription:
         point.description = value;
         break;
-    case 4:
+    case ModelPointColumnLdName:
         point.ldName = value;
         break;
-    case 5:
+    case ModelPointColumnLnType:
         point.lnType = value;
         break;
-    case 6:
+    case ModelPointColumnLnInst:
         point.lnInst = value;
         break;
-    case 8:
+    case ModelPointColumnDataType:
         point.dataType = value;
         break;
-    case 9:
+    case ModelPointColumnUnit:
         point.unit = value;
         break;
     default:
@@ -3027,7 +3092,12 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::MouseButtonPress) {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
-                m_logicComputationDragRow = m_logicComputationPointTable->rowAt(mouseEvent->pos().y());
+                const int pressedColumn = m_logicComputationPointTable->columnAt(mouseEvent->pos().x());
+                const bool canDragRow = pressedColumn == LogicComputationColumnDragHandle;
+                m_logicComputationPointTable->setDragEnabled(canDragRow);
+                m_logicComputationDragRow = canDragRow
+                    ? m_logicComputationPointTable->rowAt(mouseEvent->pos().y())
+                    : -1;
             }
         } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto *dragEvent = static_cast<QDropEvent *>(event);
@@ -3041,6 +3111,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         } else if (event->type() == QEvent::DragLeave) {
             hideDropLine(m_logicComputationDropLine);
+            m_logicComputationPointTable->setDragEnabled(false);
             m_logicComputationDragRow = -1;
         } else if (event->type() == QEvent::Drop) {
             auto *dropEvent = static_cast<QDropEvent *>(event);
@@ -3049,6 +3120,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             const int sourceRow = m_logicComputationDragRow;
             m_logicComputationDragRow = -1;
             hideDropLine(m_logicComputationDropLine);
+            m_logicComputationPointTable->setDragEnabled(false);
 
             if (sourceRow < 0 || sourceRow >= rowCount || rowCount < 2) {
                 dropEvent->setDropAction(Qt::CopyAction);
@@ -3082,7 +3154,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::MouseButtonPress) {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
-                m_modelPointDragRow = m_modelPointsTable->rowAt(mouseEvent->pos().y());
+                const int pressedColumn = m_modelPointsTable->columnAt(mouseEvent->pos().x());
+                const bool singleCategoryView = m_modelPointFilterTabBar
+                    && m_modelPointFilterTabBar->currentIndex() > 0;
+                const bool canDragRow = singleCategoryView
+                    && pressedColumn == ModelPointColumnDragHandle;
+                m_modelPointsTable->setDragEnabled(canDragRow);
+                m_modelPointDragRow = canDragRow
+                    ? m_modelPointsTable->rowAt(mouseEvent->pos().y())
+                    : -1;
             }
         } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto *dragEvent = static_cast<QDropEvent *>(event);
@@ -3100,10 +3180,12 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         } else if (event->type() == QEvent::DragLeave) {
             hideDropLine(m_modelPointDropLine);
+            m_modelPointsTable->setDragEnabled(false);
             m_modelPointDragRow = -1;
         } else if (event->type() == QEvent::Drop) {
             auto *dropEvent = static_cast<QDropEvent *>(event);
             hideDropLine(m_modelPointDropLine);
+            m_modelPointsTable->setDragEnabled(false);
 
             const int sourceRow = m_modelPointDragRow;
             m_modelPointDragRow = -1;
@@ -3121,7 +3203,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
                 return true;
             }
 
-            QTableWidgetItem *sourceItem = m_modelPointsTable->item(sourceRow, 0);
+            QTableWidgetItem *sourceItem = m_modelPointsTable->item(sourceRow, ModelPointColumnDragHandle);
             if (!sourceItem) {
                 dropEvent->setDropAction(Qt::CopyAction);
                 dropEvent->accept();
@@ -3282,6 +3364,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
                 continue;
             }
 
+            auto *handleItem = new QTableWidgetItem(QStringLiteral("\u22EE"));
             auto *northVisibleItem = new QTableWidgetItem();
             auto *categoryItem = new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category));
             auto *nameItem = new QTableWidgetItem(point.doName);
@@ -3293,7 +3376,20 @@ void MainWindow::refreshModelDetail(int modelIndex)
             auto *dataTypeItem = new QTableWidgetItem(point.dataType);
             auto *unitItem = new QTableWidgetItem(point.unit);
 
+            const bool allowRowDrag = filterTabIndex > 0;
+            handleItem->setTextAlignment(Qt::AlignCenter);
+            handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
+            handleItem->setForeground(QColor(QStringLiteral("#9a9a9a")));
+            Qt::ItemFlags handleFlags = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+            if (allowRowDrag) {
+                handleFlags |= Qt::ItemIsDragEnabled;
+            }
+            handleItem->setFlags(handleFlags);
+            handleItem->setData(Qt::UserRole, serviceIndex);
+            handleItem->setData(Qt::UserRole + 1, pointIndex);
+            handleItem->setData(Qt::UserRole + 2, point.pointId);
             northVisibleItem->setFlags((northVisibleItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+            northVisibleItem->setFlags(northVisibleItem->flags() & ~Qt::ItemIsDragEnabled);
             northVisibleItem->setCheckState(point.northVisible ? Qt::Checked : Qt::Unchecked);
             northVisibleItem->setData(Qt::UserRole, serviceIndex);
             northVisibleItem->setData(Qt::UserRole + 1, pointIndex);
@@ -3301,11 +3397,21 @@ void MainWindow::refreshModelDetail(int modelIndex)
             categoryItem->setData(Qt::UserRole, serviceIndex);
             categoryItem->setData(Qt::UserRole + 1, pointIndex);
             categoryItem->setData(Qt::UserRole + 2, point.pointId);
-            categoryItem->setFlags(categoryItem->flags() & ~Qt::ItemIsEditable);
-            dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+            categoryItem->setFlags((categoryItem->flags() & ~Qt::ItemIsEditable) & ~Qt::ItemIsDragEnabled);
+            dataRefItem->setFlags((dataRefItem->flags() & ~Qt::ItemIsEditable) & ~Qt::ItemIsDragEnabled);
+            for (QTableWidgetItem *editableItem : {nameItem,
+                                                   descriptionItem,
+                                                   ldNameItem,
+                                                   lnTypeItem,
+                                                   lnInstItem,
+                                                   dataTypeItem,
+                                                   unitItem}) {
+                editableItem->setFlags(editableItem->flags() & ~Qt::ItemIsDragEnabled);
+            }
 
             if (duplicateRefs.contains(point.dataRef())) {
                 const QColor duplicateColor(QStringLiteral("#c0392b"));
+                handleItem->setForeground(duplicateColor);
                 northVisibleItem->setForeground(duplicateColor);
                 categoryItem->setForeground(duplicateColor);
                 nameItem->setForeground(duplicateColor);
@@ -3318,16 +3424,17 @@ void MainWindow::refreshModelDetail(int modelIndex)
                 unitItem->setForeground(duplicateColor);
             }
 
-            m_modelPointsTable->setItem(row, 0, northVisibleItem);
-            m_modelPointsTable->setItem(row, 1, categoryItem);
-            m_modelPointsTable->setItem(row, 2, nameItem);
-            m_modelPointsTable->setItem(row, 3, descriptionItem);
-            m_modelPointsTable->setItem(row, 4, ldNameItem);
-            m_modelPointsTable->setItem(row, 5, lnTypeItem);
-            m_modelPointsTable->setItem(row, 6, lnInstItem);
-            m_modelPointsTable->setItem(row, 7, dataRefItem);
-            m_modelPointsTable->setItem(row, 8, dataTypeItem);
-            m_modelPointsTable->setItem(row, 9, unitItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnDragHandle, handleItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnNorthVisible, northVisibleItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnCategory, categoryItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnDoName, nameItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnDescription, descriptionItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnLdName, ldNameItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnLnType, lnTypeItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnLnInst, lnInstItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnDataRef, dataRefItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnDataType, dataTypeItem);
+            m_modelPointsTable->setItem(row, ModelPointColumnUnit, unitItem);
 
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
             categoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
@@ -3339,7 +3446,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
             categoryCombo->setCurrentIndex(categoryComboIndex >= 0 ? categoryComboIndex : 0);
             connect(categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                     this, &MainWindow::onModelPointCategoryChanged);
-            m_modelPointsTable->setCellWidget(row, 1, categoryCombo);
+            m_modelPointsTable->setCellWidget(row, ModelPointColumnCategory, categoryCombo);
             ++row;
         }
     }
@@ -3379,8 +3486,8 @@ void MainWindow::selectModelPointById(const QString &pointId)
     }
 
     for (int row = 0; row < m_modelPointsTable->rowCount(); ++row) {
-        QTableWidgetItem *categoryItem = m_modelPointsTable->item(row, 0);
-        if (categoryItem && categoryItem->data(Qt::UserRole + 2).toString() == pointId) {
+        QTableWidgetItem *handleItem = m_modelPointsTable->item(row, ModelPointColumnDragHandle);
+        if (handleItem && handleItem->data(Qt::UserRole + 2).toString() == pointId) {
             m_modelPointsTable->selectRow(row);
             return;
         }
@@ -3949,6 +4056,7 @@ void MainWindow::refreshLogicComputationPointPage()
             operands.append(QStringLiteral("%1#%2").arg(operand.deviceId, operand.dataRef));
         }
 
+        auto *handleItem = new QTableWidgetItem(QStringLiteral("\u22EE"));
         auto *deviceItem = new QTableWidgetItem(point.deviceId);
         auto *dataRefItem = new QTableWidgetItem(point.dataRef);
         auto *formulaItem = new QTableWidgetItem(point.formula);
@@ -3956,7 +4064,12 @@ void MainWindow::refreshLogicComputationPointPage()
         auto *operandsItem = new QTableWidgetItem(operands.join(QStringLiteral("; ")));
         auto *descriptionItem = new QTableWidgetItem(point.description);
 
-        const Qt::ItemFlags readOnlyFlags = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled;
+        handleItem->setTextAlignment(Qt::AlignCenter);
+        handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
+        handleItem->setForeground(QColor(QStringLiteral("#9a9a9a")));
+        handleItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+
+        const Qt::ItemFlags readOnlyFlags = Qt::ItemIsSelectable | Qt::ItemIsEnabled;
         const Qt::ItemFlags editableFlags = readOnlyFlags | Qt::ItemIsEditable;
         deviceItem->setFlags(readOnlyFlags);
         dataRefItem->setFlags(readOnlyFlags);
@@ -3966,6 +4079,7 @@ void MainWindow::refreshLogicComputationPointPage()
         operandsItem->setFlags(readOnlyFlags);
         descriptionItem->setFlags(editableFlags);
 
+        m_logicComputationPointTable->setItem(row, LogicComputationColumnDragHandle, handleItem);
         m_logicComputationPointTable->setItem(row, LogicComputationColumnOutputDevice, deviceItem);
         m_logicComputationPointTable->setItem(row, LogicComputationColumnOutputPoint, dataRefItem);
         m_logicComputationPointTable->setItem(row, LogicComputationColumnFormula, formulaItem);
@@ -4809,32 +4923,64 @@ void MainWindow::onDeleteLogicComputationPointClicked()
     }
 
     configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
-    const int row = m_logicComputationPointTable->currentRow();
-    if (row < 0 || row >= logic.computationPoints.size()) {
+    QSet<int> selectedRows;
+    const QModelIndexList indexes = m_logicComputationPointTable->selectionModel()
+        ? m_logicComputationPointTable->selectionModel()->selectedIndexes()
+        : QModelIndexList();
+    for (const QModelIndex &index : indexes) {
+        if (index.row() >= 0 && index.row() < logic.computationPoints.size()) {
+            selectedRows.insert(index.row());
+        }
+    }
+    const int currentRow = m_logicComputationPointTable->currentRow();
+    if (selectedRows.isEmpty() && currentRow >= 0 && currentRow < logic.computationPoints.size()) {
+        selectedRows.insert(currentRow);
+    }
+
+    if (selectedRows.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("删除计算点"), QStringLiteral("请先选择要删除的计算点。"));
         return;
     }
 
-    const configtool::LogicComputationPoint point = logic.computationPoints.at(row);
-    const QString objectId = QStringLiteral("%1#%2").arg(point.deviceId, point.dataRef);
+    QList<int> rows = selectedRows.values();
+    std::sort(rows.begin(), rows.end());
+    const int firstRow = rows.first();
+    QString objectId;
+    if (rows.size() == 1) {
+        const configtool::LogicComputationPoint point = logic.computationPoints.at(firstRow);
+        objectId = QStringLiteral("%1#%2").arg(point.deviceId, point.dataRef);
+    }
+
     if (QMessageBox::question(this,
                               QStringLiteral("删除计算点"),
-                              QStringLiteral("确定删除计算点 %1 吗？").arg(objectId),
+                              rows.size() == 1
+                                  ? QStringLiteral("确定删除计算点 %1 吗？").arg(objectId)
+                                  : QStringLiteral("确定删除选中的 %1 个计算点吗？").arg(rows.size()),
                               QMessageBox::Yes | QMessageBox::No,
                               QMessageBox::No) != QMessageBox::Yes) {
         return;
     }
 
     pushConfigUndoSnapshot();
-    logic.computationPoints.removeAt(row);
+    std::sort(rows.begin(), rows.end(), [](int left, int right) {
+        return left > right;
+    });
+    for (int row : rows) {
+        if (row >= 0 && row < logic.computationPoints.size()) {
+            logic.computationPoints.removeAt(row);
+        }
+    }
     refreshLogicCenterOverview();
     refreshLogicComputationPointPage();
 
     if (!logic.computationPoints.isEmpty()) {
-        m_logicComputationPointTable->selectRow(qMin(row, logic.computationPoints.size() - 1));
+        m_logicComputationPointTable->selectRow(qMin(firstRow, logic.computationPoints.size() - 1));
     }
 
-    statusBar()->showMessage(QStringLiteral("已删除计算点 %1").arg(objectId), 5000);
+    statusBar()->showMessage(rows.size() == 1
+                                 ? QStringLiteral("已删除计算点 %1").arg(objectId)
+                                 : QStringLiteral("已删除 %1 个计算点").arg(rows.size()),
+                             5000);
 }
 
 void MainWindow::onLogicComputationPointItemChanged(QTableWidgetItem *item)
@@ -5986,13 +6132,13 @@ QPair<int, int> MainWindow::currentModelPointLocation() const
         return qMakePair(-1, -1);
     }
 
-    QTableWidgetItem *categoryItem = m_modelPointsTable->item(selectedRow, 0);
-    if (!categoryItem) {
+    QTableWidgetItem *handleItem = m_modelPointsTable->item(selectedRow, ModelPointColumnDragHandle);
+    if (!handleItem) {
         return qMakePair(-1, -1);
     }
 
-    return qMakePair(categoryItem->data(Qt::UserRole).toInt(),
-                     categoryItem->data(Qt::UserRole + 1).toInt());
+    return qMakePair(handleItem->data(Qt::UserRole).toInt(),
+                     handleItem->data(Qt::UserRole + 1).toInt());
 }
 
 QSet<QString> MainWindow::duplicateDataRefsForModel(const configtool::ModelTemplate &model) const

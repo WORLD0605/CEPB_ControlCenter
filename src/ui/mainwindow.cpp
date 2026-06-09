@@ -207,9 +207,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_configImportDirEdit = new QLineEdit();
     m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter 的目录");
     importRow->addWidget(m_configImportDirEdit, 1);
-    m_browseConfigImportDirBtn = new QPushButton("打开配置工作区...");
+    m_selectConfigImportDirBtn = new QPushButton(QStringLiteral("..."));
+    m_selectConfigImportDirBtn->setToolTip(QStringLiteral("选择配置工程目录"));
+    m_selectConfigImportDirBtn->setFixedWidth(48);
+    importRow->addWidget(m_selectConfigImportDirBtn);
+    m_browseConfigImportDirBtn = new QPushButton("打开配置");
     importRow->addWidget(m_browseConfigImportDirBtn);
-    m_exportIec104ConfigBtn = new QPushButton("保存配置");
+    m_exportIec104ConfigBtn = new QPushButton("导出配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
 
@@ -426,13 +430,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelValidationLabel = new QLabel(this);
     m_modelValidationLabel->setWordWrap(false);
     m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
-    m_modelPointsTable = new QTableWidget(0, 10, this);
-    m_modelPointsTable->setColumnCount(10);
-    m_modelPointsTable->setHorizontalHeaderLabels({"北向可见", "类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
+    m_modelPointsTable = new QTableWidget(0, 11, this);
+    m_modelPointsTable->setColumnCount(11);
+    m_modelPointsTable->setHorizontalHeaderLabels({"", "北向可见", "类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
     m_modelPointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_modelPointsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_modelPointsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_modelPointsTable->setDragEnabled(true);
+    m_modelPointsTable->setDragEnabled(false);
     m_modelPointsTable->setAcceptDrops(true);
     m_modelPointsTable->setDropIndicatorShown(true);
     m_modelPointsTable->setDragDropMode(QAbstractItemView::DragDrop);
@@ -446,16 +450,17 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointsTable->verticalHeader()->setVisible(false);
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
     m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_modelPointsTable->setColumnWidth(0, 76);
-    m_modelPointsTable->setColumnWidth(1, 70);
-    m_modelPointsTable->setColumnWidth(2, 130);
-    m_modelPointsTable->setColumnWidth(3, 220);
-    m_modelPointsTable->setColumnWidth(4, 90);
-    m_modelPointsTable->setColumnWidth(5, 120);
-    m_modelPointsTable->setColumnWidth(6, 70);
-    m_modelPointsTable->setColumnWidth(7, 260);
-    m_modelPointsTable->setColumnWidth(8, 90);
-    m_modelPointsTable->setColumnWidth(9, 70);
+    m_modelPointsTable->setColumnWidth(0, 26);
+    m_modelPointsTable->setColumnWidth(1, 76);
+    m_modelPointsTable->setColumnWidth(2, 70);
+    m_modelPointsTable->setColumnWidth(3, 130);
+    m_modelPointsTable->setColumnWidth(4, 220);
+    m_modelPointsTable->setColumnWidth(5, 90);
+    m_modelPointsTable->setColumnWidth(6, 120);
+    m_modelPointsTable->setColumnWidth(7, 70);
+    m_modelPointsTable->setColumnWidth(8, 260);
+    m_modelPointsTable->setColumnWidth(9, 90);
+    m_modelPointsTable->setColumnWidth(10, 70);
     modelDetailLayout->addWidget(m_modelPointsTable, 1);
     modelDetailLayout->setStretch(0, 0);
     modelDetailLayout->setStretch(1, 0);
@@ -948,8 +953,9 @@ MainWindow::MainWindow(QWidget *parent)
     logicComputationToolbar->addWidget(m_deleteLogicComputationPointBtn);
     logicComputationToolbar->addStretch();
     logicComputationLayout->addLayout(logicComputationToolbar);
-    m_logicComputationPointTable = new QTableWidget(0, 6, this);
+    m_logicComputationPointTable = new QTableWidget(0, 7, this);
     m_logicComputationPointTable->setHorizontalHeaderLabels({
+        QString(),
         QStringLiteral("输出设备"),
         QStringLiteral("输出点"),
         QStringLiteral("公式"),
@@ -960,9 +966,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicComputationPointTable->setEditTriggers(QAbstractItemView::DoubleClicked
                                                   | QAbstractItemView::SelectedClicked
                                                   | QAbstractItemView::EditKeyPressed);
-    m_logicComputationPointTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_logicComputationPointTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_logicComputationPointTable->setDragEnabled(true);
+    m_logicComputationPointTable->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_logicComputationPointTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_logicComputationPointTable->setDragEnabled(false);
     m_logicComputationPointTable->setAcceptDrops(true);
     m_logicComputationPointTable->setDropIndicatorShown(true);
     m_logicComputationPointTable->setDragDropMode(QAbstractItemView::DragDrop);
@@ -977,10 +983,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicComputationPointTable->verticalHeader()->setVisible(false);
     m_logicComputationPointTable->horizontalHeader()->setStretchLastSection(true);
     m_logicComputationPointTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_logicComputationPointTable->setColumnWidth(0, 120);
-    m_logicComputationPointTable->setColumnWidth(1, 240);
-    m_logicComputationPointTable->setColumnWidth(2, 220);
-    m_logicComputationPointTable->setColumnWidth(4, 360);
+    m_logicComputationPointTable->setColumnWidth(0, 26);
+    m_logicComputationPointTable->setColumnWidth(1, 120);
+    m_logicComputationPointTable->setColumnWidth(2, 240);
+    m_logicComputationPointTable->setColumnWidth(3, 220);
+    m_logicComputationPointTable->setColumnWidth(5, 360);
     logicComputationLayout->addWidget(m_logicComputationPointTable, 1);
 
     m_logicControlRulePage = new QWidget(this);
@@ -1228,8 +1235,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDescriptionFilterTextChanged);
     connect(m_autoRefreshCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onAutoRefreshIntervalChanged);
-    connect(m_browseConfigImportDirBtn, &QPushButton::clicked,
+    connect(m_selectConfigImportDirBtn, &QPushButton::clicked,
             this, &MainWindow::onBrowseConfigImportDirClicked);
+    connect(m_browseConfigImportDirBtn, &QPushButton::clicked,
+            this, &MainWindow::onImportIec104ConfigClicked);
     connect(m_exportIec104ConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onExportIec104ConfigClicked);
     connect(m_uploadConfigBtn, &QPushButton::clicked,

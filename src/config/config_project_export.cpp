@@ -19,11 +19,6 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
     const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Iec104);
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
 
-    if (exportModels.isEmpty() && exportDevices.isEmpty()) {
-        report.addIssue(ImportIssueSeverity::Info, appDir, QStringLiteral("当前工程没有 104 模型或设备可导出"));
-        return false;
-    }
-
     const QDir appDirInfo(appDir);
     if (!appDirInfo.exists()) {
         report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("104 APP 目录不存在"));
@@ -110,6 +105,13 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return false;
     }
 
+    if (exportModels.isEmpty() && exportDevices.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Info,
+                        appDir,
+                        QStringLiteral("当前工程没有 104 模型或设备可导出，已清空旧 104 模型和设备文件"));
+        return true;
+    }
+
     for (const ModelTemplate &model : exportModels) {
         const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
         QString errorMessage;
@@ -150,10 +152,6 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
 
     const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Modbus);
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
-    if (exportModels.isEmpty() && exportDevices.isEmpty()) {
-        report.addIssue(ImportIssueSeverity::Info, appDir, QStringLiteral("当前工程没有 Modbus 模型或设备可导出"));
-        return false;
-    }
 
     for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
@@ -303,6 +301,13 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     if (!writeTextFile(iniPath, buildModbusIniContent(m_project, exportDevices), errorMessage)) {
         report.addIssue(ImportIssueSeverity::Error, iniPath, errorMessage);
         return false;
+    }
+
+    if (exportModels.isEmpty() && exportDevices.isEmpty()) {
+        report.addIssue(ImportIssueSeverity::Info,
+                        appDir,
+                        QStringLiteral("当前工程没有 Modbus 模型或设备可导出，已清空旧 Modbus 模型和设备文件"));
+        return true;
     }
 
     return true;
