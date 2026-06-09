@@ -45,6 +45,7 @@ struct AppConfig {
 struct ServiceChannelDataItem {
     QString deviceId;
     QString dataRef;
+    QString serviceId;
     QString description;
     QString dataTime;
     QString value;
@@ -83,6 +84,7 @@ private slots:
     void onQuickCommandClicked();
     void onAppSelectionChanged(int index);
     void onDeviceFilterChanged(int index);
+    void onServiceTypeFilterChanged(int index);
     void onDataRefFilterTextChanged(const QString &text);
     void onDescriptionFilterTextChanged(const QString &text);
     void onAutoRefreshIntervalChanged(int index);
@@ -187,6 +189,7 @@ private:
     void copySelectedTableCells();
     void updateControlCommandUi();
     void openControlCommandDialog(int row);
+    void openDataWriteDialog(int row);
     bool handleControlResponseLogLine(const QString &line);
     void handleControlResponseTimeout();
     QString controlCommandKey(const QString &deviceId, const QString &dataRef) const;
@@ -197,10 +200,15 @@ private:
     bool isServiceChannelControlRow(int row) const;
     bool isServiceChannelControlPoint(const ServiceChannelDataItem &item,
                                       configtool::ControlKind *controlKind = nullptr) const;
+    bool isServiceChannelDataWriteRow(int row) const;
+    bool isServiceChannelDataWritePoint(const ServiceChannelDataItem &item) const;
     configtool::ControlKind inferControlKindFromText(const ServiceChannelDataItem &item) const;
     void sendServiceChannelControlCommand(const ServiceChannelDataItem &item,
                                           const QString &ctrlVal,
                                           int ctrlType);
+    void sendServiceChannelDataWriteCommand(const ServiceChannelDataItem &item,
+                                            const QString &value,
+                                            const QString &quality);
     void pasteClipboardIntoModelPointsTable();
     void pasteClipboardIntoDeviceBindingsTable();
     void applyModelPointCellText(int row, int column, const QString &text);
@@ -356,6 +364,10 @@ private:
     QString m_pendingControlDataRef;
     QString m_pendingControlValue;
     int m_pendingControlType = -1;
+    QString m_pendingDataWriteDeviceId;
+    QString m_pendingDataWriteDataRef;
+    QString m_pendingDataWriteValue;
+    QString m_pendingDataWriteQuality;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
@@ -385,6 +397,7 @@ private:
     QLineEdit *m_cmdEdit = nullptr;
     QPushButton *m_sendBtn = nullptr;
     QComboBox *m_deviceFilterCombo = nullptr;
+    QComboBox *m_serviceTypeFilterCombo = nullptr;
     QLineEdit *m_dataRefFilterEdit = nullptr;
     QLineEdit *m_descriptionFilterEdit = nullptr;
     QComboBox *m_autoRefreshCombo = nullptr;

@@ -567,6 +567,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceFilterCombo->setMinimumWidth(220);
     m_deviceFilterCombo->setEnabled(false);
     dataToolbar->addWidget(m_deviceFilterCombo);
+    dataToolbar->addWidget(new QLabel("Type:"));
+    m_serviceTypeFilterCombo = new QComboBox();
+    m_serviceTypeFilterCombo->addItem(QStringLiteral("all"), QString());
+    m_serviceTypeFilterCombo->addItem(QStringLiteral("遥测"), QStringLiteral("analog"));
+    m_serviceTypeFilterCombo->addItem(QStringLiteral("遥信"), QStringLiteral("discrete"));
+    m_serviceTypeFilterCombo->addItem(QStringLiteral("控制"), QStringLiteral("control"));
+    m_serviceTypeFilterCombo->setMinimumWidth(90);
+    m_serviceTypeFilterCombo->setEnabled(false);
+    dataToolbar->addWidget(m_serviceTypeFilterCombo);
     dataToolbar->addWidget(new QLabel("DataRef:"));
     m_dataRefFilterEdit = new QLineEdit();
     m_dataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
@@ -591,7 +600,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_autoRefreshCombo->setCurrentIndex(0);
     m_autoRefreshCombo->setEnabled(false);
     dataToolbar->addWidget(m_autoRefreshCombo);
-    m_controlStatusLabel = new QLabel(QStringLiteral("控制: -"));
+    m_controlStatusLabel = new QLabel(QStringLiteral("状态: -"));
     m_controlStatusLabel->setMinimumWidth(220);
     dataToolbar->addWidget(m_controlStatusLabel);
     dataToolbar->addStretch();
@@ -603,8 +612,8 @@ MainWindow::MainWindow(QWidget *parent)
     dataToolbar->addWidget(m_refreshDataBtn);
     dataLayout->addLayout(dataToolbar);
 
-    m_dataTable = new QTableWidget(0, 6);
-    m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "Description", "DataTime", "Value", "CtrlStatus"});
+    m_dataTable = new QTableWidget(0, 7);
+    m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "ServiceId", "Description", "DataTime", "Value", "Status"});
     m_dataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_dataTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_dataTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -617,10 +626,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_dataTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_dataTable->setColumnWidth(0, 140);
     m_dataTable->setColumnWidth(1, 280);
-    m_dataTable->setColumnWidth(2, 380);
-    m_dataTable->setColumnWidth(3, 170);
-    m_dataTable->setColumnWidth(4, 90);
-    m_dataTable->setColumnWidth(5, 180);
+    m_dataTable->setColumnWidth(2, 90);
+    m_dataTable->setColumnWidth(3, 360);
+    m_dataTable->setColumnWidth(4, 170);
+    m_dataTable->setColumnWidth(5, 90);
+    m_dataTable->setColumnWidth(6, 180);
     dataLayout->addWidget(m_dataTable, 1);
 
     m_contentStack->addWidget(terminalPage);
@@ -1683,6 +1693,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onSendControlClicked);
     connect(m_deviceFilterCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onDeviceFilterChanged);
+    connect(m_serviceTypeFilterCombo, &QComboBox::currentIndexChanged,
+            this, &MainWindow::onServiceTypeFilterChanged);
     connect(m_dataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDataRefFilterTextChanged);
     connect(m_descriptionFilterEdit, &QLineEdit::textChanged,
@@ -1919,11 +1931,17 @@ MainWindow::MainWindow(QWidget *parent)
                 controlAction->setEnabled(isServiceChannelControlRow(m_dataTable->rowAt(position.y())) &&
                                           m_client->isConnected() &&
                                           !m_client->isExecutingCommand());
+                QAction *dataWriteAction = menu.addAction(QStringLiteral("写入数据..."));
+                dataWriteAction->setEnabled(isServiceChannelDataWriteRow(m_dataTable->rowAt(position.y())) &&
+                                            m_client->isConnected() &&
+                                            !m_client->isExecutingCommand());
                 QAction *selectedAction = menu.exec(m_dataTable->viewport()->mapToGlobal(position));
                 if (selectedAction == copyAction) {
                     copySelectedTableCells();
                 } else if (selectedAction == controlAction) {
                     openControlCommandDialog(m_dataTable->rowAt(position.y()));
+                } else if (selectedAction == dataWriteAction) {
+                    openDataWriteDialog(m_dataTable->rowAt(position.y()));
                 }
             });
 

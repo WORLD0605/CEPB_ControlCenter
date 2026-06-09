@@ -55,6 +55,13 @@ bool isServiceChannelApp(const AppConfig &appConfig)
     return appConfig.name.compare(QStringLiteral("ServiceChannel"), Qt::CaseInsensitive) == 0;
 }
 
+bool isKnownServiceChannelServiceId(const QString &serviceId)
+{
+    return serviceId == QStringLiteral("analog") ||
+           serviceId == QStringLiteral("discrete") ||
+           serviceId == QStringLiteral("control");
+}
+
 } // namespace
 
 void MainWindow::onConnectClicked()
@@ -113,6 +120,7 @@ void MainWindow::onConnected()
 
     if (appConfig.viewMode == AppViewMode::DataTable) {
         m_deviceFilterCombo->setEnabled(true);
+        m_serviceTypeFilterCombo->setEnabled(true);
         m_dataRefFilterEdit->setEnabled(true);
         m_descriptionFilterEdit->setEnabled(true);
         m_autoRefreshCombo->setEnabled(true);
@@ -142,6 +150,8 @@ void MainWindow::onDisconnected()
         refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
         m_deviceFilterCombo->setEnabled(false);
+        m_serviceTypeFilterCombo->setCurrentIndex(0);
+        m_serviceTypeFilterCombo->setEnabled(false);
         m_dataRefFilterEdit->clear();
         m_dataRefFilterEdit->setEnabled(false);
         m_descriptionFilterEdit->clear();
@@ -187,6 +197,37 @@ void MainWindow::onCommandReply(const QString &reply)
             if (reply.startsWith(QStringLiteral("ctrlcmd sent:"), Qt::CaseInsensitive)) {
                 appendSystem(QStringLiteral("控制命令已发送，等待 CTRLRESP..."), "#ffcc66");
             }
+            updateControlCommandUi();
+            return;
+        }
+
+        if (pendingCommand == QStringLiteral("datawrite")) {
+            appendReply(reply);
+            const QString replyText = reply.trimmed();
+            const bool sent = replyText.startsWith(QStringLiteral("datawrite sent:"), Qt::CaseInsensitive);
+            const bool rejected = replyText.startsWith(QStringLiteral("datawrite rejected:"), Qt::CaseInsensitive) ||
+                                  replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
+                                  replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
+                                  replyText.startsWith(QStringLiteral("mqtt client unavailable"), Qt::CaseInsensitive);
+            if (sent) {
+                setControlStatus(m_pendingDataWriteDeviceId,
+                                 m_pendingDataWriteDataRef,
+                                 QStringLiteral("datawrite 成功 Value=%1 Quality=%2")
+                                     .arg(m_pendingDataWriteValue, m_pendingDataWriteQuality),
+                                 QColor(QStringLiteral("#32cd32")));
+                appendSystem(QStringLiteral("datawrite 已发送，正在刷新数据..."), "#32cd32");
+                requestServiceChannelData(false);
+            } else if (rejected) {
+                setControlStatus(m_pendingDataWriteDeviceId,
+                                 m_pendingDataWriteDataRef,
+                                 QStringLiteral("datawrite 失败: %1").arg(replyText),
+                                 QColor(QStringLiteral("#ff4444")));
+                appendSystem(QStringLiteral("datawrite 发送失败: %1").arg(replyText), "#ff4444");
+            }
+            m_pendingDataWriteDeviceId.clear();
+            m_pendingDataWriteDataRef.clear();
+            m_pendingDataWriteValue.clear();
+            m_pendingDataWriteQuality.clear();
             updateControlCommandUi();
             return;
         }
@@ -282,6 +323,7 @@ void MainWindow::updateUIState(bool connected)
     m_refreshDataBtn->setEnabled(connected && !terminalMode);
     updateControlCommandUi();
     m_deviceFilterCombo->setEnabled(connected && !terminalMode);
+    m_serviceTypeFilterCombo->setEnabled(connected && !terminalMode);
     m_dataRefFilterEdit->setEnabled(connected && !terminalMode);
     m_descriptionFilterEdit->setEnabled(connected && !terminalMode);
     m_autoRefreshCombo->setEnabled(connected && !terminalMode);
@@ -350,6 +392,11 @@ void MainWindow::onDeviceFilterChanged(int /*index*/)
     applyServiceChannelFilter();
 }
 
+void MainWindow::onServiceTypeFilterChanged(int /*index*/)
+{
+    applyServiceChannelFilter();
+}
+
 void MainWindow::onDataRefFilterTextChanged(const QString & /*text*/)
 {
     applyServiceChannelFilter();
@@ -387,6 +434,8 @@ void MainWindow::onDataTableCellDoubleClicked(int row, int /*column*/)
 {
     if (isServiceChannelControlRow(row)) {
         openControlCommandDialog(row);
+    } else if (isServiceChannelDataWriteRow(row)) {
+        openDataWriteDialog(row);
     }
 }
 
@@ -397,7 +446,10 @@ void MainWindow::onDataTableSelectionChanged()
 
 QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QString &reply) const
 {
-    static const QRegularExpression linePattern(
+    static const QRegularExpression newLinePattern(
+        R"(^([^\s]+)\s+([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s+([^\s]+)$)"
+    );
+    static const QRegularExpression legacyLinePattern(
         R"(^([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s+([^\s]+)$)"
     );
 
@@ -408,12 +460,16 @@ QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QSt
             continue;
         }
 
-        const QRegularExpressionMatch match = linePattern.match(line);
-        if (!match.hasMatch()) {
+        const QRegularExpressionMatch match = newLinePattern.match(line);
+        const QString serviceId = match.hasMatch() ? match.captured(2).trimmed().toLower() : QString();
+        const bool hasServiceId = match.hasMatch() && isKnownServiceChannelServiceId(serviceId);
+        const QRegularExpressionMatch legacyMatch = hasServiceId ? QRegularExpressionMatch() : legacyLinePattern.match(line);
+        const QRegularExpressionMatch activeMatch = hasServiceId ? match : legacyMatch;
+        if (!activeMatch.hasMatch()) {
             continue;
         }
 
-        const QString key = match.captured(1).trimmed();
+        const QString key = activeMatch.captured(1).trimmed();
         const int keySeparator = key.indexOf('#');
         if (keySeparator <= 0 || keySeparator >= key.size() - 1) {
             continue;
@@ -422,9 +478,16 @@ QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QSt
         ServiceChannelDataItem item;
         item.deviceId = key.left(keySeparator);
         item.dataRef = key.mid(keySeparator + 1);
-        item.description = match.captured(2).trimmed();
-        item.dataTime = match.captured(3).trimmed();
-        item.value = match.captured(4).trimmed();
+        if (hasServiceId) {
+            item.serviceId = serviceId;
+            item.description = activeMatch.captured(3).trimmed();
+            item.dataTime = activeMatch.captured(4).trimmed();
+            item.value = activeMatch.captured(5).trimmed();
+        } else {
+            item.description = activeMatch.captured(2).trimmed();
+            item.dataTime = activeMatch.captured(3).trimmed();
+            item.value = activeMatch.captured(4).trimmed();
+        }
         items.append(item);
     }
 
@@ -449,6 +512,7 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
 
         auto *deviceIdItem = new QTableWidgetItem(item.deviceId);
         auto *dataRefItem = new QTableWidgetItem(item.dataRef);
+        auto *serviceIdItem = new QTableWidgetItem(item.serviceId);
         auto *descriptionItem = new QTableWidgetItem(item.description);
         auto *dataTimeItem = new QTableWidgetItem(item.dataTime);
         auto *valueItem = new QTableWidgetItem(item.value);
@@ -456,6 +520,7 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
 
         deviceIdItem->setForeground(defaultTextColor);
         dataRefItem->setForeground(defaultTextColor);
+        serviceIdItem->setForeground(defaultTextColor);
         descriptionItem->setForeground(defaultTextColor);
         dataTimeItem->setForeground(timeChanged ? changedTextColor : defaultTextColor);
         valueItem->setForeground(valueChanged ? changedTextColor : defaultTextColor);
@@ -463,10 +528,11 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
 
         m_dataTable->setItem(row, 0, deviceIdItem);
         m_dataTable->setItem(row, 1, dataRefItem);
-        m_dataTable->setItem(row, 2, descriptionItem);
-        m_dataTable->setItem(row, 3, dataTimeItem);
-        m_dataTable->setItem(row, 4, valueItem);
-        m_dataTable->setItem(row, 5, controlStatusItem);
+        m_dataTable->setItem(row, 2, serviceIdItem);
+        m_dataTable->setItem(row, 3, descriptionItem);
+        m_dataTable->setItem(row, 4, dataTimeItem);
+        m_dataTable->setItem(row, 5, valueItem);
+        m_dataTable->setItem(row, 6, controlStatusItem);
     }
 
     m_dataTable->resizeRowsToContents();
@@ -527,18 +593,20 @@ void MainWindow::refreshDeviceFilterOptions()
 void MainWindow::applyServiceChannelFilter()
 {
     const QString selectedDeviceId = m_deviceFilterCombo->currentData().toString();
+    const QString selectedServiceId = m_serviceTypeFilterCombo->currentData().toString();
     const QString dataRefKeyword = m_dataRefFilterEdit->text().trimmed();
     const QString descriptionKeyword = m_descriptionFilterEdit->text().trimmed();
     QList<ServiceChannelDataItem> filteredItems;
 
     for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
         const bool matchesDeviceId = selectedDeviceId.isEmpty() || item.deviceId == selectedDeviceId;
+        const bool matchesServiceId = selectedServiceId.isEmpty() || item.serviceId == selectedServiceId;
         const bool matchesDataRef = dataRefKeyword.isEmpty() ||
                                     item.dataRef.contains(dataRefKeyword, Qt::CaseInsensitive);
         const bool matchesDescription = descriptionKeyword.isEmpty() ||
                                         item.description.contains(descriptionKeyword, Qt::CaseInsensitive);
 
-        if (matchesDeviceId && matchesDataRef && matchesDescription) {
+        if (matchesDeviceId && matchesServiceId && matchesDataRef && matchesDescription) {
             filteredItems.append(item);
         }
     }
@@ -773,9 +841,10 @@ void MainWindow::openControlCommandDialog(int row)
     ServiceChannelDataItem item;
     item.deviceId = m_dataTable->item(row, 0)->text().trimmed();
     item.dataRef = m_dataTable->item(row, 1)->text().trimmed();
-    item.description = m_dataTable->item(row, 2)->text().trimmed();
-    item.dataTime = m_dataTable->item(row, 3)->text().trimmed();
-    item.value = m_dataTable->item(row, 4)->text().trimmed();
+    item.serviceId = m_dataTable->item(row, 2)->text().trimmed().toLower();
+    item.description = m_dataTable->item(row, 3)->text().trimmed();
+    item.dataTime = m_dataTable->item(row, 4)->text().trimmed();
+    item.value = m_dataTable->item(row, 5)->text().trimmed();
 
     configtool::ControlKind controlKind = configtool::ControlKind::None;
     isServiceChannelControlPoint(item, &controlKind);
@@ -794,6 +863,10 @@ void MainWindow::openControlCommandDialog(int row)
     dataRefEdit->setReadOnly(true);
     dataRefEdit->setMinimumWidth(480);
     form->addRow(QStringLiteral("DataRef:"), dataRefEdit);
+
+    auto *serviceIdEdit = new QLineEdit(item.serviceId, &dialog);
+    serviceIdEdit->setReadOnly(true);
+    form->addRow(QStringLiteral("ServiceId:"), serviceIdEdit);
 
     auto *descriptionEdit = new QLineEdit(item.description, &dialog);
     descriptionEdit->setReadOnly(true);
@@ -839,6 +912,91 @@ void MainWindow::openControlCommandDialog(int row)
     sendServiceChannelControlCommand(item, ctrlVal, ctrlTypeCombo->currentData().toInt());
 }
 
+void MainWindow::openDataWriteDialog(int row)
+{
+    if (!isServiceChannelDataWriteRow(row)) {
+        return;
+    }
+
+    ServiceChannelDataItem item;
+    item.deviceId = m_dataTable->item(row, 0)->text().trimmed();
+    item.dataRef = m_dataTable->item(row, 1)->text().trimmed();
+    item.serviceId = m_dataTable->item(row, 2)->text().trimmed().toLower();
+    item.description = m_dataTable->item(row, 3)->text().trimmed();
+    item.dataTime = m_dataTable->item(row, 4)->text().trimmed();
+    item.value = m_dataTable->item(row, 5)->text().trimmed();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("发送 datawrite"));
+    dialog.resize(640, dialog.height());
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = new QFormLayout();
+
+    auto *deviceEdit = new QLineEdit(item.deviceId, &dialog);
+    deviceEdit->setReadOnly(true);
+    form->addRow(QStringLiteral("DeviceId:"), deviceEdit);
+
+    auto *dataRefEdit = new QLineEdit(item.dataRef, &dialog);
+    dataRefEdit->setReadOnly(true);
+    dataRefEdit->setMinimumWidth(480);
+    form->addRow(QStringLiteral("DataRef:"), dataRefEdit);
+
+    auto *serviceIdEdit = new QLineEdit(item.serviceId, &dialog);
+    serviceIdEdit->setReadOnly(true);
+    form->addRow(QStringLiteral("ServiceId:"), serviceIdEdit);
+
+    auto *descriptionEdit = new QLineEdit(item.description, &dialog);
+    descriptionEdit->setReadOnly(true);
+    descriptionEdit->setMinimumWidth(480);
+    form->addRow(QStringLiteral("描述:"), descriptionEdit);
+
+    auto *valueEdit = new QLineEdit(&dialog);
+    valueEdit->setPlaceholderText(QStringLiteral("输入 Value"));
+    valueEdit->setText(item.value);
+    valueEdit->selectAll();
+    form->addRow(QStringLiteral("Value:"), valueEdit);
+
+    auto *qualityEdit = new QLineEdit(QStringLiteral("00"), &dialog);
+    qualityEdit->setPlaceholderText(QStringLiteral("默认 00"));
+    form->addRow(QStringLiteral("Quality:"), qualityEdit);
+
+    layout->addLayout(form);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("发送"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    layout->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    valueEdit->setFocus();
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QString value = valueEdit->text().trimmed();
+    const QString quality = qualityEdit->text().trimmed();
+    if (value.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("Value 不能为空"));
+        return;
+    }
+    if (quality.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("Quality 不能为空"));
+        return;
+    }
+
+    bool valueOk = false;
+    value.toDouble(&valueOk);
+    if (!valueOk) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("Value 必须是数字"));
+        return;
+    }
+
+    sendServiceChannelDataWriteCommand(item, value, quality);
+}
+
 bool MainWindow::isServiceChannelControlRow(int row) const
 {
     if (!m_dataTable || row < 0 || row >= m_dataTable->rowCount()) {
@@ -851,14 +1009,16 @@ bool MainWindow::isServiceChannelControlRow(int row) const
 
     const QTableWidgetItem *deviceItem = m_dataTable->item(row, 0);
     const QTableWidgetItem *dataRefItem = m_dataTable->item(row, 1);
-    const QTableWidgetItem *descriptionItem = m_dataTable->item(row, 2);
-    if (!deviceItem || !dataRefItem || !descriptionItem) {
+    const QTableWidgetItem *serviceIdItem = m_dataTable->item(row, 2);
+    const QTableWidgetItem *descriptionItem = m_dataTable->item(row, 3);
+    if (!deviceItem || !dataRefItem || !serviceIdItem || !descriptionItem) {
         return false;
     }
 
     ServiceChannelDataItem item;
     item.deviceId = deviceItem->text().trimmed();
     item.dataRef = dataRefItem->text().trimmed();
+    item.serviceId = serviceIdItem->text().trimmed().toLower();
     item.description = descriptionItem->text().trimmed();
     return isServiceChannelControlPoint(item);
 }
@@ -868,6 +1028,12 @@ bool MainWindow::isServiceChannelControlPoint(const ServiceChannelDataItem &item
 {
     if (controlKind) {
         *controlKind = configtool::ControlKind::None;
+    }
+
+    const QString serviceId = item.serviceId.trimmed().toLower();
+    const bool hasExplicitControlService = serviceId == QStringLiteral("control");
+    if (serviceId == QStringLiteral("analog") || serviceId == QStringLiteral("discrete")) {
+        return false;
     }
 
     const configtool::ConfigProject &project = m_configProjectManager.project();
@@ -905,6 +1071,13 @@ bool MainWindow::isServiceChannelControlPoint(const ServiceChannelDataItem &item
         }
     }
 
+    if (hasExplicitControlService) {
+        if (controlKind) {
+            *controlKind = inferControlKindFromText(item);
+        }
+        return true;
+    }
+
     const QString dataRef = item.dataRef.trimmed();
     const QString lowerDataRef = dataRef.toLower();
     const QString description = item.description.trimmed();
@@ -921,6 +1094,36 @@ bool MainWindow::isServiceChannelControlPoint(const ServiceChannelDataItem &item
     }
 
     return false;
+}
+
+bool MainWindow::isServiceChannelDataWriteRow(int row) const
+{
+    if (!m_dataTable || row < 0 || row >= m_dataTable->rowCount()) {
+        return false;
+    }
+
+    if (!isServiceChannelApp(currentAppConfig())) {
+        return false;
+    }
+
+    const QTableWidgetItem *deviceItem = m_dataTable->item(row, 0);
+    const QTableWidgetItem *dataRefItem = m_dataTable->item(row, 1);
+    const QTableWidgetItem *serviceIdItem = m_dataTable->item(row, 2);
+    if (!deviceItem || !dataRefItem || !serviceIdItem) {
+        return false;
+    }
+
+    ServiceChannelDataItem item;
+    item.deviceId = deviceItem->text().trimmed();
+    item.dataRef = dataRefItem->text().trimmed();
+    item.serviceId = serviceIdItem->text().trimmed().toLower();
+    return isServiceChannelDataWritePoint(item);
+}
+
+bool MainWindow::isServiceChannelDataWritePoint(const ServiceChannelDataItem &item) const
+{
+    const QString serviceId = item.serviceId.trimmed().toLower();
+    return serviceId == QStringLiteral("analog") || serviceId == QStringLiteral("discrete");
 }
 
 configtool::ControlKind MainWindow::inferControlKindFromText(const ServiceChannelDataItem &item) const
@@ -967,6 +1170,50 @@ void MainWindow::sendServiceChannelControlCommand(const ServiceChannelDataItem &
                      QColor(QStringLiteral("#ffcc66")));
     m_controlResponseTimer->start();
     m_pendingDataTableCommand = QStringLiteral("ctrlcmd");
+    m_client->sendCommand(command);
+    updateControlCommandUi();
+}
+
+void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem &item,
+                                                    const QString &value,
+                                                    const QString &quality)
+{
+    if (!m_client->isConnected()) {
+        appendSystem(QStringLiteral("未连接 ServiceChannel，无法发送 datawrite"), "#ffcc66");
+        return;
+    }
+
+    if (m_client->isExecutingCommand()) {
+        appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送 datawrite"), "#ffcc66");
+        return;
+    }
+
+    if (!isServiceChannelDataWritePoint(item)) {
+        appendSystem(QStringLiteral("datawrite 仅支持遥测/遥信点位: %1#%2")
+                         .arg(item.deviceId, item.dataRef),
+                     "#ffcc66");
+        return;
+    }
+
+    bool valueOk = false;
+    value.toDouble(&valueOk);
+    if (!valueOk) {
+        appendSystem(QStringLiteral("datawrite Value 必须是数字: %1").arg(value), "#ffcc66");
+        return;
+    }
+
+    const QString command = QStringLiteral("datawrite %1 %2 %3 %4")
+        .arg(item.deviceId, item.dataRef, value, quality);
+    appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
+    m_pendingDataWriteDeviceId = item.deviceId;
+    m_pendingDataWriteDataRef = item.dataRef;
+    m_pendingDataWriteValue = value;
+    m_pendingDataWriteQuality = quality;
+    setControlStatus(item.deviceId,
+                     item.dataRef,
+                     QStringLiteral("datawrite 发送中 Value=%1 Quality=%2").arg(value, quality),
+                     QColor(QStringLiteral("#ffcc66")));
+    m_pendingDataTableCommand = QStringLiteral("datawrite");
     m_client->sendCommand(command);
     updateControlCommandUi();
 }
