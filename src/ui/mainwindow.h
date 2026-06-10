@@ -5,6 +5,7 @@
 #include <QPair>
 #include <QSet>
 #include <QHash>
+#include <QJsonObject>
 #include <QList>
 #include "config/config_project_manager.h"
 #include "network/debug_console_client.h"
@@ -160,6 +161,11 @@ private slots:
     void onForceStopProgramClicked();
     void onRestartProgramClicked();
     void onToggleProgramAutostartClicked();
+    void onIec101CommModeChanged(int index);
+    void onRefreshIec101PointsClicked();
+    void onIec101PointItemChanged(QTableWidgetItem *item);
+    void onIec101PointFilterChanged(int index);
+    void onIec101PointFilterTextChanged();
 
     void onConnected();
     void onDisconnected();
@@ -213,6 +219,9 @@ private:
     void sendServiceChannelDataFreezeCommand(const QString &mode);
     void pasteClipboardIntoModelPointsTable();
     void pasteClipboardIntoDeviceBindingsTable();
+    void pasteClipboardIntoIec101PointsTable();
+    void pushIec101PointsUndoSnapshot();
+    void undoIec101PointsLastEdit();
     void applyModelPointCellText(int row, int column, const QString &text);
     void applyDeviceBindingCellText(int row, int column, const QString &text);
     void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
@@ -223,6 +232,13 @@ private:
     QString resolveIec104AppDir(const QString &projectRoot) const;
     QString resolveModbusAppDir(const QString &projectRoot) const;
     QString resolveLogicCenterAppDir(const QString &projectRoot) const;
+    QString resolveIec101ServiceChannelAppDir(const QString &projectRoot) const;
+    QJsonObject serializeIec101LocalhostConfig() const;
+    void loadIec101LocalhostConfigFromFile(const QString &filePath);
+    void loadIec101LocalhostConfigFromJson(const QJsonObject &root);
+    void clearIec101ConfigPage();
+    void refreshIec101PointsFromDevices(const QHash<QString, QJsonObject> &savedPointSettings = {});
+    void applyIec101PointsFilter();
     QString configBrowseStartDir() const;
     QStringList configTransferRelativePaths(const QString &projectRoot) const;
     QString configRemoteTarget() const;
@@ -351,6 +367,7 @@ private:
     QFrame *m_modelPointDropLine = nullptr;
     QFrame *m_logicComputationDropLine = nullptr;
     QList<configtool::ConfigProject> m_configUndoStack;
+    QList<QJsonObject> m_iec101PointsUndoStack;
     QProcess *m_programControlShell = nullptr;
     QString m_programControlShellKey;
     quint64 m_programControlCommandSerial = 0;
@@ -428,6 +445,7 @@ private:
     QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_logicOnlineLinkPage = nullptr;
     QWidget *m_programControlPage = nullptr;
+    QWidget *m_iec101ConfigPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
     QGroupBox *m_modelGroupBox = nullptr;
@@ -539,6 +557,32 @@ private:
     QComboBox *m_modbusParityCombo = nullptr;
     QCheckBox *m_modbusDebugCheck = nullptr;
     QGroupBox *m_modbusParamsGroupBox = nullptr;
+    // IEC101 配置页面控件
+    QComboBox *m_iec101CommModeCombo = nullptr;
+    QLineEdit *m_iec101ComAddrEdit = nullptr;
+    // 串口连接参数
+    QGroupBox *m_iec101SerialParamsGroup = nullptr;
+    QLineEdit *m_iec101UsartNameEdit = nullptr;
+    QComboBox *m_iec101BaudrateCombo = nullptr;
+    QComboBox *m_iec101DataBitCombo = nullptr;
+    QComboBox *m_iec101StopBitCombo = nullptr;
+    QComboBox *m_iec101ParityCombo = nullptr;
+    // 协议参数
+    QComboBox *m_iec101CotCombo = nullptr;
+    QComboBox *m_iec101CaCombo = nullptr;
+    QComboBox *m_iec101IoaCombo = nullptr;
+    QComboBox *m_iec101LinkAddrCombo = nullptr;
+    QComboBox *m_iec101TelecontrolTypeCombo = nullptr;
+    QComboBox *m_iec101TelemetryTypeCombo = nullptr;
+    QComboBox *m_iec101SequenceCombo = nullptr;
+    QComboBox *m_iec101YxUseDoubleValueCombo = nullptr;
+    QComboBox *m_iec101YxAllSTransDFlagCombo = nullptr;
+    // 点表
+    QTabBar *m_iec101PointFilterTabBar = nullptr;
+    QLineEdit *m_iec101PointDataRefFilterEdit = nullptr;
+    QLineEdit *m_iec101PointDescriptionFilterEdit = nullptr;
+    QTableWidget *m_iec101PointsTable = nullptr;
+    QPushButton *m_refreshIec101PointsBtn = nullptr;
     QLabel *m_statusLabel = nullptr;
     QPushButton *m_themeToggleBtn = nullptr;
     QLabel *m_versionLabel = nullptr;

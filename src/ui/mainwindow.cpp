@@ -652,7 +652,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *importRow = new QHBoxLayout();
     importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
-    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter 的目录");
+    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter、IEC101ServiceChannel 的目录");
     importRow->addWidget(m_configImportDirEdit, 1);
     m_selectConfigImportDirBtn = new QPushButton(QStringLiteral("..."));
     m_selectConfigImportDirBtn->setToolTip(QStringLiteral("选择配置工程目录"));
@@ -1661,10 +1661,253 @@ MainWindow::MainWindow(QWidget *parent)
     m_programControlTable->setColumnWidth(6, 120);
     programControlLayout->addWidget(m_programControlTable, 1);
 
-    m_mainTabWidget->addTab(debugPage, "调试控制");
-    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("程序控制"));
+    // ============================================================
+    // IEC101 配置页面
+    // ============================================================
+    m_iec101ConfigPage = new QWidget(this);
+    auto *iec101Layout = new QVBoxLayout(m_iec101ConfigPage);
+    iec101Layout->setContentsMargins(0, 0, 0, 0);
+    iec101Layout->setSpacing(6);
+
+    // ---- 基本设置 ----
+    auto *iec101BasicFrame = new QFrame(this);
+    iec101BasicFrame->setFrameShape(QFrame::StyledPanel);
+    auto *iec101BasicGrid = new QGridLayout(iec101BasicFrame);
+    iec101BasicGrid->setContentsMargins(8, 6, 8, 6);
+    iec101BasicGrid->setHorizontalSpacing(24);
+    iec101BasicGrid->setVerticalSpacing(6);
+
+    m_iec101CommModeCombo = new QComboBox(this);
+    m_iec101CommModeCombo->addItem(QStringLiteral("0 — 串口"), 0);
+    m_iec101CommModeCombo->addItem(QStringLiteral("1 — TCP"), 1);
+    m_iec101CommModeCombo->addItem(QStringLiteral("2 — 双模(串口+TCP)"), 2);
+    iec101BasicGrid->addWidget(new QLabel(QStringLiteral("连接模式:"), this), 0, 0);
+    iec101BasicGrid->addWidget(m_iec101CommModeCombo, 0, 1);
+
+    m_iec101ComAddrEdit = new QLineEdit(this);
+    m_iec101ComAddrEdit->setPlaceholderText(QStringLiteral("IEC101 链路地址，例如 63"));
+    iec101BasicGrid->addWidget(new QLabel(QStringLiteral("链路地址:"), this), 0, 2);
+    iec101BasicGrid->addWidget(m_iec101ComAddrEdit, 0, 3);
+    iec101BasicGrid->setColumnStretch(1, 1);
+    iec101BasicGrid->setColumnStretch(3, 1);
+
+    iec101Layout->addWidget(iec101BasicFrame);
+
+    // ---- 串口连接参数 ----
+    m_iec101SerialParamsGroup = new QGroupBox(QStringLiteral("串口连接参数"), this);
+    auto *iec101SerialGrid = new QGridLayout(m_iec101SerialParamsGroup);
+    iec101SerialGrid->setContentsMargins(8, 12, 8, 6);
+    iec101SerialGrid->setHorizontalSpacing(24);
+    iec101SerialGrid->setVerticalSpacing(6);
+
+    m_iec101UsartNameEdit = new QLineEdit(this);
+    m_iec101UsartNameEdit->setPlaceholderText(QStringLiteral("例如 /dev/ttyS13"));
+    iec101SerialGrid->addWidget(new QLabel(QStringLiteral("串口名:"), this), 0, 0);
+    iec101SerialGrid->addWidget(m_iec101UsartNameEdit, 0, 1, 1, 3);
+
+    m_iec101BaudrateCombo = new QComboBox(this);
+    m_iec101BaudrateCombo->setEditable(true);
+    m_iec101BaudrateCombo->addItems({
+        QStringLiteral("1200"),
+        QStringLiteral("2400"),
+        QStringLiteral("4800"),
+        QStringLiteral("9600"),
+        QStringLiteral("19200"),
+        QStringLiteral("38400"),
+        QStringLiteral("57600"),
+        QStringLiteral("115200")
+    });
+    iec101SerialGrid->addWidget(new QLabel(QStringLiteral("波特率:"), this), 1, 0);
+    iec101SerialGrid->addWidget(m_iec101BaudrateCombo, 1, 1);
+
+    m_iec101DataBitCombo = new QComboBox(this);
+    m_iec101DataBitCombo->addItems({QStringLiteral("5"), QStringLiteral("6"), QStringLiteral("7"), QStringLiteral("8")});
+    m_iec101DataBitCombo->setCurrentIndex(3); // 默认 8
+    iec101SerialGrid->addWidget(new QLabel(QStringLiteral("数据位:"), this), 1, 2);
+    iec101SerialGrid->addWidget(m_iec101DataBitCombo, 1, 3);
+
+    m_iec101StopBitCombo = new QComboBox(this);
+    m_iec101StopBitCombo->addItems({QStringLiteral("1"), QStringLiteral("1.5"), QStringLiteral("2")});
+    iec101SerialGrid->addWidget(new QLabel(QStringLiteral("停止位:"), this), 2, 0);
+    iec101SerialGrid->addWidget(m_iec101StopBitCombo, 2, 1);
+
+    m_iec101ParityCombo = new QComboBox(this);
+    m_iec101ParityCombo->addItems({
+        QStringLiteral("None"),
+        QStringLiteral("Odd"),
+        QStringLiteral("Even"),
+        QStringLiteral("Mark"),
+        QStringLiteral("Space")
+    });
+    iec101SerialGrid->addWidget(new QLabel(QStringLiteral("校验:"), this), 2, 2);
+    iec101SerialGrid->addWidget(m_iec101ParityCombo, 2, 3);
+    iec101SerialGrid->setColumnStretch(1, 1);
+    iec101SerialGrid->setColumnStretch(3, 1);
+
+    iec101Layout->addWidget(m_iec101SerialParamsGroup);
+
+    // ---- 协议参数 ----
+    auto *iec101ProtoFrame = new QFrame(this);
+    iec101ProtoFrame->setFrameShape(QFrame::StyledPanel);
+    auto *iec101ProtoGrid = new QGridLayout(iec101ProtoFrame);
+    iec101ProtoGrid->setContentsMargins(8, 6, 8, 6);
+    iec101ProtoGrid->setHorizontalSpacing(24);
+    iec101ProtoGrid->setVerticalSpacing(6);
+
+    m_iec101CotCombo = new QComboBox(this);
+    m_iec101CotCombo->addItem(QStringLiteral("1"), 1);
+    m_iec101CotCombo->addItem(QStringLiteral("2"), 2);
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("传送原因 COT 字节数:"), this), 0, 0);
+    iec101ProtoGrid->addWidget(m_iec101CotCombo, 0, 1);
+
+    m_iec101CaCombo = new QComboBox(this);
+    m_iec101CaCombo->addItem(QStringLiteral("1"), 1);
+    m_iec101CaCombo->addItem(QStringLiteral("2"), 2);
+    m_iec101CaCombo->setCurrentIndex(1); // 默认 2
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("公共地址 CA 字节数:"), this), 0, 2);
+    iec101ProtoGrid->addWidget(m_iec101CaCombo, 0, 3);
+
+    m_iec101IoaCombo = new QComboBox(this);
+    m_iec101IoaCombo->addItem(QStringLiteral("1"), 1);
+    m_iec101IoaCombo->addItem(QStringLiteral("2"), 2);
+    m_iec101IoaCombo->setCurrentIndex(1); // 默认 2
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("信息对象地址 IOA 字节数:"), this), 1, 0);
+    iec101ProtoGrid->addWidget(m_iec101IoaCombo, 1, 1);
+
+    m_iec101LinkAddrCombo = new QComboBox(this);
+    m_iec101LinkAddrCombo->addItem(QStringLiteral("1"), 1);
+    m_iec101LinkAddrCombo->addItem(QStringLiteral("2"), 2);
+    m_iec101LinkAddrCombo->setCurrentIndex(1); // 默认 2
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("链路地址字节数:"), this), 1, 2);
+    iec101ProtoGrid->addWidget(m_iec101LinkAddrCombo, 1, 3);
+
+    m_iec101TelecontrolTypeCombo = new QComboBox(this);
+    m_iec101TelecontrolTypeCombo->addItem(QStringLiteral("（空）"), QString());
+    m_iec101TelecontrolTypeCombo->addItem(QStringLiteral("单命令"), QStringLiteral("单命令"));
+    m_iec101TelecontrolTypeCombo->addItem(QStringLiteral("双命令"), QStringLiteral("双命令"));
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥控类型:"), this), 2, 0);
+    iec101ProtoGrid->addWidget(m_iec101TelecontrolTypeCombo, 2, 1);
+
+    m_iec101TelemetryTypeCombo = new QComboBox(this);
+    m_iec101TelemetryTypeCombo->addItem(QStringLiteral("（空）"), QString());
+    m_iec101TelemetryTypeCombo->addItem(QStringLiteral("归一化值"), QStringLiteral("归一化值"));
+    m_iec101TelemetryTypeCombo->addItem(QStringLiteral("短浮点数"), QStringLiteral("短浮点数"));
+    m_iec101TelemetryTypeCombo->addItem(QStringLiteral("标度化值"), QStringLiteral("标度化值"));
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥测类型:"), this), 2, 2);
+    iec101ProtoGrid->addWidget(m_iec101TelemetryTypeCombo, 2, 3);
+
+    m_iec101SequenceCombo = new QComboBox(this);
+    m_iec101SequenceCombo->addItem(QStringLiteral("0 — 逐点发送"), 0);
+    m_iec101SequenceCombo->addItem(QStringLiteral("1 — 连续地址批量打包"), 1);
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("总召唤模式:"), this), 3, 0);
+    iec101ProtoGrid->addWidget(m_iec101SequenceCombo, 3, 1);
+
+    m_iec101YxUseDoubleValueCombo = new QComboBox(this);
+    m_iec101YxUseDoubleValueCombo->addItem(QStringLiteral("0 — 不转换"), 0);
+    m_iec101YxUseDoubleValueCombo->addItem(QStringLiteral("1 — 转为双点标准格式"), 1);
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥信双点转换:"), this), 3, 2);
+    iec101ProtoGrid->addWidget(m_iec101YxUseDoubleValueCombo, 3, 3);
+
+    m_iec101YxAllSTransDFlagCombo = new QComboBox(this);
+    m_iec101YxAllSTransDFlagCombo->addItem(QStringLiteral("0 — 不转换"), 0);
+    m_iec101YxAllSTransDFlagCombo->addItem(QStringLiteral("1 — 双命令值转双点格式"), 1);
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("双命令遥信转换:"), this), 4, 0);
+    iec101ProtoGrid->addWidget(m_iec101YxAllSTransDFlagCombo, 4, 1);
+    iec101ProtoGrid->setColumnStretch(1, 1);
+    iec101ProtoGrid->setColumnStretch(3, 1);
+
+    iec101Layout->addWidget(iec101ProtoFrame);
+
+    // ---- 点表 meas_points ----
+    auto *iec101PointsFrame = new QFrame(this);
+    iec101PointsFrame->setFrameShape(QFrame::StyledPanel);
+    auto *iec101PointsLayout = new QVBoxLayout(iec101PointsFrame);
+    iec101PointsLayout->setContentsMargins(8, 8, 8, 6);
+    iec101PointsLayout->setSpacing(6);
+
+    auto *iec101PointsHeader = new QHBoxLayout();
+    auto *iec101PointsTitle = new QLabel(QStringLiteral("点表（来自南向设备）"), this);
+    QFont boldFont = iec101PointsTitle->font();
+    boldFont.setBold(true);
+    iec101PointsTitle->setFont(boldFont);
+    iec101PointsHeader->addWidget(iec101PointsTitle);
+    iec101PointsHeader->addStretch();
+    m_refreshIec101PointsBtn = new QPushButton(QStringLiteral("从设备刷新点位"), this);
+    iec101PointsHeader->addWidget(m_refreshIec101PointsBtn);
+    iec101PointsLayout->addLayout(iec101PointsHeader);
+
+    // 筛选栏
+    auto *iec101FilterRow = new QHBoxLayout();
+    m_iec101PointFilterTabBar = new QTabBar(this);
+    m_iec101PointFilterTabBar->addTab(QStringLiteral("全部"));
+    m_iec101PointFilterTabBar->addTab(QStringLiteral("遥测"));
+    m_iec101PointFilterTabBar->addTab(QStringLiteral("遥信"));
+    m_iec101PointFilterTabBar->addTab(QStringLiteral("控制"));
+    m_iec101PointFilterTabBar->setExpanding(false);
+    m_iec101PointFilterTabBar->setCurrentIndex(0);
+    iec101FilterRow->addWidget(m_iec101PointFilterTabBar);
+    iec101FilterRow->addStretch();
+    m_iec101PointDataRefFilterEdit = new QLineEdit(this);
+    m_iec101PointDataRefFilterEdit->setPlaceholderText(QStringLiteral("筛选 DataRef..."));
+    m_iec101PointDataRefFilterEdit->setClearButtonEnabled(true);
+    m_iec101PointDataRefFilterEdit->setFixedWidth(220);
+    iec101FilterRow->addWidget(m_iec101PointDataRefFilterEdit);
+    m_iec101PointDescriptionFilterEdit = new QLineEdit(this);
+    m_iec101PointDescriptionFilterEdit->setPlaceholderText(QStringLiteral("筛选 Description..."));
+    m_iec101PointDescriptionFilterEdit->setClearButtonEnabled(true);
+    m_iec101PointDescriptionFilterEdit->setFixedWidth(180);
+    iec101FilterRow->addWidget(m_iec101PointDescriptionFilterEdit);
+    iec101PointsLayout->addLayout(iec101FilterRow);
+
+    m_iec101PointsTable = new QTableWidget(0, 7, this);
+    m_iec101PointsTable->setHorizontalHeaderLabels({
+        QStringLiteral("启用"),
+        QStringLiteral("DeviceId"),
+        QStringLiteral("DataRef"),
+        QStringLiteral("Description"),
+        QStringLiteral("北向101地址"),
+        QStringLiteral("死区类型"),
+        QStringLiteral("死区值")
+    });
+    m_iec101PointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
+    m_iec101PointsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
+    m_iec101PointsTable->setSelectionMode(QAbstractItemView::ContiguousSelection);
+    m_iec101PointsTable->setAlternatingRowColors(true);
+    m_iec101PointsTable->verticalHeader()->setVisible(false);
+    m_iec101PointsTable->horizontalHeader()->setStretchLastSection(true);
+    m_iec101PointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_iec101PointsTable->setColumnWidth(0, 50);
+    m_iec101PointsTable->setColumnWidth(1, 130);
+    m_iec101PointsTable->setColumnWidth(2, 220);
+    m_iec101PointsTable->setColumnWidth(3, 150);
+    m_iec101PointsTable->setColumnWidth(4, 100);
+    m_iec101PointsTable->setColumnWidth(5, 130);
+    iec101PointsLayout->addWidget(m_iec101PointsTable, 1);
+
+    iec101Layout->addWidget(iec101PointsFrame, 1);
+
+    // ---- 连接信号 ----
+    connect(m_iec101CommModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onIec101CommModeChanged);
+    connect(m_refreshIec101PointsBtn, &QPushButton::clicked,
+            this, &MainWindow::onRefreshIec101PointsClicked);
+    connect(m_iec101PointsTable, &QTableWidget::itemChanged,
+            this, &MainWindow::onIec101PointItemChanged);
+    connect(m_iec101PointFilterTabBar, &QTabBar::currentChanged,
+            this, &MainWindow::onIec101PointFilterChanged);
+    connect(m_iec101PointDataRefFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onIec101PointFilterTextChanged);
+    connect(m_iec101PointDescriptionFilterEdit, &QLineEdit::textChanged,
+            this, &MainWindow::onIec101PointFilterTextChanged);
+
+    // 初始化连接参数显隐（默认选中 TCP=index 1）
+    m_iec101CommModeCombo->setCurrentIndex(1);
+    onIec101CommModeChanged(1);
+
     m_mainTabWidget->addTab(m_configPage, "配置概览");
-    m_mainTabWidget->addTab(m_configIssuePage, "问题列表");
+    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("程序控制"));
+    m_mainTabWidget->addTab(debugPage, "调试控制");
+    m_mainTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101配置"));
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
     m_mainTabWidget->addTab(m_logicCenterPage, "逻辑中心");
@@ -1672,6 +1915,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
     m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");
     m_mainTabWidget->addTab(m_logicOnlineLinkPage, "在线联动");
+    m_mainTabWidget->addTab(m_configIssuePage, "问题列表");
 
     setCentralWidget(central);
 
@@ -1939,10 +2183,14 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this]() { pasteClipboardIntoModelPointsTable(); });
     connect(new QShortcut(QKeySequence::Paste, m_deviceBindingsTable), &QShortcut::activated,
             this, [this]() { pasteClipboardIntoDeviceBindingsTable(); });
+    connect(new QShortcut(QKeySequence::Paste, m_iec101PointsTable), &QShortcut::activated,
+            this, [this]() { pasteClipboardIntoIec101PointsTable(); });
     connect(new QShortcut(QKeySequence::Undo, m_modelPointsTable), &QShortcut::activated,
             this, [this]() { undoLastConfigEdit(); });
     connect(new QShortcut(QKeySequence::Undo, m_deviceBindingsTable), &QShortcut::activated,
             this, [this]() { undoLastConfigEdit(); });
+    connect(new QShortcut(QKeySequence::Undo, m_iec101PointsTable), &QShortcut::activated,
+            this, [this]() { undoIec101PointsLastEdit(); });
     connect(m_dataTable, &QWidget::customContextMenuRequested, this,
             [this](const QPoint &position) {
                 QMenu menu(this);
