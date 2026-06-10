@@ -1622,20 +1622,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_programRemotePortEdit->setMaximumWidth(120);
     programConnectionRow->addWidget(m_programRemotePortEdit);
 
-    programConnectionRow->addStretch();
     m_connectProgramControlBtn = new QPushButton(QStringLiteral("连接"), this);
     m_disconnectProgramControlBtn = new QPushButton(QStringLiteral("断开"), this);
     m_disconnectProgramControlBtn->setEnabled(false);
     programConnectionRow->addWidget(m_connectProgramControlBtn);
     programConnectionRow->addWidget(m_disconnectProgramControlBtn);
-    programControlLayout->addLayout(programConnectionRow);
 
-    auto *programControlToolbar = new QHBoxLayout();
-    programControlToolbar->addStretch();
     m_refreshProgramStatusBtn = new QPushButton(QStringLiteral("刷新状态"), this);
     m_refreshProgramStatusBtn->setEnabled(false);
-    programControlToolbar->addWidget(m_refreshProgramStatusBtn);
-    programControlLayout->addLayout(programControlToolbar);
+    programConnectionRow->addWidget(m_refreshProgramStatusBtn);
+
+    programConnectionRow->addStretch();
+    programControlLayout->addLayout(programConnectionRow);
 
     m_programControlTable = new QTableWidget(0, 7, this);
     m_programControlTable->setHorizontalHeaderLabels({

@@ -320,6 +320,7 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
     switch (kind) {
     case ProgramControlCommandKind::Verify:
         statusBar()->showMessage(QStringLiteral("程序控制 SSH 已连接"), 5000);
+        startProgramStatusRefresh();
         break;
     case ProgramControlCommandKind::RefreshStatus:
         refreshProgramControlTable(output);
