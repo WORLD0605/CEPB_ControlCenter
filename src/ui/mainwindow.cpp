@@ -1985,7 +1985,14 @@ MainWindow::MainWindow(QWidget *parent)
     applyCurrentAppView();
     m_navigationCurrentState = currentNavigationState();
     connect(m_mainTabWidget, &QTabWidget::currentChanged,
-            this, [this](int) { recordNavigationState(); });
+            this, [this](int) {
+                if (m_mainTabWidget->currentWidget() == m_deviceEditorPage) {
+                    const int deviceIndex = currentConfigDeviceIndex();
+                    refreshDeviceDetail(deviceIndex);
+                    refreshDeviceEditor(deviceIndex);
+                }
+                recordNavigationState();
+            });
     connect(m_contentStack, &QStackedWidget::currentChanged,
             this, [this](int) { recordNavigationState(); });
     if (QApplication::instance()) {
