@@ -239,6 +239,9 @@ private:
     void clearIec101ConfigPage();
     void refreshIec101PointsFromDevices(const QHash<QString, QJsonObject> &savedPointSettings = {});
     void applyIec101PointsFilter();
+    QSet<QString> checkIec101DuplicateAddresses() const;
+    QStringList checkIec101AddressRangeErrors() const;
+    void highlightIec101DuplicateAddresses();
     QString configBrowseStartDir() const;
     QStringList configTransferRelativePaths(const QString &projectRoot) const;
     QString configRemoteTarget() const;
@@ -364,8 +367,10 @@ private:
     QList<QPair<int, int>> m_navigationForwardStack;
     int m_logicComputationDragRow = -1;
     int m_modelPointDragRow = -1;
+    int m_iec101PointDragRow = -1;
     QFrame *m_modelPointDropLine = nullptr;
     QFrame *m_logicComputationDropLine = nullptr;
+    QFrame *m_iec101PointDropLine = nullptr;
     QList<configtool::ConfigProject> m_configUndoStack;
     QList<QJsonObject> m_iec101PointsUndoStack;
     QProcess *m_programControlShell = nullptr;
@@ -584,6 +589,7 @@ private:
     QLineEdit *m_iec101PointDescriptionFilterEdit = nullptr;
     QTableWidget *m_iec101PointsTable = nullptr;
     QPushButton *m_refreshIec101PointsBtn = nullptr;
+    QLabel *m_iec101ValidationLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
     QPushButton *m_themeToggleBtn = nullptr;
     QLabel *m_versionLabel = nullptr;

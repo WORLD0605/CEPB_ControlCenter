@@ -190,6 +190,12 @@ void MainWindow::navigateToConfigIssue(int row)
         m_mainTabWidget->setCurrentWidget(m_logicAgcAvcPage);
         statusBar()->showMessage(QStringLiteral("已进入 AGC/AVC 页面"), 5000);
         return;
+    } else if (targetType == QStringLiteral("iec101")) {
+        if (m_iec101ConfigPage) {
+            m_mainTabWidget->setCurrentWidget(m_iec101ConfigPage);
+            statusBar()->showMessage(QStringLiteral("已进入 IEC101 配置页面，请检查点表地址。"), 5000);
+            return;
+        }
     }
 
     m_mainTabWidget->setCurrentWidget(m_configIssuePage);
@@ -1815,6 +1821,163 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             refreshLogicComputationPointPage();
             m_logicComputationPointTable->selectRow(destinationRow);
             statusBar()->showMessage(QStringLiteral("已调整计算点顺序"), 5000);
+
+            dropEvent->setDropAction(Qt::CopyAction);
+            dropEvent->accept();
+            return true;
+        }
+    }
+
+    if (m_iec101PointsTable
+        && watched == m_iec101PointsTable->viewport()) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto *mouseEvent = static_cast<QMouseEvent *>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                const int pressedColumn = m_iec101PointsTable->columnAt(mouseEvent->pos().x());
+                const bool canDragRow = pressedColumn == Iec101PointColumnDragHandle;
+                m_iec101PointsTable->setDragEnabled(canDragRow);
+                m_iec101PointDragRow = canDragRow
+                    ? m_iec101PointsTable->rowAt(mouseEvent->pos().y())
+                    : -1;
+            }
+        } else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            auto *dragEvent = static_cast<QDropEvent *>(event);
+            if (m_iec101PointDragRow >= 0) {
+                showDropLine(m_iec101PointsTable,
+                             m_iec101PointDropLine,
+                             insertRowAt(m_iec101PointsTable, dropPosition(dragEvent)));
+                dragEvent->setDropAction(Qt::CopyAction);
+                dragEvent->accept();
+                return true;
+            }
+        } else if (event->type() == QEvent::DragLeave) {
+            hideDropLine(m_iec101PointDropLine);
+            m_iec101PointsTable->setDragEnabled(false);
+            m_iec101PointDragRow = -1;
+        } else if (event->type() == QEvent::Drop) {
+            auto *dropEvent = static_cast<QDropEvent *>(event);
+            hideDropLine(m_iec101PointDropLine);
+            m_iec101PointsTable->setDragEnabled(false);
+
+            const int sourceRow = m_iec101PointDragRow;
+            m_iec101PointDragRow = -1;
+            if (sourceRow < 0 || sourceRow >= m_iec101PointsTable->rowCount()) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            const int insertRow = qBound(0,
+                                         insertRowAt(m_iec101PointsTable, dropPosition(dropEvent)),
+                                         m_iec101PointsTable->rowCount());
+            const int destinationRow = insertRow > sourceRow ? insertRow - 1 : insertRow;
+            if (destinationRow < 0
+                || destinationRow >= m_iec101PointsTable->rowCount()
+                || destinationRow == sourceRow
+                || m_iec101PointsTable->rowCount() < 2) {
+                dropEvent->setDropAction(Qt::CopyAction);
+                dropEvent->accept();
+                return true;
+            }
+
+            pushIec101PointsUndoSnapshot();
+
+            // 收集所有行的数据（从旧表格中提取，之后清空重建）
+            struct RowSnapshot {
+                QString deviceId;
+                QString dataRef;
+                QString description;
+                int category = 0;
+                bool enabled = true;
+                QString deviceaddr;
+                QString deathzoneType = QStringLiteral("0");
+                QString deathzone = QStringLiteral("0.2");
+            };
+            QList<RowSnapshot> allRows;
+            allRows.reserve(m_iec101PointsTable->rowCount());
+            for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+                RowSnapshot rs;
+                rs.deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+                    ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+                rs.dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+                    ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
+                rs.description = m_iec101PointsTable->item(row, Iec101PointColumnDescription)
+                    ? m_iec101PointsTable->item(row, Iec101PointColumnDescription)->text().trimmed() : QString();
+                QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+                rs.category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
+                rs.enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
+                rs.deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
+                    ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed() : QString();
+                QWidget *w = m_iec101PointsTable->cellWidget(row, Iec101PointColumnDeadzoneType);
+                if (auto *combo = qobject_cast<QComboBox *>(w)) {
+                    rs.deathzoneType = combo->currentData().toString();
+                }
+                rs.deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
+                    ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed() : QStringLiteral("0.2");
+                allRows.append(rs);
+            }
+
+            // 移动数据
+            allRows.move(sourceRow, destinationRow);
+
+            // 完全重建表格（安全：旧 item/widget 被 Qt 正确删除，无残留状态）
+            m_iec101PointsTable->blockSignals(true);
+            m_iec101PointsTable->setRowCount(0);
+
+            for (const RowSnapshot &rs : allRows) {
+                const int row = m_iec101PointsTable->rowCount();
+                m_iec101PointsTable->insertRow(row);
+
+                // Col 0: 拖动手柄
+                auto *handleItem = new QTableWidgetItem(QStringLiteral("⋮"));
+                handleItem->setTextAlignment(Qt::AlignCenter);
+                handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
+                handleItem->setForeground(QColor(QStringLiteral("#9a9a9a")));
+                handleItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+                m_iec101PointsTable->setItem(row, Iec101PointColumnDragHandle, handleItem);
+
+                // Col 1: 启用
+                auto *checkItem = new QTableWidgetItem();
+                checkItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
+                checkItem->setCheckState(rs.enabled ? Qt::Checked : Qt::Unchecked);
+                checkItem->setData(Qt::UserRole, rs.category);
+                m_iec101PointsTable->setItem(row, Iec101PointColumnEnabled, checkItem);
+
+                // Col 2: DeviceId
+                auto *devIdItem = new QTableWidgetItem(rs.deviceId);
+                devIdItem->setFlags(devIdItem->flags() & ~Qt::ItemIsEditable);
+                m_iec101PointsTable->setItem(row, Iec101PointColumnDeviceId, devIdItem);
+
+                // Col 3: DataRef
+                auto *dataRefItem = new QTableWidgetItem(rs.dataRef);
+                dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+                m_iec101PointsTable->setItem(row, Iec101PointColumnDataRef, dataRefItem);
+
+                // Col 4: Description
+                auto *descItem = new QTableWidgetItem(rs.description);
+                descItem->setFlags(descItem->flags() & ~Qt::ItemIsEditable);
+                m_iec101PointsTable->setItem(row, Iec101PointColumnDescription, descItem);
+
+                // Col 5: 北向101地址
+                m_iec101PointsTable->setItem(row, Iec101PointColumnAddress, new QTableWidgetItem(rs.deviceaddr));
+
+                // Col 6: 死区类型
+                auto *dzTypeCombo = new QComboBox();
+                dzTypeCombo->addItem(QStringLiteral("0 — 百分比"), QStringLiteral("0"));
+                dzTypeCombo->addItem(QStringLiteral("1 — 固定值"), QStringLiteral("1"));
+                const int dzTypeIdx = dzTypeCombo->findData(rs.deathzoneType);
+                dzTypeCombo->setCurrentIndex(dzTypeIdx >= 0 ? dzTypeIdx : 0);
+                m_iec101PointsTable->setCellWidget(row, Iec101PointColumnDeadzoneType, dzTypeCombo);
+
+                // Col 7: 死区值
+                m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(rs.deathzone));
+            }
+
+            m_iec101PointsTable->blockSignals(false);
+            applyIec101PointsFilter();
+            m_iec101PointsTable->selectRow(destinationRow);
+            highlightIec101DuplicateAddresses();
+            statusBar()->showMessage(QStringLiteral("已调整 IEC101 点表顺序"), 5000);
 
             dropEvent->setDropAction(Qt::CopyAction);
             dropEvent->accept();

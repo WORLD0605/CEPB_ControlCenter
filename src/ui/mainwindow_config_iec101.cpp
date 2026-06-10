@@ -33,26 +33,26 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
     };
     QHash<QString, PointSettings> existingSettings;
     for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
-        const QString deviceId = m_iec101PointsTable->item(row, 1)
-            ? m_iec101PointsTable->item(row, 1)->text().trimmed() : QString();
-        const QString dataRef = m_iec101PointsTable->item(row, 2)
-            ? m_iec101PointsTable->item(row, 2)->text().trimmed() : QString();
+        const QString deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+        const QString dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
         if (deviceId.isEmpty() || dataRef.isEmpty()) {
             continue;
         }
         const QString key = deviceId + QStringLiteral("|") + dataRef;
         PointSettings s;
-        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, 0);
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
         s.enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
-        if (m_iec101PointsTable->item(row, 4)) {
-            s.deviceaddr = m_iec101PointsTable->item(row, 4)->text().trimmed();
+        if (m_iec101PointsTable->item(row, Iec101PointColumnAddress)) {
+            s.deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed();
         }
-        QWidget *w = m_iec101PointsTable->cellWidget(row, 5);
+        QWidget *w = m_iec101PointsTable->cellWidget(row, Iec101PointColumnDeadzoneType);
         if (auto *combo = qobject_cast<QComboBox *>(w)) {
             s.deathzoneType = combo->currentData().toString();
         }
-        if (m_iec101PointsTable->item(row, 6)) {
-            s.deathzone = m_iec101PointsTable->item(row, 6)->text().trimmed();
+        if (m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)) {
+            s.deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed();
         }
         existingSettings[key] = s;
     }
@@ -128,51 +128,65 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             deathzone = s.deathzone.isEmpty() ? QStringLiteral("0.2") : s.deathzone;
         }
 
-        // Col 0: 启用 (checkbox)
+        // Col 0: 拖动手柄
+        auto *handleItem = new QTableWidgetItem(QStringLiteral("⋮"));
+        handleItem->setTextAlignment(Qt::AlignCenter);
+        handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
+        handleItem->setForeground(QColor(QStringLiteral("#9a9a9a")));
+        handleItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDragHandle, handleItem);
+
+        // Col 1: 启用 (checkbox)
         auto *checkItem = new QTableWidgetItem();
         checkItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
         checkItem->setCheckState(enabled ? Qt::Checked : Qt::Unchecked);
         checkItem->setData(Qt::UserRole, dp.category);
-        m_iec101PointsTable->setItem(row, 0, checkItem);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnEnabled, checkItem);
 
-        // Col 1: DeviceId (read-only)
+        // Col 2: DeviceId (read-only)
         auto *devIdItem = new QTableWidgetItem(dp.deviceId);
         devIdItem->setFlags(devIdItem->flags() & ~Qt::ItemIsEditable);
-        m_iec101PointsTable->setItem(row, 1, devIdItem);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDeviceId, devIdItem);
 
-        // Col 2: DataRef (read-only)
+        // Col 3: DataRef (read-only)
         auto *dataRefItem = new QTableWidgetItem(dp.dataRef);
         dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
-        m_iec101PointsTable->setItem(row, 2, dataRefItem);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDataRef, dataRefItem);
 
-        // Col 3: Description (read-only)
+        // Col 4: Description (read-only)
         auto *descItem = new QTableWidgetItem(dp.description);
         descItem->setFlags(descItem->flags() & ~Qt::ItemIsEditable);
-        m_iec101PointsTable->setItem(row, 3, descItem);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDescription, descItem);
 
-        // Col 4: 北向101地址
-        m_iec101PointsTable->setItem(row, 4, new QTableWidgetItem(deviceaddr));
+        // Col 5: 北向101地址
+        m_iec101PointsTable->setItem(row, Iec101PointColumnAddress, new QTableWidgetItem(deviceaddr));
 
-        // Col 5: 死区类型 (QComboBox via setCellWidget)
+        // Col 6: 死区类型 (QComboBox via setCellWidget)
         auto *dzTypeCombo = new QComboBox();
         dzTypeCombo->addItem(QStringLiteral("0 — 百分比"), QStringLiteral("0"));
         dzTypeCombo->addItem(QStringLiteral("1 — 固定值"), QStringLiteral("1"));
         const int dzTypeIdx = dzTypeCombo->findData(deathzoneType);
         dzTypeCombo->setCurrentIndex(dzTypeIdx >= 0 ? dzTypeIdx : 0);
-        m_iec101PointsTable->setCellWidget(row, 5, dzTypeCombo);
+        m_iec101PointsTable->setCellWidget(row, Iec101PointColumnDeadzoneType, dzTypeCombo);
 
-        // Col 6: 死区值
-        m_iec101PointsTable->setItem(row, 6, new QTableWidgetItem(deathzone));
+        // Col 7: 死区值
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(deathzone));
     }
 
     m_iec101PointsTable->blockSignals(false);
     applyIec101PointsFilter();
+    highlightIec101DuplicateAddresses();
 }
 
 void MainWindow::onIec101PointItemChanged(QTableWidgetItem *item)
 {
-    Q_UNUSED(item);
-    // checkbox 通过 checkState 读取，combo 通过 cellWidget 读取，无需自动联动
+    if (!item) {
+        return;
+    }
+    // 当地址列或启用列变化时，刷新重复地址高亮
+    if (item->column() == Iec101PointColumnEnabled || item->column() == Iec101PointColumnAddress) {
+        highlightIec101DuplicateAddresses();
+    }
 }
 
 void MainWindow::onIec101PointFilterChanged(int /*index*/)
@@ -202,7 +216,7 @@ void MainWindow::applyIec101PointsFilter()
 
         // 分类筛选：tab 0=全部, 1=遥测(Measurement), 2=遥信(Status), 3=控制(Control)
         if (filterTab > 0) {
-            QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, 0);
+            QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
             const int category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
             // filterTab: 1→Measurement(0), 2→Status(1), 3→Control(2)
             if (category != filterTab - 1) {
@@ -212,7 +226,7 @@ void MainWindow::applyIec101PointsFilter()
 
         // DataRef 文本筛选
         if (visible && !dataRefKeyword.isEmpty()) {
-            QTableWidgetItem *dataRefItem = m_iec101PointsTable->item(row, 2);
+            QTableWidgetItem *dataRefItem = m_iec101PointsTable->item(row, Iec101PointColumnDataRef);
             const QString dataRef = dataRefItem ? dataRefItem->text() : QString();
             if (!dataRef.contains(dataRefKeyword, Qt::CaseInsensitive)) {
                 visible = false;
@@ -221,7 +235,7 @@ void MainWindow::applyIec101PointsFilter()
 
         // Description 文本筛选
         if (visible && !descKeyword.isEmpty()) {
-            QTableWidgetItem *descItem = m_iec101PointsTable->item(row, 3);
+            QTableWidgetItem *descItem = m_iec101PointsTable->item(row, Iec101PointColumnDescription);
             const QString desc = descItem ? descItem->text() : QString();
             if (!desc.contains(descKeyword, Qt::CaseInsensitive)) {
                 visible = false;
@@ -292,6 +306,7 @@ void MainWindow::pasteClipboardIntoIec101PointsTable()
     }
 
     m_iec101PointsTable->blockSignals(false);
+    highlightIec101DuplicateAddresses();
 }
 
 void MainWindow::pushIec101PointsUndoSnapshot()
@@ -304,16 +319,16 @@ void MainWindow::pushIec101PointsUndoSnapshot()
     QJsonArray rows;
     for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
         QJsonObject rowObj;
-        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, 0);
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
         rowObj[QStringLiteral("enabled")] = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
-        rowObj[QStringLiteral("deviceaddr")] = m_iec101PointsTable->item(row, 4)
-            ? m_iec101PointsTable->item(row, 4)->text() : QString();
-        QWidget *w = m_iec101PointsTable->cellWidget(row, 5);
+        rowObj[QStringLiteral("deviceaddr")] = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text() : QString();
+        QWidget *w = m_iec101PointsTable->cellWidget(row, Iec101PointColumnDeadzoneType);
         if (auto *combo = qobject_cast<QComboBox *>(w)) {
             rowObj[QStringLiteral("deathzone_type")] = combo->currentData().toString();
         }
-        rowObj[QStringLiteral("deathzone")] = m_iec101PointsTable->item(row, 6)
-            ? m_iec101PointsTable->item(row, 6)->text() : QString();
+        rowObj[QStringLiteral("deathzone")] = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text() : QString();
         rows.append(rowObj);
     }
     snapshot[QStringLiteral("rows")] = rows;
@@ -342,27 +357,30 @@ void MainWindow::undoIec101PointsLastEdit()
     for (int i = 0; i < rows.size() && i < m_iec101PointsTable->rowCount(); ++i) {
         const QJsonObject rowObj = rows.at(i).toObject();
 
-        QTableWidgetItem *checkItem = m_iec101PointsTable->item(i, 0);
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(i, Iec101PointColumnEnabled);
         if (checkItem) {
             checkItem->setCheckState(rowObj.value(QStringLiteral("enabled")).toBool(true)
                 ? Qt::Checked : Qt::Unchecked);
         }
 
-        if (m_iec101PointsTable->item(i, 4)) {
-            m_iec101PointsTable->item(i, 4)->setText(rowObj.value(QStringLiteral("deviceaddr")).toString());
+        if (m_iec101PointsTable->item(i, Iec101PointColumnAddress)) {
+            m_iec101PointsTable->item(i, Iec101PointColumnAddress)
+                ->setText(rowObj.value(QStringLiteral("deviceaddr")).toString());
         }
 
-        QWidget *w = m_iec101PointsTable->cellWidget(i, 5);
+        QWidget *w = m_iec101PointsTable->cellWidget(i, Iec101PointColumnDeadzoneType);
         if (auto *combo = qobject_cast<QComboBox *>(w)) {
             const int idx = combo->findData(rowObj.value(QStringLiteral("deathzone_type")).toString(QStringLiteral("0")));
             if (idx >= 0) combo->setCurrentIndex(idx);
         }
 
-        if (m_iec101PointsTable->item(i, 6)) {
-            m_iec101PointsTable->item(i, 6)->setText(rowObj.value(QStringLiteral("deathzone")).toString(QStringLiteral("0.2")));
+        if (m_iec101PointsTable->item(i, Iec101PointColumnDeadzone)) {
+            m_iec101PointsTable->item(i, Iec101PointColumnDeadzone)
+                ->setText(rowObj.value(QStringLiteral("deathzone")).toString(QStringLiteral("0.2")));
         }
     }
     m_iec101PointsTable->blockSignals(false);
+    highlightIec101DuplicateAddresses();
 
     statusBar()->showMessage(QStringLiteral("已撤回 IEC101 点表编辑"), 3000);
 }
@@ -416,19 +434,19 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
     if (m_iec101PointsTable) {
         for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
             // 检查启用标志
-            QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, 0);
+            QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
             if (checkItem && checkItem->checkState() != Qt::Checked) {
                 continue;
             }
 
-            const QString deviceId = m_iec101PointsTable->item(row, 1)
-                ? m_iec101PointsTable->item(row, 1)->text().trimmed() : QString();
-            const QString dataRef = m_iec101PointsTable->item(row, 2)
-                ? m_iec101PointsTable->item(row, 2)->text().trimmed() : QString();
-            const QString description = m_iec101PointsTable->item(row, 3)
-                ? m_iec101PointsTable->item(row, 3)->text().trimmed() : QString();
-            const QString deviceaddr = m_iec101PointsTable->item(row, 4)
-                ? m_iec101PointsTable->item(row, 4)->text().trimmed() : QString();
+            const QString deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+            const QString dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
+            const QString description = m_iec101PointsTable->item(row, Iec101PointColumnDescription)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnDescription)->text().trimmed() : QString();
+            const QString deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed() : QString();
 
             if (dataRef.isEmpty() || deviceaddr.isEmpty()) {
                 continue;
@@ -436,14 +454,14 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
 
             // 死区类型 — 从 cellWidget (QComboBox) 读取
             QString deathzoneType = QStringLiteral("0");
-            QWidget *w = m_iec101PointsTable->cellWidget(row, 5);
+            QWidget *w = m_iec101PointsTable->cellWidget(row, Iec101PointColumnDeadzoneType);
             if (auto *combo = qobject_cast<QComboBox *>(w)) {
                 deathzoneType = combo->currentData().toString();
             }
 
             // 死区值
-            const QString deathzone = m_iec101PointsTable->item(row, 6)
-                ? m_iec101PointsTable->item(row, 6)->text().trimmed() : QStringLiteral("0.2");
+            const QString deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed() : QStringLiteral("0.2");
 
             QJsonObject point;
             point[QStringLiteral("datafrom")] = QStringLiteral("4");
@@ -599,4 +617,221 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
 
     // 更新串口参数显隐
     onIec101CommModeChanged(m_iec101CommModeCombo->currentIndex());
+}
+
+QSet<QString> MainWindow::checkIec101DuplicateAddresses() const
+{
+    QSet<QString> duplicates;
+    if (!m_iec101PointsTable) {
+        return duplicates;
+    }
+
+    QHash<QString, int> addressCount;
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        // 只检查启用的行
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+        if (!checkItem || checkItem->checkState() != Qt::Checked) {
+            continue;
+        }
+        // 读取北向101地址
+        QTableWidgetItem *addrItem = m_iec101PointsTable->item(row, Iec101PointColumnAddress);
+        const QString addr = addrItem ? addrItem->text().trimmed() : QString();
+        if (addr.isEmpty()) {
+            continue;
+        }
+        ++addressCount[addr];
+    }
+
+    for (auto it = addressCount.begin(); it != addressCount.end(); ++it) {
+        if (it.value() > 1) {
+            duplicates.insert(it.key());
+        }
+    }
+    return duplicates;
+}
+
+static int iec101ParseAddress(const QString &text, bool *ok = nullptr)
+{
+    if (ok) *ok = false;
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
+        return -1;
+    }
+    // 支持 0x 前缀的十六进制
+    if (trimmed.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)
+        || trimmed.startsWith(QStringLiteral("0X"), Qt::CaseInsensitive)) {
+        const int val = trimmed.mid(2).toInt(ok, 16);
+        return val;
+    }
+    // 纯数字按十进制解析
+    const int val = trimmed.toInt(ok, 10);
+    return val;
+}
+
+static QString iec101CategoryDisplayName(int category)
+{
+    switch (category) {
+    case 0: return QStringLiteral("遥测");
+    case 1: return QStringLiteral("遥信");
+    case 2: return QStringLiteral("遥控/遥调");
+    default: return QStringLiteral("未知");
+    }
+}
+
+// 根据点位类型获取期望的地址范围：
+//   遥信       0x0001 - 0x3FFF
+//   遥测       0x4001 - 0x5FFF
+//   遥控/遥调  0x6001 - 0x7FFF
+static void iec101ExpectedAddressRange(int category, int *minAddr, int *maxAddr)
+{
+    switch (category) {
+    case 1: // 遥信
+        *minAddr = 0x0001;
+        *maxAddr = 0x3FFF;
+        break;
+    case 0: // 遥测
+        *minAddr = 0x4001;
+        *maxAddr = 0x5FFF;
+        break;
+    case 2: // 遥控/遥调
+        *minAddr = 0x6001;
+        *maxAddr = 0x7FFF;
+        break;
+    default:
+        *minAddr = 0;
+        *maxAddr = 0x7FFF;
+        break;
+    }
+}
+
+QStringList MainWindow::checkIec101AddressRangeErrors() const
+{
+    QStringList errors;
+    if (!m_iec101PointsTable) {
+        return errors;
+    }
+
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        // 只检查启用的行
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+        if (!checkItem || checkItem->checkState() != Qt::Checked) {
+            continue;
+        }
+        const int category = checkItem->data(Qt::UserRole).toInt();
+
+        // 读取北向101地址
+        QTableWidgetItem *addrItem = m_iec101PointsTable->item(row, Iec101PointColumnAddress);
+        const QString addrText = addrItem ? addrItem->text().trimmed() : QString();
+        if (addrText.isEmpty()) {
+            continue;
+        }
+
+        bool ok = false;
+        const int addr = iec101ParseAddress(addrText, &ok);
+        if (!ok) {
+            continue;
+        }
+
+        int minAddr = 0;
+        int maxAddr = 0x7FFF;
+        iec101ExpectedAddressRange(category, &minAddr, &maxAddr);
+
+        if (addr < minAddr || addr > maxAddr) {
+            const QString deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+            const QString dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+                ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
+            const QString catName = iec101CategoryDisplayName(category);
+            errors.append(QStringLiteral("%1/%2 地址 %3（0x%4）不在%5期望范围 0x%6 - 0x%7")
+                .arg(deviceId.isEmpty() ? QStringLiteral("?") : deviceId,
+                     dataRef.isEmpty() ? QStringLiteral("?") : dataRef,
+                     addrText,
+                     QString::number(addr, 16).toUpper().rightJustified(4, QLatin1Char('0')),
+                     catName,
+                     QString::number(minAddr, 16).toUpper().rightJustified(4, QLatin1Char('0')),
+                     QString::number(maxAddr, 16).toUpper().rightJustified(4, QLatin1Char('0'))));
+        }
+    }
+    return errors;
+}
+
+void MainWindow::highlightIec101DuplicateAddresses()
+{
+    if (!m_iec101PointsTable) {
+        return;
+    }
+
+    const QSet<QString> duplicates = checkIec101DuplicateAddresses();
+    const QStringList rangeErrors = checkIec101AddressRangeErrors();
+    const QColor duplicateColor(QStringLiteral("#c0392b"));
+    const QColor rangeErrorColor(QStringLiteral("#b9770e"));
+    const QColor normalColor = m_iec101PointsTable->palette().text().color();
+
+    // 扫描每行，收集范围错误行号
+    QSet<int> rangeErrorRows;
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+        if (!checkItem || checkItem->checkState() != Qt::Checked) {
+            continue;
+        }
+        const int category = checkItem->data(Qt::UserRole).toInt();
+        QTableWidgetItem *addrItem = m_iec101PointsTable->item(row, Iec101PointColumnAddress);
+        const QString addrText = addrItem ? addrItem->text().trimmed() : QString();
+        if (addrText.isEmpty()) {
+            continue;
+        }
+        bool ok = false;
+        const int addr = iec101ParseAddress(addrText, &ok);
+        if (!ok) {
+            continue;
+        }
+        int minAddr = 0;
+        int maxAddr = 0x7FFF;
+        iec101ExpectedAddressRange(category, &minAddr, &maxAddr);
+        if (addr < minAddr || addr > maxAddr) {
+            rangeErrorRows.insert(row);
+        }
+    }
+
+    // 遍历所有行，着色
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+        const bool enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
+        QTableWidgetItem *addrItem = m_iec101PointsTable->item(row, Iec101PointColumnAddress);
+        const QString addr = addrItem ? addrItem->text().trimmed() : QString();
+        const bool isDuplicate = enabled && !addr.isEmpty() && duplicates.contains(addr);
+        const bool isRangeError = rangeErrorRows.contains(row);
+
+        // 着色北向101地址列：重复 > 范围错误 > 正常
+        if (addrItem) {
+            if (isDuplicate) {
+                addrItem->setForeground(duplicateColor);
+            } else if (isRangeError) {
+                addrItem->setForeground(rangeErrorColor);
+            } else {
+                addrItem->setForeground(normalColor);
+            }
+        }
+    }
+
+    // 更新校验标签
+    if (m_iec101ValidationLabel) {
+        QStringList messages;
+        if (!duplicates.isEmpty()) {
+            messages << QStringLiteral("重复地址：%1").arg(
+                QStringList(duplicates.begin(), duplicates.end()).join(QStringLiteral("，")));
+        }
+        if (!rangeErrors.isEmpty()) {
+            messages << QStringLiteral("地址范围异常（%1处）").arg(rangeErrors.size());
+        }
+
+        if (!messages.isEmpty()) {
+            m_iec101ValidationLabel->setStyleSheet(QStringLiteral("QLabel { color: #c0392b; }"));
+            m_iec101ValidationLabel->setText(
+                QStringLiteral("⚠ %1。请修正后再导出。").arg(messages.join(QStringLiteral("；"))));
+        } else {
+            m_iec101ValidationLabel->setStyleSheet(QStringLiteral("QLabel { color: #2e7d32; }"));
+            m_iec101ValidationLabel->setText(QStringLiteral("✓ 当前地址分配未发现问题。"));
+        }
+    }
 }

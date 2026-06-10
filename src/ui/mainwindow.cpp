@@ -1865,8 +1865,9 @@ MainWindow::MainWindow(QWidget *parent)
     iec101FilterRow->addWidget(m_iec101PointDescriptionFilterEdit);
     iec101PointsLayout->addLayout(iec101FilterRow);
 
-    m_iec101PointsTable = new QTableWidget(0, 7, this);
+    m_iec101PointsTable = new QTableWidget(0, 8, this);
     m_iec101PointsTable->setHorizontalHeaderLabels({
+        QString(),
         QStringLiteral("启用"),
         QStringLiteral("DeviceId"),
         QStringLiteral("DataRef"),
@@ -1882,13 +1883,34 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101PointsTable->verticalHeader()->setVisible(false);
     m_iec101PointsTable->horizontalHeader()->setStretchLastSection(true);
     m_iec101PointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_iec101PointsTable->setColumnWidth(0, 50);
-    m_iec101PointsTable->setColumnWidth(1, 130);
-    m_iec101PointsTable->setColumnWidth(2, 220);
-    m_iec101PointsTable->setColumnWidth(3, 150);
-    m_iec101PointsTable->setColumnWidth(4, 100);
-    m_iec101PointsTable->setColumnWidth(5, 130);
+    m_iec101PointsTable->setColumnWidth(0, 28);
+    m_iec101PointsTable->setColumnWidth(1, 50);
+    m_iec101PointsTable->setColumnWidth(2, 130);
+    m_iec101PointsTable->setColumnWidth(3, 220);
+    m_iec101PointsTable->setColumnWidth(4, 150);
+    m_iec101PointsTable->setColumnWidth(5, 100);
+    m_iec101PointsTable->setColumnWidth(6, 130);
+    // Drag-drop setup
+    m_iec101PointsTable->setDragEnabled(false);
+    m_iec101PointsTable->setAcceptDrops(true);
+    m_iec101PointsTable->setDropIndicatorShown(true);
+    m_iec101PointsTable->setDragDropMode(QAbstractItemView::DragDrop);
+    m_iec101PointsTable->setDragDropOverwriteMode(false);
+    m_iec101PointsTable->setDefaultDropAction(Qt::CopyAction);
+    m_iec101PointsTable->viewport()->installEventFilter(this);
+
+    m_iec101PointDropLine = new QFrame(m_iec101PointsTable->viewport());
+    m_iec101PointDropLine->setFixedHeight(3);
+    m_iec101PointDropLine->setStyleSheet(QStringLiteral("background-color: #ff8c00; border-radius: 1px;"));
+    m_iec101PointDropLine->hide();
+
     iec101PointsLayout->addWidget(m_iec101PointsTable, 1);
+
+    m_iec101ValidationLabel = new QLabel(this);
+    m_iec101ValidationLabel->setWordWrap(true);
+    m_iec101ValidationLabel->setStyleSheet(QStringLiteral("QLabel { color: #2e7d32; }"));
+    m_iec101ValidationLabel->setText(QStringLiteral("✓ 当前地址分配未发现问题。"));
+    iec101PointsLayout->addWidget(m_iec101ValidationLabel);
 
     iec101Layout->addWidget(iec101PointsFrame, 1);
 

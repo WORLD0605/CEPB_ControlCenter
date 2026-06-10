@@ -261,7 +261,10 @@ void MainWindow::refreshConfigIssueTable(const QList<configtool::ImportIssue> &i
             }
         }
         if (targetType.isEmpty()) {
-            if (issue.message.contains(QStringLiteral("计算点"))) {
+            if (issue.message.contains(QStringLiteral("IEC101"))) {
+                targetType = QStringLiteral("iec101");
+                targetKey = QStringLiteral("IEC101配置");
+            } else if (issue.message.contains(QStringLiteral("计算点"))) {
                 targetType = QStringLiteral("logic-computation");
                 targetKey = issue.message.section(QStringLiteral(" / "), 1, 1).trimmed();
             } else if (issue.message.contains(QStringLiteral("控制转换"))) {
@@ -446,6 +449,31 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         appendIssue(configtool::ImportIssueSeverity::Error,
                     projectPath,
                     QStringLiteral("设备 DeviceId 重复：%1").arg(deviceId));
+    }
+
+    // IEC101 点表地址检查（重复 + 范围）
+    if (m_iec101PointsTable && m_iec101PointsTable->rowCount() > 0) {
+        const QString iec101ConfigPath = resolveIec101ServiceChannelAppDir(projectPath);
+        const QString filePath = iec101ConfigPath.isEmpty()
+            ? projectPath
+            : QDir(iec101ConfigPath).filePath(QStringLiteral("config/localhost.json"));
+
+        // 重复地址
+        const QSet<QString> iec101Duplicates = checkIec101DuplicateAddresses();
+        if (!iec101Duplicates.isEmpty()) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("IEC101 点表中存在重复的北向地址：%1")
+                            .arg(QStringList(iec101Duplicates.begin(), iec101Duplicates.end()).join(QStringLiteral("，"))));
+        }
+
+        // 地址范围错误（遥信 0x0001-0x3FFF，遥测 0x4001-0x5FFF，遥控/遥调 0x6001-0x7FFF）
+        const QStringList iec101RangeErrors = checkIec101AddressRangeErrors();
+        for (const QString &err : iec101RangeErrors) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("IEC101 %1").arg(err));
+        }
     }
 
     const QList<configtool::ConfigIssue> logicIssues =
