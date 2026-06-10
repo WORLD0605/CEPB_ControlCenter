@@ -22,7 +22,10 @@ set(SOURCES
     src/network/debug_console_client.cpp
     src/ui/mainwindow.cpp
     src/ui/mainwindow_debug.cpp
-    src/ui/mainwindow_config.cpp
+    src/ui/mainwindow_config_io.cpp
+    src/ui/mainwindow_config_model_device.cpp
+    src/ui/mainwindow_config_logic.cpp
+    src/ui/mainwindow_config_iec101.cpp
     src/ui/mainwindow_program.cpp
     src/ui/point_selector_dialog.cpp
     src/ui/app_icon/app_icon.qrc
