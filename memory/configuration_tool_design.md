@@ -687,7 +687,7 @@ flowchart TD
 1. DeviceId
 2. DeviceDesc
 3. 引用模型
-4. 站地址
+4. 协议地址
 5. 主 IP
 6. 备用 IP
 7. 端口
@@ -785,7 +785,7 @@ flowchart TD
 
 1. 用户在设备列表点击从模型创建设备。
 2. 选择模型。
-3. 填写 DeviceId、DeviceDesc、站地址、IP、端口。
+3. 填写 DeviceId、DeviceDesc、协议地址、IP、端口。
 4. 系统自动生成全部点位绑定。
 5. 用户批量填写或粘贴 104 地址。
 6. 系统校验地址冲突。

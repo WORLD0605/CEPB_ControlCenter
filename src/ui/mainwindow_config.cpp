@@ -3855,7 +3855,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnKind, 58);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnKind, 90);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDataRef, 260);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDescription, 180);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnFunCode, 64);
@@ -3921,10 +3921,13 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnEnabled, enabledItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnKind, kindItem);
             auto *kindCombo = new QComboBox(m_deviceBindingsTable);
+            kindCombo->setObjectName(QStringLiteral("modbusPointKindCombo"));
             kindCombo->addItem(QStringLiteral("遥信"), QStringLiteral("yx"));
             kindCombo->addItem(QStringLiteral("遥测"), QStringLiteral("yc"));
             kindCombo->addItem(QStringLiteral("遥控"), QStringLiteral("yk"));
             kindCombo->addItem(QStringLiteral("遥调"), QStringLiteral("yt"));
+            kindCombo->setMinimumWidth(76);
+            kindCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
             const int kindIndex = kindCombo->findData(kind);
             kindCombo->setCurrentIndex(kindIndex >= 0 ? kindIndex : kindCombo->findData(QStringLiteral("yc")));
             kindCombo->setProperty("bindingIndex", bindingIndex);

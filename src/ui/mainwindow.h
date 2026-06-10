@@ -188,6 +188,7 @@ private:
     void updateHighlightRefreshTimer();
     void copySelectedTableCells();
     void updateControlCommandUi();
+    void updateServiceChannelDataFreezeUi();
     void openControlCommandDialog(int row);
     void openDataWriteDialog(int row);
     bool handleControlResponseLogLine(const QString &line);
@@ -209,6 +210,7 @@ private:
     void sendServiceChannelDataWriteCommand(const ServiceChannelDataItem &item,
                                             const QString &value,
                                             const QString &quality);
+    void sendServiceChannelDataFreezeCommand(const QString &mode);
     void pasteClipboardIntoModelPointsTable();
     void pasteClipboardIntoDeviceBindingsTable();
     void applyModelPointCellText(int row, int column, const QString &text);
@@ -368,6 +370,8 @@ private:
     QString m_pendingDataWriteDataRef;
     QString m_pendingDataWriteValue;
     QString m_pendingDataWriteQuality;
+    QString m_pendingDataFreezeMode;
+    bool m_serviceChannelDataFrozen = false;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
@@ -404,6 +408,7 @@ private:
     QLabel *m_controlStatusLabel = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
     QPushButton *m_sendControlBtn = nullptr;
+    QPushButton *m_dataFreezeBtn = nullptr;
     QTableWidget *m_dataTable = nullptr;
     QTableWidget *m_configModelTable = nullptr;
     QTableWidget *m_configDeviceTable = nullptr;

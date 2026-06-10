@@ -157,8 +157,10 @@ void MainWindow::onDisconnected()
         m_descriptionFilterEdit->clear();
         m_descriptionFilterEdit->setEnabled(false);
         m_autoRefreshCombo->setEnabled(false);
+        m_serviceChannelDataFrozen = false;
+        m_pendingDataFreezeMode.clear();
         if (m_controlStatusLabel) {
-            m_controlStatusLabel->setText(QStringLiteral("控制: -"));
+            m_controlStatusLabel->setText(QStringLiteral("状态: -"));
             m_controlStatusLabel->setStyleSheet(QString());
         }
         updateControlCommandUi();
@@ -228,6 +230,29 @@ void MainWindow::onCommandReply(const QString &reply)
             m_pendingDataWriteDataRef.clear();
             m_pendingDataWriteValue.clear();
             m_pendingDataWriteQuality.clear();
+            updateControlCommandUi();
+            return;
+        }
+
+        if (pendingCommand == QStringLiteral("datafreeze")) {
+            appendReply(reply);
+            const QString replyText = reply.trimmed();
+            const bool rejected = replyText.startsWith(QStringLiteral("datafreeze rejected:"), Qt::CaseInsensitive) ||
+                                  replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
+                                  replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
+                                  replyText.contains(QStringLiteral("error"), Qt::CaseInsensitive);
+            if (!rejected) {
+                if (m_pendingDataFreezeMode == QStringLiteral("on")) {
+                    m_serviceChannelDataFrozen = true;
+                    appendSystem(QStringLiteral("DataSpont 更新已冻结"), "#62a8ee");
+                } else if (m_pendingDataFreezeMode == QStringLiteral("off")) {
+                    m_serviceChannelDataFrozen = false;
+                    appendSystem(QStringLiteral("DataSpont 更新已恢复"), "#32cd32");
+                }
+            } else {
+                appendSystem(QStringLiteral("datafreeze 执行失败: %1").arg(replyText), "#ff4444");
+            }
+            m_pendingDataFreezeMode.clear();
             updateControlCommandUi();
             return;
         }
@@ -712,10 +737,65 @@ void MainWindow::updateControlCommandUi()
         return;
     }
 
-    const bool enabled = m_client->isConnected() &&
-                         !m_client->isExecutingCommand() &&
-                         isServiceChannelControlRow(m_dataTable->currentRow());
-    m_sendControlBtn->setEnabled(enabled);
+    const bool canSendDataTableCommand = m_client->isConnected() &&
+                                         !m_client->isExecutingCommand() &&
+                                         isServiceChannelApp(currentAppConfig());
+    const bool controlEnabled = canSendDataTableCommand &&
+                                isServiceChannelControlRow(m_dataTable->currentRow());
+    m_sendControlBtn->setEnabled(controlEnabled);
+    if (m_dataFreezeBtn) {
+        m_dataFreezeBtn->setEnabled(canSendDataTableCommand);
+        updateServiceChannelDataFreezeUi();
+    }
+}
+
+void MainWindow::updateServiceChannelDataFreezeUi()
+{
+    if (!m_dataFreezeBtn) {
+        return;
+    }
+
+    if (!m_client->isConnected() || !isServiceChannelApp(currentAppConfig())) {
+        m_dataFreezeBtn->setText(QStringLiteral("冻结数据"));
+        m_dataFreezeBtn->setToolTip(QStringLiteral("发送 datafreeze on/off，冻结或恢复 DataSpont 更新内部值"));
+        m_dataFreezeBtn->setStyleSheet(QString());
+        return;
+    }
+
+    if (m_client->isExecutingCommand() && m_pendingDataTableCommand == QStringLiteral("datafreeze")) {
+        m_dataFreezeBtn->setText(m_pendingDataFreezeMode == QStringLiteral("off")
+            ? QStringLiteral("恢复中...")
+            : QStringLiteral("冻结中..."));
+        m_dataFreezeBtn->setStyleSheet(
+            QStringLiteral("QPushButton { background-color: #4a5568; color: #dbe7f6; border-color: #7f8fa6; }"));
+        return;
+    }
+
+    if (m_serviceChannelDataFrozen) {
+        m_dataFreezeBtn->setText(QStringLiteral("恢复更新"));
+        m_dataFreezeBtn->setToolTip(QStringLiteral("当前 DataSpont 更新已冻结，点击发送 datafreeze off 恢复"));
+        m_dataFreezeBtn->setStyleSheet(
+            QStringLiteral(
+                "QPushButton {"
+                "  color: #eef7ff;"
+                "  font-weight: 700;"
+                "  border: 1px solid #7bb6ff;"
+                "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1,"
+                "                              stop:0 #0b2a56, stop:0.45 #123f7a,"
+                "                              stop:0.46 #1c5aa0, stop:0.52 #123f7a,"
+                "                              stop:1 #071a38);"
+                "}"
+                "QPushButton:hover {"
+                "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1,"
+                "                              stop:0 #12366a, stop:0.45 #1a5194,"
+                "                              stop:0.46 #2c76c6, stop:0.52 #1a5194,"
+                "                              stop:1 #0b2448);"
+                "}"));
+    } else {
+        m_dataFreezeBtn->setText(QStringLiteral("冻结数据"));
+        m_dataFreezeBtn->setToolTip(QStringLiteral("点击发送 datafreeze on，冻结 DataSpont 更新内部值"));
+        m_dataFreezeBtn->setStyleSheet(QString());
+    }
 }
 
 bool MainWindow::handleControlResponseLogLine(const QString &line)
@@ -825,7 +905,7 @@ void MainWindow::setControlStatus(const QString &deviceId,
     m_controlStatusColorMap.insert(key, color);
 
     if (m_controlStatusLabel) {
-        m_controlStatusLabel->setText(QStringLiteral("控制: %1").arg(statusText));
+        m_controlStatusLabel->setText(QStringLiteral("状态: %1").arg(statusText));
         m_controlStatusLabel->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(color.name()));
     }
 
@@ -1214,6 +1294,34 @@ void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem
                      QStringLiteral("datawrite 发送中 Value=%1 Quality=%2").arg(value, quality),
                      QColor(QStringLiteral("#ffcc66")));
     m_pendingDataTableCommand = QStringLiteral("datawrite");
+    m_client->sendCommand(command);
+    updateControlCommandUi();
+}
+
+void MainWindow::sendServiceChannelDataFreezeCommand(const QString &mode)
+{
+    if (!m_client->isConnected()) {
+        appendSystem(QStringLiteral("未连接 ServiceChannel，无法发送 datafreeze"), "#ffcc66");
+        return;
+    }
+
+    if (m_client->isExecutingCommand()) {
+        appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送 datafreeze"), "#ffcc66");
+        return;
+    }
+
+    const QString normalizedMode = mode.trimmed().toLower();
+    if (normalizedMode != QStringLiteral("on") &&
+        normalizedMode != QStringLiteral("off") &&
+        normalizedMode != QStringLiteral("status")) {
+        appendSystem(QStringLiteral("datafreeze 参数无效: %1").arg(mode), "#ffcc66");
+        return;
+    }
+
+    const QString command = QStringLiteral("datafreeze %1").arg(normalizedMode);
+    appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
+    m_pendingDataFreezeMode = normalizedMode;
+    m_pendingDataTableCommand = QStringLiteral("datafreeze");
     m_client->sendCommand(command);
     updateControlCommandUi();
 }

@@ -159,12 +159,12 @@ QString themeStyleSheet(bool darkMode)
             "}"
             "QComboBox::drop-down:disabled { background-color: #252b33; border-left-color: #3b424d; }"
             "QComboBox::down-arrow:disabled { border-top-color: #7f8a98; }"
-            "QComboBox#modelPointCategoryCombo {"
+            "QComboBox#modelPointCategoryCombo, QComboBox#modbusPointKindCombo {"
             "  padding: 2px 19px 2px 5px;"
             "  min-height: 20px;"
             "}"
-            "QComboBox#modelPointCategoryCombo::drop-down { width: 18px; }"
-            "QComboBox#modelPointCategoryCombo::down-arrow {"
+            "QComboBox#modelPointCategoryCombo::drop-down, QComboBox#modbusPointKindCombo::drop-down { width: 18px; }"
+            "QComboBox#modelPointCategoryCombo::down-arrow, QComboBox#modbusPointKindCombo::down-arrow {"
             "  width: 9px;"
             "  height: 9px;"
             "  margin-right: 5px;"
@@ -341,12 +341,12 @@ QString themeStyleSheet(bool darkMode)
         "}"
         "QComboBox::drop-down:disabled { background-color: #e3e9f0; border-left-color: #c1cad6; }"
         "QComboBox::down-arrow:disabled { border-top-color: #8c98a7; }"
-        "QComboBox#modelPointCategoryCombo {"
+        "QComboBox#modelPointCategoryCombo, QComboBox#modbusPointKindCombo {"
         "  padding: 2px 19px 2px 5px;"
         "  min-height: 20px;"
         "}"
-        "QComboBox#modelPointCategoryCombo::drop-down { width: 18px; }"
-        "QComboBox#modelPointCategoryCombo::down-arrow {"
+        "QComboBox#modelPointCategoryCombo::drop-down, QComboBox#modbusPointKindCombo::drop-down { width: 18px; }"
+        "QComboBox#modelPointCategoryCombo::down-arrow, QComboBox#modbusPointKindCombo::down-arrow {"
         "  width: 9px;"
         "  height: 9px;"
         "  margin-right: 5px;"
@@ -558,16 +558,19 @@ MainWindow::MainWindow(QWidget *parent)
     dataLayout->setContentsMargins(0, 0, 0, 0);
     dataLayout->setSpacing(10);
 
-    auto *dataToolbar = new QHBoxLayout();
-    dataToolbar->addWidget(new QLabel("DeviceId:"));
+    auto *dataToolbar = new QVBoxLayout();
+    dataToolbar->setSpacing(6);
+    auto *dataFilterToolbar = new QHBoxLayout();
+    dataFilterToolbar->setSpacing(8);
+    dataFilterToolbar->addWidget(new QLabel("DeviceId:"));
     m_deviceFilterCombo = new QComboBox();
     m_deviceFilterCombo->addItem("all", QString());
     m_deviceFilterCombo->setMinimumContentsLength(18);
     m_deviceFilterCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_deviceFilterCombo->setMinimumWidth(220);
+    m_deviceFilterCombo->setMinimumWidth(180);
     m_deviceFilterCombo->setEnabled(false);
-    dataToolbar->addWidget(m_deviceFilterCombo);
-    dataToolbar->addWidget(new QLabel("Type:"));
+    dataFilterToolbar->addWidget(m_deviceFilterCombo);
+    dataFilterToolbar->addWidget(new QLabel("Type:"));
     m_serviceTypeFilterCombo = new QComboBox();
     m_serviceTypeFilterCombo->addItem(QStringLiteral("all"), QString());
     m_serviceTypeFilterCombo->addItem(QStringLiteral("遥测"), QStringLiteral("analog"));
@@ -575,22 +578,22 @@ MainWindow::MainWindow(QWidget *parent)
     m_serviceTypeFilterCombo->addItem(QStringLiteral("控制"), QStringLiteral("control"));
     m_serviceTypeFilterCombo->setMinimumWidth(90);
     m_serviceTypeFilterCombo->setEnabled(false);
-    dataToolbar->addWidget(m_serviceTypeFilterCombo);
-    dataToolbar->addWidget(new QLabel("DataRef:"));
+    dataFilterToolbar->addWidget(m_serviceTypeFilterCombo);
+    dataFilterToolbar->addWidget(new QLabel("DataRef:"));
     m_dataRefFilterEdit = new QLineEdit();
     m_dataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
     m_dataRefFilterEdit->setClearButtonEnabled(true);
-    m_dataRefFilterEdit->setMinimumWidth(260);
+    m_dataRefFilterEdit->setMinimumWidth(220);
     m_dataRefFilterEdit->setEnabled(false);
-    dataToolbar->addWidget(m_dataRefFilterEdit);
-    dataToolbar->addWidget(new QLabel("Description:"));
+    dataFilterToolbar->addWidget(m_dataRefFilterEdit, 1);
+    dataFilterToolbar->addWidget(new QLabel("Description:"));
     m_descriptionFilterEdit = new QLineEdit();
     m_descriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
     m_descriptionFilterEdit->setClearButtonEnabled(true);
-    m_descriptionFilterEdit->setMinimumWidth(240);
+    m_descriptionFilterEdit->setMinimumWidth(220);
     m_descriptionFilterEdit->setEnabled(false);
-    dataToolbar->addWidget(m_descriptionFilterEdit);
-    dataToolbar->addWidget(new QLabel("自动刷新:"));
+    dataFilterToolbar->addWidget(m_descriptionFilterEdit, 1);
+    dataFilterToolbar->addWidget(new QLabel("自动刷新:"));
     m_autoRefreshCombo = new QComboBox();
     m_autoRefreshCombo->addItem("关闭", 0);
     m_autoRefreshCombo->addItem("1 秒", 1000);
@@ -599,17 +602,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_autoRefreshCombo->addItem("10 秒", 10000);
     m_autoRefreshCombo->setCurrentIndex(0);
     m_autoRefreshCombo->setEnabled(false);
-    dataToolbar->addWidget(m_autoRefreshCombo);
-    m_controlStatusLabel = new QLabel(QStringLiteral("状态: -"));
-    m_controlStatusLabel->setMinimumWidth(220);
-    dataToolbar->addWidget(m_controlStatusLabel);
-    dataToolbar->addStretch();
+    dataFilterToolbar->addWidget(m_autoRefreshCombo);
+    dataToolbar->addLayout(dataFilterToolbar);
+
+    m_dataFreezeBtn = new QPushButton(QStringLiteral("冻结数据"));
+    m_dataFreezeBtn->setMinimumWidth(118);
+    m_dataFreezeBtn->setToolTip(QStringLiteral("发送 datafreeze on/off，冻结或恢复 DataSpont 更新内部值"));
+    m_dataFreezeBtn->setEnabled(false);
+    topLayout->addWidget(m_dataFreezeBtn);
     m_sendControlBtn = new QPushButton(QStringLiteral("发送控制"));
     m_sendControlBtn->setEnabled(false);
-    dataToolbar->addWidget(m_sendControlBtn);
+    topLayout->addWidget(m_sendControlBtn);
     m_refreshDataBtn = new QPushButton("刷新数据");
     m_refreshDataBtn->setEnabled(false);
-    dataToolbar->addWidget(m_refreshDataBtn);
+    topLayout->addWidget(m_refreshDataBtn);
     dataLayout->addLayout(dataToolbar);
 
     m_dataTable = new QTableWidget(0, 7);
@@ -653,7 +659,7 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(m_selectConfigImportDirBtn);
     m_browseConfigImportDirBtn = new QPushButton("打开配置");
     importRow->addWidget(m_browseConfigImportDirBtn);
-    m_exportIec104ConfigBtn = new QPushButton("导出配置");
+    m_exportIec104ConfigBtn = new QPushButton("保存配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
 
@@ -748,7 +754,7 @@ MainWindow::MainWindow(QWidget *parent)
     deviceToolbar->addStretch();
     deviceGroupLayout->addLayout(deviceToolbar);
     m_configDeviceTable = new QTableWidget(0, 5, this);
-    m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "站地址", "点位数"});
+    m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "协议地址", "点位数"});
     m_configDeviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_configDeviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_configDeviceTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -807,10 +813,10 @@ MainWindow::MainWindow(QWidget *parent)
     modelDetailLayout->addLayout(modelNavLayout);
     auto *modelFormFrame = new QFrame(this);
     modelFormFrame->setFrameShape(QFrame::StyledPanel);
-    modelFormFrame->setMaximumHeight(210);
+    modelFormFrame->setMaximumHeight(230);
     auto *modelFormLayout = new QFormLayout(modelFormFrame);
     modelFormLayout->setContentsMargins(10, 8, 10, 8);
-    modelFormLayout->setVerticalSpacing(4);
+    modelFormLayout->setVerticalSpacing(6);
     m_modelIdEdit = new QLineEdit(this);
     m_modelDisplayNameEdit = new QLineEdit(this);
     m_modelDeviceTypeEdit = new QLineEdit(this);
@@ -820,6 +826,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelSchemaEdit = new QLineEdit(this);
     m_modelNorthVisibleCheck = new QCheckBox(QStringLiteral("北向可见"), this);
     m_modelNorthVisibleCheck->setChecked(true);
+    for (QLineEdit *edit : {m_modelIdEdit,
+                            m_modelDisplayNameEdit,
+                            m_modelDeviceTypeEdit,
+                            m_modelVersionEdit,
+                            m_modelManufacturerIdEdit,
+                            m_modelManufacturerDescEdit,
+                            m_modelSchemaEdit}) {
+        edit->setMinimumHeight(24);
+    }
     modelFormLayout->addRow("模型ID:", m_modelIdEdit);
     modelFormLayout->addRow("展示名称:", m_modelDisplayNameEdit);
     modelFormLayout->addRow("设备类型:", m_modelDeviceTypeEdit);
@@ -945,7 +960,7 @@ MainWindow::MainWindow(QWidget *parent)
     deviceFormLayout->addRow("DeviceId:", m_deviceIdEdit);
     deviceFormLayout->addRow("设备描述:", m_deviceDescEdit);
     deviceFormLayout->addRow("模型:", m_deviceModelEdit);
-    deviceFormLayout->addRow("站地址:", m_deviceStationAddressEdit);
+    deviceFormLayout->addRow("协议地址:", m_deviceStationAddressEdit);
     deviceFormLayout->addRow("IP:", m_deviceIpEdit);
     deviceFormLayout->addRow("端口:", m_devicePortEdit);
     deviceTopLayout->addWidget(deviceFormFrame, 1);
@@ -1075,7 +1090,7 @@ MainWindow::MainWindow(QWidget *parent)
     detailPanelLayout->addWidget(deviceDetailTitle);
     deviceDetailLayout->addRow("设备:", m_deviceDetailTitleLabel);
     deviceDetailLayout->addRow("模型:", m_deviceDetailModelLabel);
-    deviceDetailLayout->addRow("站地址:", m_deviceDetailAddressLabel);
+    deviceDetailLayout->addRow("协议地址:", m_deviceDetailAddressLabel);
     deviceDetailLayout->addRow("IP:", m_deviceDetailIpLabel);
     deviceDetailLayout->addRow("端口:", m_deviceDetailPortLabel);
     deviceDetailLayout->addRow("绑定点位数:", m_deviceDetailBindingCountLabel);
@@ -1663,6 +1678,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_statusLabel = new QLabel("未连接");
     statusBar()->addWidget(m_statusLabel);
+    m_controlStatusLabel = new QLabel(QStringLiteral("状态: -"));
+    m_controlStatusLabel->setMinimumWidth(360);
+    statusBar()->addWidget(m_controlStatusLabel, 1);
     statusBar()->addWidget(m_modelValidationLabel, 1);
 
     m_themeToggleBtn = new QPushButton(this);
@@ -1691,6 +1709,11 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this]() { requestServiceChannelData(); });
     connect(m_sendControlBtn, &QPushButton::clicked,
             this, &MainWindow::onSendControlClicked);
+    connect(m_dataFreezeBtn, &QPushButton::clicked, this, [this]() {
+        sendServiceChannelDataFreezeCommand(m_serviceChannelDataFrozen
+            ? QStringLiteral("off")
+            : QStringLiteral("on"));
+    });
     connect(m_deviceFilterCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onDeviceFilterChanged);
     connect(m_serviceTypeFilterCombo, &QComboBox::currentIndexChanged,
