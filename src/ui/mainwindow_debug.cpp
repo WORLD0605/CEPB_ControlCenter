@@ -52,7 +52,8 @@ QString controlTypeText(int ctrlType)
 
 bool isServiceChannelApp(const AppConfig &appConfig)
 {
-    return appConfig.name.compare(QStringLiteral("ServiceChannel"), Qt::CaseInsensitive) == 0;
+    return appConfig.name.compare(QStringLiteral("ServiceChannel"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
 }
 
 bool isKnownServiceChannelServiceId(const QString &serviceId)
@@ -1226,8 +1227,9 @@ void MainWindow::sendServiceChannelControlCommand(const ServiceChannelDataItem &
                                                   const QString &ctrlVal,
                                                   int ctrlType)
 {
+    const QString appName = currentAppConfig().name;
     if (!m_client->isConnected()) {
-        appendSystem(QStringLiteral("未连接 ServiceChannel，无法发送控制命令"), "#ffcc66");
+        appendSystem(QStringLiteral("未连接 %1，无法发送控制命令").arg(appName), "#ffcc66");
         return;
     }
 
@@ -1258,8 +1260,9 @@ void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem
                                                     const QString &value,
                                                     const QString &quality)
 {
+    const QString appName = currentAppConfig().name;
     if (!m_client->isConnected()) {
-        appendSystem(QStringLiteral("未连接 ServiceChannel，无法发送 datawrite"), "#ffcc66");
+        appendSystem(QStringLiteral("未连接 %1，无法发送 datawrite").arg(appName), "#ffcc66");
         return;
     }
 
@@ -1300,8 +1303,9 @@ void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem
 
 void MainWindow::sendServiceChannelDataFreezeCommand(const QString &mode)
 {
+    const QString appName = currentAppConfig().name;
     if (!m_client->isConnected()) {
-        appendSystem(QStringLiteral("未连接 ServiceChannel，无法发送 datafreeze"), "#ffcc66");
+        appendSystem(QStringLiteral("未连接 %1，无法发送 datafreeze").arg(appName), "#ffcc66");
         return;
     }
 

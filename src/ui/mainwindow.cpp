@@ -466,6 +466,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_appConfigs = {
         {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
+        {"IEC101ServiceChannel", 3333, "IEC101>", AppViewMode::DataTable},
         {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable}
     };
 
