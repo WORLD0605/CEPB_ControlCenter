@@ -258,6 +258,66 @@ QString defaultLnTypeForModelService(configtool::ModelServiceType type)
     return QStringLiteral("SlrInvMMXU");
 }
 
+QStringList modelDataTypeOptions()
+{
+    return {
+        QStringLiteral("Boolean"),
+        QStringLiteral("DBool"),
+        QStringLiteral("Int"),
+        QStringLiteral("Uint"),
+        QStringLiteral("Long"),
+        QStringLiteral("ULong"),
+        QStringLiteral("Float"),
+        QStringLiteral("Double"),
+        QStringLiteral("String"),
+        QStringLiteral("OcterString"),
+        QStringLiteral("Hex")
+    };
+}
+
+QString defaultModelDataTypeForService(configtool::ModelServiceType type)
+{
+    switch (type) {
+    case configtool::ModelServiceType::Measurement:
+        return QStringLiteral("Float");
+    case configtool::ModelServiceType::Status:
+    case configtool::ModelServiceType::Control:
+        return QStringLiteral("Boolean");
+    }
+
+    return QStringLiteral("Float");
+}
+
+QString normalizedModelDataType(configtool::ModelServiceType type, const QString &dataType)
+{
+    const QString trimmed = dataType.trimmed();
+    if (trimmed.compare(QStringLiteral("Bool"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("Boolean");
+    }
+
+    const QStringList options = modelDataTypeOptions();
+    for (const QString &option : options) {
+        if (option.compare(trimmed, Qt::CaseInsensitive) == 0) {
+            return option;
+        }
+    }
+    return defaultModelDataTypeForService(type);
+}
+
+void updateModelPointControlKind(configtool::PointTemplate &point)
+{
+    if (point.category != configtool::ModelServiceType::Control) {
+        point.controlKind = configtool::ControlKind::None;
+        return;
+    }
+
+    const QString dataType = point.dataType.trimmed().toLower();
+    point.controlKind = dataType == QStringLiteral("boolean")
+        || dataType == QStringLiteral("dbool")
+        ? configtool::ControlKind::RemoteControl
+        : configtool::ControlKind::RemoteAdjust;
+}
+
 QStringList modbusDataTypeOptionsForKind(const QString &kind)
 {
     const QString normalizedKind = normalizedModbusKind(kind);
@@ -2640,7 +2700,8 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
         point.lnInst = value;
         break;
     case ModelPointColumnDataType:
-        point.dataType = value;
+        point.dataType = normalizedModelDataType(point.category, value);
+        updateModelPointControlKind(point);
         break;
     case ModelPointColumnUnit:
         point.unit = value;
@@ -3590,7 +3651,8 @@ void MainWindow::refreshModelDetail(int modelIndex)
             auto *lnTypeItem = new QTableWidgetItem(point.lnType);
             auto *lnInstItem = new QTableWidgetItem(point.lnInst);
             auto *dataRefItem = new QTableWidgetItem(point.dataRef());
-            auto *dataTypeItem = new QTableWidgetItem(point.dataType);
+            const QString dataType = normalizedModelDataType(point.category, point.dataType);
+            auto *dataTypeItem = new QTableWidgetItem(dataType);
             auto *unitItem = new QTableWidgetItem(point.unit);
 
             const bool allowRowDrag = filterTabIndex > 0;
@@ -3652,6 +3714,61 @@ void MainWindow::refreshModelDetail(int modelIndex)
             m_modelPointsTable->setItem(row, ModelPointColumnDataRef, dataRefItem);
             m_modelPointsTable->setItem(row, ModelPointColumnDataType, dataTypeItem);
             m_modelPointsTable->setItem(row, ModelPointColumnUnit, unitItem);
+
+            auto *dataTypeCombo = new QComboBox(m_modelPointsTable);
+            dataTypeCombo->setObjectName(QStringLiteral("modelPointDataTypeCombo"));
+            dataTypeCombo->addItems(modelDataTypeOptions());
+            dataTypeCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            dataTypeCombo->setMinimumContentsLength(8);
+            dataTypeCombo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+            dataTypeCombo->setProperty("serviceIndex", serviceIndex);
+            dataTypeCombo->setProperty("pointIndex", pointIndex);
+            const int dataTypeIndex = dataTypeCombo->findText(dataType);
+            dataTypeCombo->setCurrentIndex(dataTypeIndex >= 0 ? dataTypeIndex : dataTypeCombo->findText(defaultModelDataTypeForService(point.category)));
+            connect(dataTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, dataTypeCombo](int index) {
+                if (m_updatingModelPointsTable || m_restoringConfigUndo || index < 0) {
+                    return;
+                }
+
+                const int modelIndex = currentConfigModelIndex();
+                if (modelIndex < 0) {
+                    return;
+                }
+
+                const int serviceIndex = dataTypeCombo->property("serviceIndex").toInt();
+                const int pointIndex = dataTypeCombo->property("pointIndex").toInt();
+
+                configtool::ConfigProject &project = m_configProjectManager.project();
+                if (modelIndex >= project.models.size()) {
+                    return;
+                }
+
+                configtool::ModelTemplate &model = project.models[modelIndex];
+                if (serviceIndex < 0 || serviceIndex >= model.services.size()) {
+                    return;
+                }
+
+                configtool::ServiceTemplate &service = model.services[serviceIndex];
+                if (pointIndex < 0 || pointIndex >= service.points.size()) {
+                    return;
+                }
+
+                configtool::PointTemplate &point = service.points[pointIndex];
+                const QString dataType = normalizedModelDataType(point.category, dataTypeCombo->currentText());
+                if (point.dataType == dataType) {
+                    return;
+                }
+
+                pushConfigUndoSnapshot();
+                point.dataType = dataType;
+                updateModelPointControlKind(point);
+                const QString pointId = point.pointId;
+                refreshConfigObjectViews();
+                refreshModelDetail(modelIndex);
+                selectModelPointById(pointId);
+                m_modelPointsTable->setCurrentCell(m_modelPointsTable->currentRow(), ModelPointColumnDataType);
+            });
+            m_modelPointsTable->setCellWidget(row, ModelPointColumnDataType, dataTypeCombo);
 
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
             categoryCombo->setObjectName(QStringLiteral("modelPointCategoryCombo"));

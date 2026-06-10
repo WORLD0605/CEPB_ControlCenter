@@ -974,7 +974,40 @@ QString buildModbusIniContent(const ConfigProject &project,
             }
         }
 
+        QSet<QString> structuredKeys = {
+            QStringLiteral("type"),
+            QStringLiteral("yx_type"),
+            QStringLiteral("yc_type"),
+            QStringLiteral("yt_type"),
+            QStringLiteral("yx_poll_num"),
+            QStringLiteral("yc_poll_num"),
+            QStringLiteral("yk_set_num"),
+            QStringLiteral("yt_set_num"),
+            QStringLiteral("yc_scale"),
+            QStringLiteral("yt_scale")
+        };
+        for (int index = 1; index <= yxPolls.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yx_poll%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yx_type%1").arg(index));
+        }
+        for (int index = 1; index <= ycPolls.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yc_poll%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yc_type%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yc_scale%1").arg(index));
+        }
+        for (int index = 1; index <= ykSets.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yk_set%1").arg(index));
+        }
+        for (int index = 1; index <= ytSets.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yt_set%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yt_type%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yt_scale%1").arg(index));
+        }
+
         for (const QString &key : device.modbus.rawExtra.keys()) {
+            if (structuredKeys.contains(key)) {
+                continue;
+            }
             stream << key << "=" << device.modbus.rawExtra.value(key).toString() << "\n";
         }
     }

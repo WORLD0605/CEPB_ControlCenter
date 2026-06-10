@@ -813,7 +813,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelDetailLayout->addLayout(modelNavLayout);
     auto *modelFormFrame = new QFrame(this);
     modelFormFrame->setFrameShape(QFrame::StyledPanel);
-    modelFormFrame->setMaximumHeight(230);
+    modelFormFrame->setMaximumHeight(250);
     auto *modelFormLayout = new QFormLayout(modelFormFrame);
     modelFormLayout->setContentsMargins(10, 8, 10, 8);
     modelFormLayout->setVerticalSpacing(6);
@@ -833,10 +833,10 @@ MainWindow::MainWindow(QWidget *parent)
                             m_modelManufacturerIdEdit,
                             m_modelManufacturerDescEdit,
                             m_modelSchemaEdit}) {
-        edit->setMinimumHeight(24);
+        edit->setMinimumHeight(28);
     }
     modelFormLayout->addRow("模型ID:", m_modelIdEdit);
-    modelFormLayout->addRow("展示名称:", m_modelDisplayNameEdit);
+    modelFormLayout->addRow("设备描述:", m_modelDisplayNameEdit);
     modelFormLayout->addRow("设备类型:", m_modelDeviceTypeEdit);
     modelFormLayout->addRow("版本:", m_modelVersionEdit);
     modelFormLayout->addRow("厂家ID:", m_modelManufacturerIdEdit);
