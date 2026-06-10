@@ -1050,7 +1050,7 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("描述"),
         QStringLiteral("地址"),
         QStringLiteral("初值"),
-        QStringLiteral("自发标志")
+        QStringLiteral("虚拟点标志")
     });
     m_deviceBindingsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_deviceBindingsTable->setSelectionBehavior(QAbstractItemView::SelectItems);

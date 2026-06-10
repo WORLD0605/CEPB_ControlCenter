@@ -39,12 +39,14 @@
 #include <QScrollArea>
 #include <QSettings>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QStandardPaths>
 #include <QTabBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
 
@@ -254,6 +256,51 @@ QString defaultLnTypeForModelService(configtool::ModelServiceType type)
     }
 
     return QStringLiteral("SlrInvMMXU");
+}
+
+QStringList modbusDataTypeOptionsForKind(const QString &kind)
+{
+    const QString normalizedKind = normalizedModbusKind(kind);
+    if (normalizedKind == QStringLiteral("yx")) {
+        return {QStringLiteral("BIT"), QStringLiteral("POCKETBIT")};
+    }
+    if (normalizedKind == QStringLiteral("yt")) {
+        return {
+            QStringLiteral("WORD"),
+            QStringLiteral("FLOAT"),
+            QStringLiteral("FLOAT_L"),
+            QStringLiteral("DWORD"),
+            QStringLiteral("DWORD_L")
+        };
+    }
+    if (normalizedKind == QStringLiteral("yk")) {
+        return {QStringLiteral("WORD")};
+    }
+    return {
+        QStringLiteral("WORD"),
+        QStringLiteral("UNSIGNED_WORD"),
+        QStringLiteral("FLOAT"),
+        QStringLiteral("FLOAT_L"),
+        QStringLiteral("DWORD"),
+        QStringLiteral("DWORD_L")
+    };
+}
+
+QString defaultModbusDataTypeForKind(const QString &kind)
+{
+    return modbusDataTypeOptionsForKind(kind).value(0, QStringLiteral("WORD"));
+}
+
+QString normalizedModbusDataTypeForKind(const QString &kind, const QString &dataType)
+{
+    const QString trimmed = dataType.trimmed();
+    const QStringList options = modbusDataTypeOptionsForKind(kind);
+    for (const QString &option : options) {
+        if (option.compare(trimmed, Qt::CaseInsensitive) == 0) {
+            return option;
+        }
+    }
+    return defaultModbusDataTypeForKind(kind);
 }
 
 QStringList splitClipboardLine(const QString &line)
@@ -1890,7 +1937,7 @@ void MainWindow::onAddPointClicked()
             : QStringLiteral("MV"));
     point.dataType = newPointType == configtool::ModelServiceType::Measurement
         ? QStringLiteral("Float")
-        : QStringLiteral("Bool");
+        : QStringLiteral("Boolean");
     service->points.append(point);
 
     refreshConfigObjectViews();
@@ -2632,8 +2679,12 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
     if (isModbusDevice(device)) {
         switch (column) {
         case ModbusColumnKind:
-            binding.extensions.insert(QStringLiteral("modbusKind"), normalizedModbusKind(value));
+        {
+            const QString kind = normalizedModbusKind(value);
+            binding.extensions.insert(QStringLiteral("modbusKind"), kind);
+            binding.extensions.insert(QStringLiteral("modbusDataType"), defaultModbusDataTypeForKind(kind));
             break;
+        }
         case ModbusColumnDescription:
             binding.descriptionOverride = value;
             break;
@@ -2652,7 +2703,8 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             }
             break;
         case ModbusColumnDataType:
-            binding.extensions.insert(QStringLiteral("modbusDataType"), value);
+            binding.extensions.insert(QStringLiteral("modbusDataType"),
+                                      normalizedModbusDataTypeForKind(modbusBindingKind(binding), value));
             break;
         case ModbusColumnScale:
             binding.extensions.insert(QStringLiteral("modbusScale"), value);
@@ -3851,7 +3903,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("组号"),
             QStringLiteral("序号"),
             QStringLiteral("dataIndex"),
-            QStringLiteral("自发标志")
+            QStringLiteral("虚拟点标志")
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
@@ -3860,7 +3912,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDescription, 180);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnFunCode, 64);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnRegister, 80);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataType, 90);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataType, 130);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnScale, 64);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnGroupNo, 58);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEntryNo, 58);
@@ -3876,7 +3928,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             enabledItem->setData(Qt::UserRole, bindingIndex);
 
             const QString kind = modbusBindingKind(binding);
-            const QString dataType = modbusBindingString(binding, QStringLiteral("modbusDataType"), kind == QStringLiteral("yx") ? QStringLiteral("BIT") : QStringLiteral("WORD"));
+            const QString dataType = normalizedModbusDataTypeForKind(
+                kind,
+                modbusBindingString(binding, QStringLiteral("modbusDataType"), defaultModbusDataTypeForKind(kind)));
             const QString scale = modbusBindingString(binding, QStringLiteral("modbusScale"), QStringLiteral("1.0"));
             const QString funCode = QString::number(modbusBindingInt(binding, QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : (kind == QStringLiteral("yc") ? 3 : 6)));
             const bool hasRegister = binding.extensions.contains(QStringLiteral("modbusRegisterAddress"));
@@ -3953,7 +4007,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 }
 
                 pushConfigUndoSnapshot();
-                device.bindings[bindingIndex].extensions.insert(QStringLiteral("modbusKind"), kindCombo->currentData().toString());
+                const QString kind = kindCombo->currentData().toString();
+                device.bindings[bindingIndex].extensions.insert(QStringLiteral("modbusKind"), kind);
+                device.bindings[bindingIndex].extensions.insert(QStringLiteral("modbusDataType"), defaultModbusDataTypeForKind(kind));
                 rebuildModbusDeviceConfig(device);
                 refreshDeviceDetail(deviceIndex);
                 refreshDeviceEditor(deviceIndex);
@@ -3971,6 +4027,53 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnFunCode, funCodeItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnRegister, registerItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnDataType, dataTypeItem);
+            auto *dataTypeCombo = new QComboBox(m_deviceBindingsTable);
+            dataTypeCombo->setObjectName(QStringLiteral("modbusDataTypeCombo"));
+            dataTypeCombo->addItems(modbusDataTypeOptionsForKind(kind));
+            dataTypeCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            dataTypeCombo->setMinimumContentsLength(4);
+            dataTypeCombo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+            const int dataTypeIndex = dataTypeCombo->findText(dataType);
+            dataTypeCombo->setCurrentIndex(dataTypeIndex >= 0 ? dataTypeIndex : 0);
+            dataTypeCombo->setProperty("bindingIndex", bindingIndex);
+            connect(dataTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, dataTypeCombo](int) {
+                if (m_updatingDeviceBindingsTable || m_restoringConfigUndo) {
+                    return;
+                }
+
+                const int deviceIndex = currentConfigDeviceIndex();
+                if (deviceIndex < 0) {
+                    return;
+                }
+
+                configtool::ConfigProject &project = m_configProjectManager.project();
+                if (deviceIndex >= project.devices.size()) {
+                    return;
+                }
+
+                configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                const int bindingIndex = dataTypeCombo->property("bindingIndex").toInt();
+                if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                    return;
+                }
+
+                pushConfigUndoSnapshot();
+                configtool::PointBinding &binding = device.bindings[bindingIndex];
+                binding.extensions.insert(QStringLiteral("modbusDataType"),
+                                          normalizedModbusDataTypeForKind(modbusBindingKind(binding),
+                                                                         dataTypeCombo->currentText()));
+                rebuildModbusDeviceConfig(device);
+                refreshDeviceDetail(deviceIndex);
+                refreshDeviceEditor(deviceIndex);
+                for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                    const QTableWidgetItem *item = m_deviceBindingsTable->item(row, ModbusColumnEnabled);
+                    if (item && item->data(Qt::UserRole).toInt() == bindingIndex) {
+                        m_deviceBindingsTable->setCurrentCell(row, ModbusColumnDataType);
+                        break;
+                    }
+                }
+            });
+            m_deviceBindingsTable->setCellWidget(row, ModbusColumnDataType, dataTypeCombo);
             m_deviceBindingsTable->setItem(row, ModbusColumnScale, scaleItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnGroupNo, groupItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnEntryNo, entryItem);
@@ -3978,6 +4081,29 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnSelfSignal, selfSignalItem);
         }
         m_updatingDeviceBindingsTable = false;
+
+        auto fitDataTypeCombosToCells = [this]() {
+            if (!m_deviceBindingsTable
+                || m_deviceBindingsTable->columnCount() != ModbusBindingColumnCount) {
+                return;
+            }
+
+            for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                QWidget *widget = m_deviceBindingsTable->cellWidget(row, ModbusColumnDataType);
+                if (!widget) {
+                    continue;
+                }
+
+                const QModelIndex index = m_deviceBindingsTable->model()->index(row, ModbusColumnDataType);
+                const QRect rect = m_deviceBindingsTable->visualRect(index);
+                if (rect.isValid()) {
+                    widget->setGeometry(rect.adjusted(5, 3, -5, -3));
+                }
+            }
+            m_deviceBindingsTable->viewport()->update();
+        };
+        fitDataTypeCombosToCells();
+        QTimer::singleShot(0, this, fitDataTypeCombosToCells);
 
         if (missingRegisterCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
@@ -4001,7 +4127,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         QStringLiteral("描述"),
         QStringLiteral("地址"),
         QStringLiteral("初值"),
-        QStringLiteral("自发标志")
+        QStringLiteral("虚拟点标志")
     });
     m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
     for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
