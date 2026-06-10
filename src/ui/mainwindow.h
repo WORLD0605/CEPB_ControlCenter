@@ -560,6 +560,7 @@ private:
     // IEC101 配置页面控件
     QComboBox *m_iec101CommModeCombo = nullptr;
     QLineEdit *m_iec101ComAddrEdit = nullptr;
+    QLineEdit *m_iec101CodePortEdit = nullptr;
     // 串口连接参数
     QGroupBox *m_iec101SerialParamsGroup = nullptr;
     QLineEdit *m_iec101UsartNameEdit = nullptr;

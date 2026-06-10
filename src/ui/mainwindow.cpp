@@ -1688,6 +1688,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101ComAddrEdit->setPlaceholderText(QStringLiteral("IEC101 链路地址，例如 63"));
     iec101BasicGrid->addWidget(new QLabel(QStringLiteral("链路地址:"), this), 0, 2);
     iec101BasicGrid->addWidget(m_iec101ComAddrEdit, 0, 3);
+
+    m_iec101CodePortEdit = new QLineEdit(this);
+    m_iec101CodePortEdit->setPlaceholderText(QStringLiteral("2404"));
+    m_iec101CodePortEdit->setText(QStringLiteral("2404"));
+    iec101BasicGrid->addWidget(new QLabel(QStringLiteral("端口:"), this), 1, 0);
+    iec101BasicGrid->addWidget(m_iec101CodePortEdit, 1, 1);
     iec101BasicGrid->setColumnStretch(1, 1);
     iec101BasicGrid->setColumnStretch(3, 1);
 

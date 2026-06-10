@@ -375,6 +375,7 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
     const int commMode = m_iec101CommModeCombo->currentData().toInt();
     root[QStringLiteral("communication_mode")] = QString::number(commMode);
     root[QStringLiteral("com_addr")] = m_iec101ComAddrEdit->text().trimmed();
+    root[QStringLiteral("code_port")] = m_iec101CodePortEdit->text().trimmed();
 
     // ---- 串口连接参数 (按需输出) ----
     if (commMode == 0 || commMode == 2) {
@@ -472,6 +473,7 @@ void MainWindow::clearIec101ConfigPage()
     // 基本设置
     m_iec101CommModeCombo->setCurrentIndex(1); // TCP
     m_iec101ComAddrEdit->clear();
+    m_iec101CodePortEdit->setText(QStringLiteral("2404"));
 
     // 串口参数
     m_iec101UsartNameEdit->clear();
@@ -525,6 +527,8 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
         m_iec101CommModeCombo->setCurrentIndex(commModeIdx);
     }
     m_iec101ComAddrEdit->setText(root.value(QStringLiteral("com_addr")).toString());
+    const QString codePort = root.value(QStringLiteral("code_port")).toString();
+    m_iec101CodePortEdit->setText(codePort.isEmpty() ? QStringLiteral("2404") : codePort);
 
     // ---- 串口连接参数 ----
     m_iec101UsartNameEdit->setText(root.value(QStringLiteral("code_usart_name")).toString());
