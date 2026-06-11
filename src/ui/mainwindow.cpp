@@ -506,10 +506,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_disconnectBtn->setEnabled(false);
     topLayout->addWidget(m_connectBtn);
     topLayout->addWidget(m_disconnectBtn);
-    m_modbusRawLogBtn = new QPushButton(QStringLiteral("原始日志"));
-    m_modbusRawLogBtn->setToolTip(QStringLiteral("单独打开 Modbus debugconsole 原始日志窗口"));
-    m_modbusRawLogBtn->setVisible(false);
-    topLayout->addWidget(m_modbusRawLogBtn);
+    m_rawFrameLogBtn = new QPushButton(QStringLiteral("原始报文"));
+    m_rawFrameLogBtn->setToolTip(QStringLiteral("单独打开原始报文 debugconsole 窗口"));
+    m_rawFrameLogBtn->setVisible(false);
+    topLayout->addWidget(m_rawFrameLogBtn);
     topLayout->addStretch();
 
     debugLayout->addLayout(topLayout);
@@ -1997,8 +1997,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onThemeToggleClicked);
     connect(m_appCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onAppSelectionChanged);
-    connect(m_modbusRawLogBtn, &QPushButton::clicked,
-            this, &MainWindow::onOpenModbusRawLogClicked);
+    connect(m_rawFrameLogBtn, &QPushButton::clicked,
+            this, &MainWindow::onOpenRawFrameLogClicked);
     connect(m_sendBtn, &QPushButton::clicked,
             this, &MainWindow::onSendClicked);
     connect(m_cmdEdit, &QLineEdit::returnPressed,

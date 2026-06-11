@@ -66,6 +66,43 @@ bool isModbusApp(const AppConfig &appConfig)
     return appConfig.name.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
 }
 
+bool isIec104App(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
+}
+
+bool isIec101App(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
+}
+
+bool supportsRawFrameLogWindow(const AppConfig &appConfig)
+{
+    return isModbusApp(appConfig) || isIec104App(appConfig) || isIec101App(appConfig);
+}
+
+QString rawFrameDebugCategory(const AppConfig &appConfig)
+{
+    if (isIec104App(appConfig)) {
+        return QStringLiteral("104");
+    }
+    if (isIec101App(appConfig)) {
+        return QStringLiteral("101");
+    }
+    return QStringLiteral("modbus");
+}
+
+QString rawFrameAppDisplayName(const AppConfig &appConfig)
+{
+    if (isIec104App(appConfig)) {
+        return QStringLiteral("IEC104");
+    }
+    if (isIec101App(appConfig)) {
+        return QStringLiteral("IEC101");
+    }
+    return QStringLiteral("Modbus");
+}
+
 bool isDataViewApp(const AppConfig &appConfig)
 {
     return appConfig.viewMode == AppViewMode::DataTable ||
@@ -551,7 +588,7 @@ void MainWindow::updateUIState(bool connected)
 {
     const AppConfig appConfig = currentAppConfig();
     const bool terminalMode = appConfig.viewMode == AppViewMode::Terminal;
-    const bool modbusMode = isModbusApp(appConfig);
+    const bool rawFrameLogMode = supportsRawFrameLogWindow(appConfig);
     const bool dataViewMode = isDataViewApp(appConfig);
     const bool dataTableMode = appConfig.viewMode == AppViewMode::DataTable;
 
@@ -563,9 +600,9 @@ void MainWindow::updateUIState(bool connected)
     m_cmdEdit->setEnabled(connected && terminalMode);
     m_refreshDataBtn->setEnabled(connected && dataViewMode);
     m_refreshDataBtn->setVisible(dataViewMode);
-    if (m_modbusRawLogBtn) {
-        m_modbusRawLogBtn->setVisible(modbusMode);
-        m_modbusRawLogBtn->setEnabled(modbusMode);
+    if (m_rawFrameLogBtn) {
+        m_rawFrameLogBtn->setVisible(rawFrameLogMode);
+        m_rawFrameLogBtn->setEnabled(rawFrameLogMode);
     }
     updateControlCommandUi();
     m_deviceFilterCombo->setEnabled(connected && dataTableMode);
@@ -586,14 +623,14 @@ void MainWindow::applyCurrentAppView()
     const AppConfig appConfig = currentAppConfig();
     const bool terminalMode = appConfig.viewMode == AppViewMode::Terminal;
     const bool serviceChannelMode = isServiceChannelApp(appConfig);
-    const bool modbusMode = isModbusApp(appConfig);
+    const bool rawFrameLogMode = supportsRawFrameLogWindow(appConfig);
 
     m_contentStack->setCurrentIndex(terminalMode ? 0 : 1);
     m_cmdEdit->setPlaceholderText(terminalMode ? "输入命令后按回车..." : "当前 APP 使用数据展示视图");
     configureDataTableForCurrentApp();
-    if (m_modbusRawLogBtn) {
-        m_modbusRawLogBtn->setVisible(modbusMode);
-        m_modbusRawLogBtn->setEnabled(modbusMode);
+    if (m_rawFrameLogBtn) {
+        m_rawFrameLogBtn->setVisible(rawFrameLogMode);
+        m_rawFrameLogBtn->setEnabled(rawFrameLogMode);
     }
     if (m_dataFreezeBtn) {
         m_dataFreezeBtn->setVisible(serviceChannelMode);
@@ -708,10 +745,10 @@ void MainWindow::onDataTableSelectionChanged()
     updateControlCommandUi();
 }
 
-void MainWindow::onOpenModbusRawLogClicked()
+void MainWindow::onOpenRawFrameLogClicked()
 {
     const AppConfig appConfig = currentAppConfig();
-    if (!isModbusApp(appConfig)) {
+    if (!supportsRawFrameLogWindow(appConfig)) {
         return;
     }
 
@@ -723,7 +760,10 @@ void MainWindow::onOpenModbusRawLogClicked()
 
     auto *dialog = new QDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(QStringLiteral("Modbus 原始 debugconsole 日志"));
+    const QString debugCategory = rawFrameDebugCategory(appConfig);
+    const QString appDisplayName = rawFrameAppDisplayName(appConfig);
+
+    dialog->setWindowTitle(QStringLiteral("%1 原始 debugconsole 日志").arg(appDisplayName));
     dialog->resize(900, 560);
 
     auto *layout = new QVBoxLayout(dialog);
@@ -744,12 +784,13 @@ void MainWindow::onOpenModbusRawLogClicked()
     layout->addWidget(logView, 1);
 
     auto *buttonRow = new QHBoxLayout();
-    auto *toggleModbusFrameBtn = new QPushButton(QStringLiteral("开启原始帧"), dialog);
-    toggleModbusFrameBtn->setToolTip(QStringLiteral("发送 debug modbus on/off，切换 Modbus 原始轮询帧打印"));
-    toggleModbusFrameBtn->setProperty("modbusDebugEnabled", false);
+    auto *toggleRawFrameBtn = new QPushButton(QStringLiteral("开启原始帧"), dialog);
+    toggleRawFrameBtn->setToolTip(QStringLiteral("发送 debug %1 on/off，切换 %2 原始报文打印")
+                                      .arg(debugCategory, appDisplayName));
+    toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", false);
     auto *clearBtn = new QPushButton(QStringLiteral("清空"), dialog);
     auto *closeBtn = new QPushButton(QStringLiteral("关闭"), dialog);
-    buttonRow->addWidget(toggleModbusFrameBtn);
+    buttonRow->addWidget(toggleRawFrameBtn);
     buttonRow->addStretch();
     buttonRow->addWidget(clearBtn);
     buttonRow->addWidget(closeBtn);
@@ -764,9 +805,9 @@ void MainWindow::onOpenModbusRawLogClicked()
     auto *client = new DebugConsoleClient(dialog);
     client->setPromptPattern(appConfig.prompt);
 
-    connect(toggleModbusFrameBtn, &QPushButton::clicked, dialog, [client, toggleModbusFrameBtn, appendRawLog]() {
+    connect(toggleRawFrameBtn, &QPushButton::clicked, dialog, [client, toggleRawFrameBtn, debugCategory, appDisplayName, appendRawLog]() {
         if (!client->isConnected()) {
-            appendRawLog(QStringLiteral("未连接，无法切换 Modbus 原始帧打印"), QStringLiteral("#ffcc66"));
+            appendRawLog(QStringLiteral("未连接，无法切换 %1 原始报文打印").arg(appDisplayName), QStringLiteral("#ffcc66"));
             return;
         }
         if (client->isExecutingCommand()) {
@@ -774,10 +815,11 @@ void MainWindow::onOpenModbusRawLogClicked()
             return;
         }
 
-        const bool enabled = toggleModbusFrameBtn->property("modbusDebugEnabled").toBool();
-        const QString command = enabled ? QStringLiteral("debug modbus off") : QStringLiteral("debug modbus on");
+        const bool enabled = toggleRawFrameBtn->property("rawFrameDebugEnabled").toBool();
+        const QString command = QStringLiteral("debug %1 %2")
+                                    .arg(debugCategory, enabled ? QStringLiteral("off") : QStringLiteral("on"));
         appendRawLog(QStringLiteral("=> %1").arg(command), QStringLiteral("#aaaaaa"));
-        toggleModbusFrameBtn->setEnabled(false);
+        toggleRawFrameBtn->setEnabled(false);
         client->sendCommand(command);
     });
     connect(clearBtn, &QPushButton::clicked, logView, &QTextEdit::clear);
@@ -795,17 +837,17 @@ void MainWindow::onOpenModbusRawLogClicked()
     connect(client, &DebugConsoleClient::logLineReceived, dialog, [appendRawLog](const QString &line) {
         appendRawLog(line);
     });
-    connect(client, &DebugConsoleClient::commandReplyReceived, dialog, [toggleModbusFrameBtn, appendRawLog](const QString &reply) {
+    connect(client, &DebugConsoleClient::commandReplyReceived, dialog, [toggleRawFrameBtn, debugCategory, appendRawLog](const QString &reply) {
         appendRawLog(reply, QStringLiteral("#87ceeb"));
         const QString normalizedReply = reply.trimmed().toLower();
-        if (normalizedReply.contains(QStringLiteral("modbus=on"))) {
-            toggleModbusFrameBtn->setProperty("modbusDebugEnabled", true);
-            toggleModbusFrameBtn->setText(QStringLiteral("关闭原始帧"));
-        } else if (normalizedReply.contains(QStringLiteral("modbus=off"))) {
-            toggleModbusFrameBtn->setProperty("modbusDebugEnabled", false);
-            toggleModbusFrameBtn->setText(QStringLiteral("开启原始帧"));
+        if (normalizedReply.contains(QStringLiteral("%1=on").arg(debugCategory))) {
+            toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", true);
+            toggleRawFrameBtn->setText(QStringLiteral("关闭原始帧"));
+        } else if (normalizedReply.contains(QStringLiteral("%1=off").arg(debugCategory))) {
+            toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", false);
+            toggleRawFrameBtn->setText(QStringLiteral("开启原始帧"));
         }
-        toggleModbusFrameBtn->setEnabled(true);
+        toggleRawFrameBtn->setEnabled(true);
     });
 
     appendRawLog(QStringLiteral("正在连接 %1:%2 ...").arg(host).arg(appConfig.port), QStringLiteral("#87ceeb"));
