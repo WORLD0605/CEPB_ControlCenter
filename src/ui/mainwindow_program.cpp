@@ -3,6 +3,10 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QFont>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -25,6 +29,7 @@ constexpr int ProgramColumnStart = 3;
 constexpr int ProgramColumnStop = 4;
 constexpr int ProgramColumnRestart = 5;
 constexpr int ProgramColumnAutostart = 6;
+constexpr int ProgramColumnUpgrade = 7;
 
 QString remoteProgramShellQuote(const QString &text)
 {
@@ -82,6 +87,24 @@ QString programServiceNameForApp(const QString &appName)
         return QStringLiteral("CEP-DLT645.service");
     }
     return appName + QStringLiteral(".service");
+}
+
+QString localAppBinaryPathForApp(const QString &appName)
+{
+    const QString binaryDirName = QStringLiteral("app_binaries");
+    const QString appPath = QDir(QCoreApplication::applicationDirPath())
+        .filePath(binaryDirName + QLatin1Char('/') + appName);
+    if (QFileInfo::exists(appPath)) {
+        return appPath;
+    }
+
+    const QString currentPath = QDir(QDir::currentPath())
+        .filePath(binaryDirName + QLatin1Char('/') + appName);
+    if (QFileInfo::exists(currentPath)) {
+        return currentPath;
+    }
+
+    return appPath;
 }
 
 QString programStatusScanCommand(const QString &baseDir, const QStringList &appNames)
@@ -158,6 +181,17 @@ QStringList MainWindow::managedProgramAppNames() const
 QString MainWindow::programServiceName(const QString &appName) const
 {
     return programServiceNameForApp(appName);
+}
+
+QString MainWindow::localProgramBinaryPath(const QString &appName) const
+{
+    return localAppBinaryPathForApp(appName);
+}
+
+QString MainWindow::remoteProgramBinaryPath(const QString &appName) const
+{
+    const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
+    return QStringLiteral("%1/%2/bin/%2").arg(baseDir, appName);
 }
 
 bool MainWindow::startProgramControlCommand(const QString &command,
@@ -433,7 +467,8 @@ void MainWindow::updateProgramControlBusyUi(bool busy)
         for (int column : {ProgramColumnStart,
                            ProgramColumnStop,
                            ProgramColumnRestart,
-                           ProgramColumnAutostart}) {
+                           ProgramColumnAutostart,
+                           ProgramColumnUpgrade}) {
             QWidget *widget = m_programControlTable->cellWidget(row, column);
             if (widget) {
                 widget->setEnabled(!busy);
@@ -576,6 +611,12 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
                                     || status.autostart == QStringLiteral("disabled"));
         connect(autostartButton, &QPushButton::clicked, this, &MainWindow::onToggleProgramAutostartClicked);
         m_programControlTable->setCellWidget(row, ProgramColumnAutostart, wrapCellButton(autostartButton));
+
+        auto *upgradeButton = makeCellButton(QStringLiteral("升级"), this);
+        upgradeButton->setProperty("appName", appName);
+        upgradeButton->setToolTip(QStringLiteral("使用发布包内 app_binaries/%1 覆盖设备端 bin").arg(appName));
+        connect(upgradeButton, &QPushButton::clicked, this, &MainWindow::onUpgradeProgramClicked);
+        m_programControlTable->setCellWidget(row, ProgramColumnUpgrade, wrapCellButton(upgradeButton));
     }
 
     m_programControlTable->resizeRowsToContents();
@@ -597,6 +638,83 @@ void MainWindow::setProgramControlRowPending(const QString &appName, const QStri
         m_programControlTable->setItem(row, ProgramColumnStatus, statusItem);
         return;
     }
+}
+
+bool MainWindow::upgradeProgramBinary(const QString &appName,
+                                      QString *output,
+                                      QProgressDialog *progress)
+{
+    const QString localPath = localProgramBinaryPath(appName);
+    if (!QFileInfo::exists(localPath)) {
+        if (output) {
+            *output = QStringLiteral("未找到本地升级文件：%1\n请将 %2 放到发布目录的 app_binaries 目录中。")
+                .arg(localPath, appName);
+        }
+        return false;
+    }
+
+    const QString remotePath = remoteProgramBinaryPath(appName);
+    const QString remoteTempPath = QStringLiteral("/tmp/cepb_upgrade_%1_%2")
+        .arg(appName, QString::number(QDateTime::currentMSecsSinceEpoch()));
+    const QString service = programServiceName(appName);
+    const SshClient::Connection sshConnection{deviceHost(),
+                                              fixedRemoteSshPort().toUShort(),
+                                              fixedRemoteUser(),
+                                              fixedRemotePassword()};
+
+    if (progress) {
+        progress->setWindowTitle(QStringLiteral("程序升级"));
+        progress->setLabelText(QStringLiteral("正在上传 %1...").arg(appName));
+        progress->setRange(0, 100);
+        progress->setValue(0);
+        progress->show();
+        QApplication::processEvents();
+    }
+
+    QString scpError;
+    auto updateProgress = [progress, appName](qint64 sent, qint64 total) {
+        if (!progress) {
+            return true;
+        }
+        const int value = total > 0 ? int((sent * 100) / total) : 100;
+        progress->setLabelText(QStringLiteral("正在上传 %1... %2/%3 KB")
+                                   .arg(appName)
+                                   .arg(sent / 1024)
+                                   .arg(qMax<qint64>(1, total / 1024)));
+        progress->setValue(qBound(0, value, 100));
+        QApplication::processEvents();
+        return !progress->wasCanceled();
+    };
+    if (!SshClient::uploadFileScp(sshConnection, localPath, remoteTempPath, &scpError, updateProgress)) {
+        if (output) {
+            *output = scpError;
+        }
+        return false;
+    }
+
+    if (progress) {
+        progress->setLabelText(QStringLiteral("正在停止服务、覆盖程序并重新启动 %1...").arg(appName));
+        progress->setRange(0, 0);
+        QApplication::processEvents();
+    }
+
+    const QString command = QStringLiteral(
+        "set -e; "
+        "target=%1; tmp=%2; service=%3; "
+        "mkdir -p \"$(dirname \"$target\")\"; "
+        "systemctl stop \"$service\"; "
+        "install -m 0755 \"$tmp\" \"$target\"; "
+        "rm -f \"$tmp\"; "
+        "systemctl start \"$service\"; "
+        "echo upgraded \"$target\"")
+        .arg(remoteProgramShellQuote(remotePath),
+             remoteProgramShellQuote(remoteTempPath),
+             remoteProgramShellQuote(service));
+    const SshClient::CommandResult result = SshClient::execCommand(sshConnection, command);
+    if (output) {
+        *output = result.output.isEmpty() ? result.error : result.output;
+    }
+    return result.ok;
 }
 
 void MainWindow::onRefreshProgramStatusClicked()
@@ -712,4 +830,74 @@ void MainWindow::onToggleProgramAutostartClicked()
                                title,
                                kind,
                                appName);
+}
+
+void MainWindow::onUpgradeProgramClicked()
+{
+    auto *button = qobject_cast<QPushButton *>(sender());
+    const QString appName = button ? button->property("appName").toString() : QString();
+    if (appName.isEmpty()) {
+        return;
+    }
+
+    if (!m_programControlConnected) {
+        closeProgramControlShell();
+        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("请先连接程序控制 SSH。"));
+        return;
+    }
+    if (m_programControlShellKey != programControlShellKey()) {
+        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("连接参数已变化，请断开后重新连接。"));
+        return;
+    }
+    if (m_programControlCommandRunning) {
+        statusBar()->showMessage(QStringLiteral("程序控制正在执行上一条命令"), 3000);
+        return;
+    }
+
+    const QString localPath = localProgramBinaryPath(appName);
+    const QString remotePath = remoteProgramBinaryPath(appName);
+    const QMessageBox::StandardButton confirm = QMessageBox::question(
+        this,
+        QStringLiteral("程序升级"),
+        QStringLiteral("将使用本地文件覆盖设备端程序：\n\n%1\n-> %2\n\n升级过程会停止并重新启动 %3，是否继续？")
+            .arg(localPath, remotePath, appName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    m_programControlCommandRunning = true;
+    m_programControlCommandKind = ProgramControlCommandKind::Upgrade;
+    m_programControlCommandTitle = QStringLiteral("升级 %1").arg(appName);
+    m_programControlCommandAppName = appName;
+    updateProgramControlBusyUi(true);
+    setProgramControlRowPending(appName, QStringLiteral("升级中"));
+    statusBar()->showMessage(QStringLiteral("正在升级 %1").arg(appName), 3000);
+
+    QProgressDialog progress(QStringLiteral("正在上传 %1...").arg(appName),
+                             QStringLiteral("取消"),
+                             0,
+                             100,
+                             this);
+    progress.setWindowTitle(QStringLiteral("程序升级"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+
+    QString output;
+    const bool ok = upgradeProgramBinary(appName, &output, &progress);
+    progress.close();
+    clearProgramControlCommandState();
+    if (!ok) {
+        QMessageBox::warning(this,
+                             QStringLiteral("程序升级"),
+                             QStringLiteral("升级 %1 失败。\n\n%2").arg(appName, output));
+        startProgramStatusRefresh();
+        return;
+    }
+
+    QMessageBox::information(this,
+                             QStringLiteral("程序升级"),
+                             QStringLiteral("%1 升级完成。\n\n%2").arg(appName, output.trimmed()));
+    startProgramStatusRefresh();
 }

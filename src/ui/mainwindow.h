@@ -89,7 +89,8 @@ private:
         ForceStop,
         Restart,
         EnableAutostart,
-        DisableAutostart
+        DisableAutostart,
+        Upgrade
     };
 
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -179,6 +180,7 @@ private slots:
     void onForceStopProgramClicked();
     void onRestartProgramClicked();
     void onToggleProgramAutostartClicked();
+    void onUpgradeProgramClicked();
     void onIec101CommModeChanged(int index);
     void onRefreshIec101PointsClicked();
     void onIec101PointItemChanged(QTableWidgetItem *item);
@@ -344,6 +346,11 @@ private:
     void refreshLogicControlPreview();
     QStringList managedProgramAppNames() const;
     QString programServiceName(const QString &appName) const;
+    QString localProgramBinaryPath(const QString &appName) const;
+    QString remoteProgramBinaryPath(const QString &appName) const;
+    bool upgradeProgramBinary(const QString &appName,
+                              QString *output,
+                              QProgressDialog *progress = nullptr);
     bool startProgramControlCommand(const QString &command,
                                     const QString &title,
                                     ProgramControlCommandKind kind,

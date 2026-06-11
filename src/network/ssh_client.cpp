@@ -382,7 +382,8 @@ SshClient::CommandResult SshClient::execCommand(const Connection &connection,
 bool SshClient::uploadFileScp(const Connection &connection,
                               const QString &localPath,
                               const QString &remotePath,
-                              QString *error)
+                              QString *error,
+                              const std::function<bool(qint64, qint64)> &progressCallback)
 {
     SshSession ssh;
     if (!ssh.connect(connection, error)) {
@@ -393,6 +394,15 @@ bool SshClient::uploadFileScp(const Connection &connection,
     if (!file.open(QIODevice::ReadOnly)) {
         if (error) {
             *error = QStringLiteral("无法打开本地文件 %1：%2").arg(localPath, file.errorString());
+        }
+        return false;
+    }
+
+    const qint64 totalSize = QFileInfo(file).size();
+    qint64 sentSize = 0;
+    if (progressCallback && !progressCallback(sentSize, totalSize)) {
+        if (error) {
+            *error = QStringLiteral("SCP upload canceled");
         }
         return false;
     }
@@ -437,6 +447,14 @@ bool SshClient::uploadFileScp(const Connection &connection,
             return false;
         }
         if (!writeAllToChannel(ssh, channel, chunk, error, 180000)) {
+            libssh2_channel_free(channel);
+            return false;
+        }
+        sentSize += chunk.size();
+        if (progressCallback && !progressCallback(sentSize, totalSize)) {
+            if (error) {
+                *error = QStringLiteral("SCP upload canceled");
+            }
             libssh2_channel_free(channel);
             return false;
         }

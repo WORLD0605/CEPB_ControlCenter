@@ -1,6 +1,9 @@
 #ifndef SSH_CLIENT_H
 #define SSH_CLIENT_H
 
+#include <functional>
+
+#include <QtGlobal>
 #include <QString>
 
 class SshClient
@@ -27,7 +30,8 @@ public:
     static bool uploadFileScp(const Connection &connection,
                               const QString &localPath,
                               const QString &remotePath,
-                              QString *error = nullptr);
+                              QString *error = nullptr,
+                              const std::function<bool(qint64, qint64)> &progressCallback = {});
     static bool downloadFileScp(const Connection &connection,
                                 const QString &remotePath,
                                 const QString &localPath,
