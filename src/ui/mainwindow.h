@@ -183,6 +183,7 @@ private slots:
     void onIec101PointItemChanged(QTableWidgetItem *item);
     void onIec101PointFilterChanged(int index);
     void onIec101PointFilterTextChanged();
+    void onOpenModbusRawLogClicked();
 
     void onConnected();
     void onDisconnected();
@@ -451,6 +452,7 @@ private:
     QPushButton *m_refreshDataBtn = nullptr;
     QPushButton *m_sendControlBtn = nullptr;
     QPushButton *m_dataFreezeBtn = nullptr;
+    QPushButton *m_modbusRawLogBtn = nullptr;
     QWidget *m_serviceDataFilterWidget = nullptr;
     QStackedWidget *m_dataViewStack = nullptr;
     QWidget *m_serviceDataViewPage = nullptr;

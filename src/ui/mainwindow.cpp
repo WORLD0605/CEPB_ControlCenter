@@ -467,6 +467,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_appConfigs = {
         {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
         {"IEC101ServiceChannel", 3333, "IEC101>", AppViewMode::DataTable},
+        {"cepmodbus", 7777, "modbus>", AppViewMode::DataTable},
         {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable},
         {"LogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
     };
@@ -505,6 +506,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_disconnectBtn->setEnabled(false);
     topLayout->addWidget(m_connectBtn);
     topLayout->addWidget(m_disconnectBtn);
+    m_modbusRawLogBtn = new QPushButton(QStringLiteral("原始日志"));
+    m_modbusRawLogBtn->setToolTip(QStringLiteral("单独打开 Modbus debugconsole 原始日志窗口"));
+    m_modbusRawLogBtn->setVisible(false);
+    topLayout->addWidget(m_modbusRawLogBtn);
     topLayout->addStretch();
 
     debugLayout->addLayout(topLayout);
@@ -582,6 +587,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_serviceTypeFilterCombo->addItem(QStringLiteral("all"), QString());
     m_serviceTypeFilterCombo->addItem(QStringLiteral("遥测"), QStringLiteral("analog"));
     m_serviceTypeFilterCombo->addItem(QStringLiteral("遥信"), QStringLiteral("discrete"));
+    m_serviceTypeFilterCombo->addItem(QStringLiteral("电度"), QStringLiteral("accumulator"));
     m_serviceTypeFilterCombo->addItem(QStringLiteral("控制"), QStringLiteral("control"));
     m_serviceTypeFilterCombo->setMinimumWidth(90);
     m_serviceTypeFilterCombo->setEnabled(false);
@@ -1991,6 +1997,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onThemeToggleClicked);
     connect(m_appCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onAppSelectionChanged);
+    connect(m_modbusRawLogBtn, &QPushButton::clicked,
+            this, &MainWindow::onOpenModbusRawLogClicked);
     connect(m_sendBtn, &QPushButton::clicked,
             this, &MainWindow::onSendClicked);
     connect(m_cmdEdit, &QLineEdit::returnPressed,
