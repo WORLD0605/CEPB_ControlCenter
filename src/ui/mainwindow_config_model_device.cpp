@@ -53,6 +53,9 @@ void MainWindow::onConfigModelSelectionChanged()
 void MainWindow::onConfigDeviceSelectionChanged()
 {
     const int deviceIndex = currentConfigDeviceIndex();
+    if (m_copyDeviceBtn) {
+        m_copyDeviceBtn->setEnabled(deviceIndex >= 0);
+    }
     if (m_deleteDeviceBtn) {
         m_deleteDeviceBtn->setEnabled(deviceIndex >= 0);
     }
@@ -65,6 +68,9 @@ void MainWindow::onConfigDeviceSelectionChanged()
     refreshSelectionOverview();
     if (m_deleteModelBtn) {
         m_deleteModelBtn->setEnabled(currentConfigModelIndex() >= 0);
+    }
+    if (m_copyDeviceBtn) {
+        m_copyDeviceBtn->setEnabled(currentConfigDeviceIndex() >= 0);
     }
     if (m_deleteDeviceBtn) {
         m_deleteDeviceBtn->setEnabled(currentConfigDeviceIndex() >= 0);
@@ -1014,6 +1020,108 @@ void MainWindow::openCreateDeviceDialog(int preselectedModelIndex)
                                  ? QStringLiteral("已根据模型生成 Modbus 设备绑定骨架")
                                  : QStringLiteral("已根据模型生成 104 设备绑定骨架"),
                              4000);
+}
+
+void MainWindow::onCopyDeviceClicked()
+{
+    const int deviceIndex = currentConfigDeviceIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        QMessageBox::information(this, QStringLiteral("复制设备"), QStringLiteral("请先选择要复制的设备。"));
+        return;
+    }
+
+    const configtool::ProtocolDeviceInstance sourceDevice = project.devices.at(deviceIndex);
+    auto defaultCopyDeviceId = [&project, &sourceDevice]() {
+        QSet<QString> usedDeviceIds;
+        for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+            usedDeviceIds.insert(device.deviceId.trimmed());
+        }
+
+        const QString baseId = sourceDevice.deviceId.trimmed().isEmpty()
+            ? QStringLiteral("device")
+            : sourceDevice.deviceId.trimmed();
+        for (int suffix = 1; suffix < 100000; ++suffix) {
+            const QString candidate = QStringLiteral("%1_copy%2").arg(baseId).arg(suffix);
+            if (!usedDeviceIds.contains(candidate)) {
+                return candidate;
+            }
+        }
+        return baseId + QStringLiteral("_copy");
+    };
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("复制设备"));
+    auto *dialogLayout = new QVBoxLayout(&dialog);
+    dialogLayout->setSpacing(10);
+
+    auto *summaryLabel = new QLabel(
+        QStringLiteral("复制“%1”的全部协议参数和点位绑定。")
+            .arg(sourceDevice.deviceDesc.isEmpty() ? sourceDevice.deviceId : sourceDevice.deviceDesc),
+        &dialog);
+    summaryLabel->setWordWrap(true);
+    dialogLayout->addWidget(summaryLabel);
+
+    auto *formLayout = new QFormLayout();
+    auto *deviceIdEdit = new QLineEdit(defaultCopyDeviceId(), &dialog);
+    auto *deviceDescEdit = new QLineEdit(sourceDevice.deviceDesc, &dialog);
+    deviceIdEdit->setPlaceholderText(QStringLiteral("DeviceId"));
+    deviceDescEdit->setPlaceholderText(QStringLiteral("设备描述"));
+    formLayout->addRow(QStringLiteral("新 DeviceId:"), deviceIdEdit);
+    formLayout->addRow(QStringLiteral("设备描述:"), deviceDescEdit);
+    dialogLayout->addLayout(formLayout);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("复制"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &project, deviceIdEdit]() {
+        const QString newDeviceId = deviceIdEdit->text().trimmed();
+        if (newDeviceId.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("复制设备"), QStringLiteral("请输入新 DeviceId。"));
+            deviceIdEdit->setFocus();
+            return;
+        }
+
+        for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+            if (device.deviceId.trimmed() == newDeviceId) {
+                QMessageBox::information(&dialog,
+                                         QStringLiteral("复制设备"),
+                                         QStringLiteral("DeviceId 已存在，请换一个。"));
+                deviceIdEdit->setFocus();
+                deviceIdEdit->selectAll();
+                return;
+            }
+        }
+        dialog.accept();
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialogLayout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    configtool::ProtocolDeviceInstance copiedDevice = sourceDevice;
+    copiedDevice.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    copiedDevice.deviceId = deviceIdEdit->text().trimmed();
+    copiedDevice.deviceDesc = deviceDescEdit->text().trimmed();
+    copiedDevice.source = configtool::SourceInfo();
+    copiedDevice.transport.source = configtool::SourceInfo();
+    for (configtool::PointBinding &binding : copiedDevice.bindings) {
+        binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        binding.source = configtool::SourceInfo();
+    }
+
+    project.devices.append(copiedDevice);
+    configtool::ImportReport report;
+    refreshConfigImportSummary(report);
+    const int row = m_configDeviceTable->rowCount() - 1;
+    if (row >= 0) {
+        m_configDeviceTable->selectRow(row);
+    }
+    m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
+    statusBar()->showMessage(QStringLiteral("已复制设备"), 3000);
 }
 
 void MainWindow::onDeleteModelClicked()

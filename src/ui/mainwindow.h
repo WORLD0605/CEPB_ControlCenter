@@ -133,6 +133,7 @@ private slots:
     void onModelPointDescriptionFilterTextChanged(const QString &text);
     void onCreateDeviceFromModelClicked();
     void openCreateDeviceDialog(int preselectedModelIndex);
+    void onCopyDeviceClicked();
     void onDeleteModelClicked();
     void onDeleteDeviceClicked();
     void onDeviceFieldEdited();
@@ -271,6 +272,7 @@ private:
     QString fixedRemoteSshPort() const;
     QString configRemoteTarget() const;
     QString configRemoteBaseDir() const;
+    bool clearLocalConfigTransferPaths(const QString &projectRoot, QString *errorMessage = nullptr) const;
     bool runConfigTransferProcess(const QString &program,
                                   const QStringList &arguments,
                                   const QString &title,
@@ -438,6 +440,7 @@ private:
     QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceBtn = nullptr;
+    QPushButton *m_copyDeviceBtn = nullptr;
     QPushButton *m_deleteModelBtn = nullptr;
     QPushButton *m_deleteDeviceBtn = nullptr;
     QPushButton *m_addPointBtn = nullptr;

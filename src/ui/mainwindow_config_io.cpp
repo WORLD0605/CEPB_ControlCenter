@@ -555,6 +555,66 @@ QString MainWindow::configRemoteBaseDir() const
     return baseDir.isEmpty() ? QStringLiteral("/home/cepgateway/app") : baseDir;
 }
 
+bool MainWindow::clearLocalConfigTransferPaths(const QString &projectRoot, QString *errorMessage) const
+{
+    const QFileInfo rootInfo(projectRoot);
+    if (!rootInfo.exists() || !rootInfo.isDir()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("本地工作目录不存在：%1").arg(projectRoot);
+        }
+        return false;
+    }
+
+    const QString rootPath = rootInfo.absoluteFilePath();
+    const QString rootCanonicalPath = QDir::cleanPath(rootInfo.canonicalFilePath());
+    const QDir rootDir(rootPath);
+    for (const QString &relativePath : configTransferPathList()) {
+        if (relativePath.trimmed().isEmpty()
+            || QDir::isAbsolutePath(relativePath)
+            || relativePath.contains(QStringLiteral(".."))) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("配置路径不安全：%1").arg(relativePath);
+            }
+            return false;
+        }
+
+        const QString localPath = rootDir.absoluteFilePath(relativePath);
+        const QFileInfo localInfo(localPath);
+        if (!localInfo.exists()) {
+            continue;
+        }
+
+        const QString localCanonicalPath = QDir::cleanPath(localInfo.canonicalFilePath());
+        if (!rootCanonicalPath.isEmpty()
+            && !localCanonicalPath.isEmpty()
+            && localCanonicalPath != rootCanonicalPath
+            && !localCanonicalPath.startsWith(rootCanonicalPath + QLatin1Char('/'))
+            && !localCanonicalPath.startsWith(rootCanonicalPath + QLatin1Char('\\'))) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("拒绝清理工作目录之外的路径：%1").arg(localPath);
+            }
+            return false;
+        }
+
+        bool removed = false;
+        if (localInfo.isDir()) {
+            QDir localDir(localPath);
+            removed = localDir.removeRecursively();
+        } else {
+            removed = QFile::remove(localPath);
+        }
+
+        if (!removed) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("无法删除本地配置路径：%1").arg(localPath);
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool MainWindow::runConfigTransferProcess(const QString &program,
                                           const QStringList &arguments,
                                           const QString &title,
@@ -738,6 +798,17 @@ void MainWindow::onDownloadConfigClicked()
         return;
     }
 
+    const QMessageBox::StandardButton confirm = QMessageBox::warning(
+        this,
+        QStringLiteral("下载配置"),
+        QStringLiteral("下载会先清空本地工作目录内对应配置目录，再写入设备端配置。\n\n目标目录：%1\n\n请确认已经自行备份本地原配置。\n\n是否继续下载？")
+            .arg(QDir::toNativeSeparators(targetDir)),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
     const QString host = deviceHost();
     const QString user = fixedRemoteUser();
     const QString password = fixedRemotePassword();
@@ -759,7 +830,7 @@ void MainWindow::onDownloadConfigClicked()
              quotedPaths.join(QLatin1Char(' ')),
              remoteShellQuote(remoteArchivePath));
 
-    QProgressDialog progress(QStringLiteral("准备下载配置..."), QStringLiteral("取消"), 0, 4, this);
+    QProgressDialog progress(QStringLiteral("准备下载配置..."), QStringLiteral("取消"), 0, 5, this);
     progress.setWindowTitle(QStringLiteral("下载配置"));
     progress.setWindowModality(Qt::ApplicationModal);
     progress.setMinimumDuration(0);
@@ -794,7 +865,18 @@ void MainWindow::onDownloadConfigClicked()
         return;
     }
 
-    setDownloadStep(2, QStringLiteral("本地解包配置..."));
+    setDownloadStep(2, QStringLiteral("清空本地对应配置目录..."));
+    QString cleanupErrorMessage;
+    if (!clearLocalConfigTransferPaths(targetDir, &cleanupErrorMessage)) {
+        QFile::remove(archivePath);
+        QMessageBox::warning(this,
+                             QStringLiteral("下载配置"),
+                             QStringLiteral("本地配置目录清理失败：\n%1").arg(cleanupErrorMessage));
+        statusBar()->showMessage(QStringLiteral("配置下载已取消"), 5000);
+        return;
+    }
+
+    setDownloadStep(3, QStringLiteral("本地解包配置..."));
     if (!runConfigTransferProcess(QStringLiteral("tar"),
                                   {QStringLiteral("--options"), QStringLiteral("hdrcharset=UTF-8"),
                                    QStringLiteral("-xzvf"), archivePath, QStringLiteral("-C"), targetDir},
@@ -810,9 +892,9 @@ void MainWindow::onDownloadConfigClicked()
     m_configImportDirEdit->setText(targetDir);
     QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
     settings.setValue(QStringLiteral("config/lastBrowseDir"), targetDir);
-    setDownloadStep(3, QStringLiteral("重新导入下载后的配置..."));
+    setDownloadStep(4, QStringLiteral("重新导入下载后的配置..."));
     onImportIec104ConfigClicked();
-    progress.setValue(4);
+    progress.setValue(5);
     statusBar()->showMessage(QStringLiteral("配置下载完成"), 8000);
 }
 

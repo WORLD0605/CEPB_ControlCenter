@@ -822,6 +822,9 @@ MainWindow::MainWindow(QWidget *parent)
     deviceToolbar->setSpacing(8);
     m_createDeviceBtn = new QPushButton("创建设备");
     deviceToolbar->addWidget(m_createDeviceBtn);
+    m_copyDeviceBtn = new QPushButton("复制设备");
+    m_copyDeviceBtn->setEnabled(false);
+    deviceToolbar->addWidget(m_copyDeviceBtn);
     m_deleteDeviceBtn = new QPushButton("删除设备");
     m_deleteDeviceBtn->setEnabled(false);
     deviceToolbar->addWidget(m_deleteDeviceBtn);
@@ -2175,6 +2178,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onCreateDeviceFromModelClicked);
     connect(m_deleteModelBtn, &QPushButton::clicked,
             this, &MainWindow::onDeleteModelClicked);
+    connect(m_copyDeviceBtn, &QPushButton::clicked,
+            this, &MainWindow::onCopyDeviceClicked);
     connect(m_deleteDeviceBtn, &QPushButton::clicked,
             this, &MainWindow::onDeleteDeviceClicked);
     connect(m_configModelTable, &QTableWidget::itemSelectionChanged,
