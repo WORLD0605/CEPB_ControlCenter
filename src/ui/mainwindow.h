@@ -132,6 +132,7 @@ private slots:
     void onModelPointDataRefFilterTextChanged(const QString &text);
     void onModelPointDescriptionFilterTextChanged(const QString &text);
     void onCreateDeviceFromModelClicked();
+    void openCreateDeviceDialog(int preselectedModelIndex);
     void onDeleteModelClicked();
     void onDeleteDeviceClicked();
     void onDeviceFieldEdited();
@@ -436,7 +437,7 @@ private:
     QPushButton *m_downloadConfigBtn = nullptr;
     QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
-    QPushButton *m_createDeviceFromModelBtn = nullptr;
+    QPushButton *m_createDeviceBtn = nullptr;
     QPushButton *m_deleteModelBtn = nullptr;
     QPushButton *m_deleteDeviceBtn = nullptr;
     QPushButton *m_addPointBtn = nullptr;

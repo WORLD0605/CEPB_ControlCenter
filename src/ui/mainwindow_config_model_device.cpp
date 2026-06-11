@@ -841,43 +841,139 @@ void MainWindow::onDeletePointClicked()
 
 void MainWindow::onCreateDeviceFromModelClicked()
 {
-    const int modelIndex = currentConfigModelIndex();
-    if (modelIndex < 0) {
-        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("请先选择一个模型。"));
+    openCreateDeviceDialog(currentConfigModelIndex());
+}
+
+void MainWindow::openCreateDeviceDialog(int preselectedModelIndex)
+{
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (project.models.isEmpty()) {
+        QMessageBox::information(this,
+                                 QStringLiteral("创建设备"),
+                                 QStringLiteral("请先创建或导入一个模型。"));
         return;
     }
 
-    configtool::ConfigProject &project = m_configProjectManager.project();
-    if (modelIndex >= project.models.size()) {
+    auto nextDeviceId = [&project]() {
+        QSet<QString> usedDeviceIds;
+        for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+            usedDeviceIds.insert(device.deviceId.trimmed());
+        }
+        for (int candidate = project.devices.size() + 1; candidate < 100000; ++candidate) {
+            const QString deviceId = QString::number(candidate);
+            if (!usedDeviceIds.contains(deviceId)) {
+                return deviceId;
+            }
+        }
+        return QStringLiteral("1");
+    };
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("创建设备"));
+    dialog.resize(620, 420);
+    auto *dialogLayout = new QVBoxLayout(&dialog);
+    dialogLayout->setSpacing(10);
+
+    auto *modelLabel = new QLabel(QStringLiteral("选择模型"), &dialog);
+    QFont labelFont = modelLabel->font();
+    labelFont.setBold(true);
+    modelLabel->setFont(labelFont);
+    dialogLayout->addWidget(modelLabel);
+
+    auto *modelTable = new QTableWidget(project.models.size(), 4, &dialog);
+    modelTable->setHorizontalHeaderLabels({
+        QStringLiteral("模型"),
+        QStringLiteral("展示名"),
+        QStringLiteral("设备类型"),
+        QStringLiteral("点位数")
+    });
+    modelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    modelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    modelTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    modelTable->verticalHeader()->setVisible(false);
+    modelTable->horizontalHeader()->setStretchLastSection(false);
+    modelTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    modelTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    modelTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    modelTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    modelTable->setColumnWidth(3, 70);
+    for (int row = 0; row < project.models.size(); ++row) {
+        const configtool::ModelTemplate &model = project.models.at(row);
+        int pointCount = 0;
+        for (const configtool::ServiceTemplate &service : model.services) {
+            pointCount += service.points.size();
+        }
+        modelTable->setItem(row, 0, new QTableWidgetItem(model.modelId));
+        modelTable->setItem(row, 1, new QTableWidgetItem(model.displayName));
+        modelTable->setItem(row, 2, new QTableWidgetItem(model.deviceType));
+        modelTable->setItem(row, 3, new QTableWidgetItem(QString::number(pointCount)));
+    }
+    const int selectedModelIndex = preselectedModelIndex >= 0 && preselectedModelIndex < project.models.size()
+        ? preselectedModelIndex
+        : 0;
+    modelTable->selectRow(selectedModelIndex);
+    dialogLayout->addWidget(modelTable, 1);
+
+    auto *protocolGroup = new QGroupBox(QStringLiteral("南向协议"), &dialog);
+    auto *protocolLayout = new QHBoxLayout(protocolGroup);
+    auto *modbusRadio = new QRadioButton(QStringLiteral("Modbus"), protocolGroup);
+    auto *iec104Radio = new QRadioButton(QStringLiteral("104"), protocolGroup);
+    auto *protocolButtons = new QButtonGroup(protocolGroup);
+    protocolButtons->addButton(modbusRadio);
+    protocolButtons->addButton(iec104Radio);
+    iec104Radio->setChecked(true);
+    protocolLayout->addWidget(modbusRadio);
+    protocolLayout->addWidget(iec104Radio);
+    protocolLayout->addStretch();
+    dialogLayout->addWidget(protocolGroup);
+
+    auto *deviceForm = new QFormLayout();
+    auto *deviceIdEdit = new QLineEdit(nextDeviceId(), &dialog);
+    deviceIdEdit->setPlaceholderText(QStringLiteral("DeviceId"));
+    deviceForm->addRow(QStringLiteral("DeviceId:"), deviceIdEdit);
+    dialogLayout->addLayout(deviceForm);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("创建"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog, &project, modelTable, deviceIdEdit]() {
+        if (modelTable->currentRow() < 0) {
+            QMessageBox::information(&dialog, QStringLiteral("创建设备"), QStringLiteral("请选择一个模型。"));
+            return;
+        }
+        const QString deviceId = deviceIdEdit->text().trimmed();
+        if (deviceId.isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("创建设备"), QStringLiteral("请输入 DeviceId。"));
+            deviceIdEdit->setFocus();
+            return;
+        }
+        for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+            if (device.deviceId.trimmed() == deviceId) {
+                QMessageBox::information(&dialog,
+                                         QStringLiteral("创建设备"),
+                                         QStringLiteral("DeviceId 已存在，请换一个。"));
+                deviceIdEdit->setFocus();
+                deviceIdEdit->selectAll();
+                return;
+            }
+        }
+        dialog.accept();
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialogLayout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const int modelIndex = modelTable->currentRow();
+    if (modelIndex < 0 || modelIndex >= project.models.size()) {
         return;
     }
 
     const configtool::ModelTemplate &model = project.models.at(modelIndex);
-    bool accepted = false;
-    const QString protocolName = QInputDialog::getItem(
-        this,
-        QStringLiteral("选择协议设备"),
-        QStringLiteral("请选择要创建的协议设备:"),
-        {QStringLiteral("104"), QStringLiteral("Modbus")},
-        0,
-        false,
-        &accepted);
-    if (!accepted || protocolName.isEmpty()) {
-        return;
-    }
-    const bool createModbus = protocolName.compare(QStringLiteral("Modbus"), Qt::CaseInsensitive) == 0;
-
-    const QString deviceId = QInputDialog::getText(
-        this,
-        createModbus ? QStringLiteral("创建 Modbus 设备") : QStringLiteral("创建 104 设备"),
-        QStringLiteral("请输入 DeviceId:"),
-        QLineEdit::Normal,
-        QStringLiteral("1"),
-        &accepted).trimmed();
-    if (!accepted || deviceId.isEmpty()) {
-        return;
-    }
-
+    const bool createModbus = modbusRadio->isChecked();
+    const QString deviceId = deviceIdEdit->text().trimmed();
     configtool::ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     device.appType = createModbus ? QStringLiteral("cepmodbus") : QStringLiteral("cepiec104");
@@ -914,7 +1010,10 @@ void MainWindow::onCreateDeviceFromModelClicked()
         m_configDeviceTable->selectRow(row);
     }
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
-    statusBar()->showMessage(QStringLiteral("已根据模型生成 104 设备绑定骨架"), 4000);
+    statusBar()->showMessage(createModbus
+                                 ? QStringLiteral("已根据模型生成 Modbus 设备绑定骨架")
+                                 : QStringLiteral("已根据模型生成 104 设备绑定骨架"),
+                             4000);
 }
 
 void MainWindow::onDeleteModelClicked()

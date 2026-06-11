@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QColor>
@@ -785,8 +786,6 @@ MainWindow::MainWindow(QWidget *parent)
     modelToolbar->setSpacing(8);
     m_newModelBtn = new QPushButton("新建模型");
     modelToolbar->addWidget(m_newModelBtn);
-    m_createDeviceFromModelBtn = new QPushButton("由模型创建设备");
-    modelToolbar->addWidget(m_createDeviceFromModelBtn);
     m_deleteModelBtn = new QPushButton("删除模型");
     m_deleteModelBtn->setEnabled(false);
     modelToolbar->addWidget(m_deleteModelBtn);
@@ -797,6 +796,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_configModelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_configModelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_configModelTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_configModelTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_configModelTable->verticalHeader()->setVisible(false);
     m_configModelTable->horizontalHeader()->setStretchLastSection(false);
     m_configModelTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -820,6 +820,8 @@ MainWindow::MainWindow(QWidget *parent)
     deviceContentLayout->setSpacing(8);
     auto *deviceToolbar = new QVBoxLayout();
     deviceToolbar->setSpacing(8);
+    m_createDeviceBtn = new QPushButton("创建设备");
+    deviceToolbar->addWidget(m_createDeviceBtn);
     m_deleteDeviceBtn = new QPushButton("删除设备");
     m_deleteDeviceBtn->setEnabled(false);
     deviceToolbar->addWidget(m_deleteDeviceBtn);
@@ -2169,7 +2171,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onLogicOnlineLinkCellDoubleClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
-    connect(m_createDeviceFromModelBtn, &QPushButton::clicked,
+    connect(m_createDeviceBtn, &QPushButton::clicked,
             this, &MainWindow::onCreateDeviceFromModelClicked);
     connect(m_deleteModelBtn, &QPushButton::clicked,
             this, &MainWindow::onDeleteModelClicked);
@@ -2181,6 +2183,21 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConfigDeviceSelectionChanged);
     connect(m_configModelTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onConfigModelActivated);
+    connect(m_configModelTable, &QWidget::customContextMenuRequested,
+            this, [this](const QPoint &pos) {
+                const int row = m_configModelTable->rowAt(pos.y());
+                if (row < 0) {
+                    return;
+                }
+
+                m_configModelTable->selectRow(row);
+                QMenu menu(this);
+                QAction *createDeviceAction = menu.addAction(QStringLiteral("由该模型创建设备"));
+                connect(createDeviceAction, &QAction::triggered, this, [this, row]() {
+                    openCreateDeviceDialog(row);
+                });
+                menu.exec(m_configModelTable->viewport()->mapToGlobal(pos));
+            });
     connect(m_configDeviceTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onConfigDeviceActivated);
     connect(m_modelEditorCombo, qOverload<int>(&QComboBox::currentIndexChanged),

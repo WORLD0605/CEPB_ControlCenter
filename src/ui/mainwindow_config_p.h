@@ -8,6 +8,7 @@
 #include <functional>
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QColor>
@@ -21,6 +22,8 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
+#include <QFont>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -36,6 +39,7 @@
 #include <QMouseEvent>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QScrollArea>
