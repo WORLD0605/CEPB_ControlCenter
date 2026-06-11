@@ -12,6 +12,7 @@
 #include <QClipboard>
 #include <QColor>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -122,6 +123,46 @@ inline constexpr int ConfigIssueRoleTargetType = Qt::UserRole + 1;
 inline constexpr int ConfigIssueRoleTargetKey = Qt::UserRole + 2;
 inline constexpr const char *ModelEditorOriginalModelIdProperty = "originalModelId";
 inline constexpr const char *DeviceEditorOriginalDeviceIdProperty = "originalDeviceId";
+
+inline QString findRemoteToolExecutable(const QString &baseName)
+{
+    const QString exeName = baseName.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)
+        ? baseName
+        : QStringLiteral("%1.exe").arg(baseName);
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList bundledCandidates = {
+        QDir(appDir).filePath(exeName),
+        QDir(appDir).filePath(baseName),
+        QDir(appDir).filePath(QStringLiteral("tools/%1").arg(exeName)),
+        QDir(appDir).filePath(QStringLiteral("tools/%1").arg(baseName)),
+    };
+    for (const QString &candidate : bundledCandidates) {
+        if (QFileInfo(candidate).isFile()) {
+            return QDir::toNativeSeparators(candidate);
+        }
+    }
+    QString executable = QStandardPaths::findExecutable(exeName);
+    if (executable.isEmpty()) {
+        executable = QStandardPaths::findExecutable(baseName);
+    }
+    return executable;
+}
+
+inline QString missingPasswordSshToolMessage()
+{
+    return QStringLiteral(
+        "当前填写了 SSH 密码，但程序未找到 plink.exe/pscp.exe，无法自动完成密码登录。\n\n"
+        "请将 PuTTY 的 plink.exe 和 pscp.exe 放到程序目录或 tools 子目录，"
+        "或把它们加入系统 PATH 后重试。\n\n"
+        "系统自带 ssh/scp 只能用于已经配置 SSH key 的设备。");
+}
+
+inline bool puttyHostKeyPromptNeedsAccept(const QByteArray &output)
+{
+    const QByteArray lower = output.toLower();
+    return lower.contains("host key is not cached")
+        || lower.contains("store key in cache");
+}
 
 using configtool::buildModbusDataIndex;
 using configtool::isModbusDevice;

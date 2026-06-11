@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+#include "mainwindow_config_p.h"
 
 #include <QApplication>
 #include <QColor>
@@ -11,7 +11,6 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QStandardPaths>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -33,6 +32,10 @@ QString remoteProgramShellQuote(const QString &text)
     quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
     return QStringLiteral("'%1'").arg(quoted);
 }
+
+using cepb_config_helpers::findRemoteToolExecutable;
+using cepb_config_helpers::missingPasswordSshToolMessage;
+using cepb_config_helpers::puttyHostKeyPromptNeedsAccept;
 
 QString trimRemoteBaseDir(QString baseDir)
 {
@@ -231,11 +234,23 @@ void MainWindow::handleProgramControlShellReadyRead()
     }
 
     if (!m_programControlCommandRunning) {
-        m_programControlShell->readAllStandardOutput();
+        const QByteArray output = m_programControlShell->readAllStandardOutput();
+        if (!m_programControlShell->property("puttyHostKeyAccepted").toBool()
+            && puttyHostKeyPromptNeedsAccept(output)) {
+            m_programControlShell->write("y\n");
+            m_programControlShell->waitForBytesWritten(1000);
+            m_programControlShell->setProperty("puttyHostKeyAccepted", true);
+        }
         return;
     }
 
     m_programControlCommandBuffer.append(m_programControlShell->readAllStandardOutput());
+    if (!m_programControlShell->property("puttyHostKeyAccepted").toBool()
+        && puttyHostKeyPromptNeedsAccept(m_programControlCommandBuffer)) {
+        m_programControlShell->write("y\n");
+        m_programControlShell->waitForBytesWritten(1000);
+        m_programControlShell->setProperty("puttyHostKeyAccepted", true);
+    }
 
     const QByteArray tokenBytes = m_programControlCommandToken.toUtf8() + '|';
     const int tokenIndex = m_programControlCommandBuffer.indexOf(tokenBytes);
@@ -381,8 +396,8 @@ QString MainWindow::programControlShellKey() const
     const QString user = m_programRemoteUserEdit ? m_programRemoteUserEdit->text().trimmed() : QString();
     const QString password = m_programRemotePasswordEdit ? m_programRemotePasswordEdit->text() : QString();
     const QString port = QString::number(m_programRemotePortEdit ? m_programRemotePortEdit->value() : 10022);
-    const bool hasPutty = !QStandardPaths::findExecutable(QStringLiteral("plink")).isEmpty();
-    return QStringList({hasPutty ? QStringLiteral("plink") : QStringLiteral("ssh"),
+    const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
+    return QStringList({plinkPath.isEmpty() ? QStringLiteral("ssh") : plinkPath,
                         host,
                         user,
                         password,
@@ -423,13 +438,20 @@ bool MainWindow::openProgramControlShell(const QString &title,
     const QString user = m_programRemoteUserEdit ? m_programRemoteUserEdit->text().trimmed() : QString();
     const QString password = m_programRemotePasswordEdit ? m_programRemotePasswordEdit->text() : QString();
     const QString port = QString::number(m_programRemotePortEdit ? m_programRemotePortEdit->value() : 10022);
-    const bool hasPutty = !QStandardPaths::findExecutable(QStringLiteral("plink")).isEmpty();
+    const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
+    const bool hasPutty = !plinkPath.isEmpty();
+    if (!password.isEmpty() && !hasPutty) {
+        if (output) {
+            *output = missingPasswordSshToolMessage();
+        }
+        return false;
+    }
 
     QString program;
     QStringList args;
     if (hasPutty) {
-        program = QStringLiteral("plink");
-        args = {QStringLiteral("-batch"), QStringLiteral("-ssh"), QStringLiteral("-P"), port};
+        program = plinkPath;
+        args = {QStringLiteral("-ssh"), QStringLiteral("-P"), port};
         if (!user.isEmpty()) {
             args << QStringLiteral("-l") << user;
         }
@@ -439,7 +461,10 @@ bool MainWindow::openProgramControlShell(const QString &title,
         args << host;
     } else {
         program = QStringLiteral("ssh");
-        args = {QStringLiteral("-p"), port, programControlRemoteTarget()};
+        args = {QStringLiteral("-o"), QStringLiteral("BatchMode=yes"),
+                QStringLiteral("-o"), QStringLiteral("StrictHostKeyChecking=accept-new"),
+                QStringLiteral("-o"), QStringLiteral("ConnectTimeout=10"),
+                QStringLiteral("-p"), port, programControlRemoteTarget()};
     }
 
     m_programControlShell = new QProcess(this);
@@ -470,6 +495,23 @@ bool MainWindow::openProgramControlShell(const QString &title,
         }
         closeProgramControlShell();
         return false;
+    }
+    if (hasPutty) {
+        QByteArray initialOutput;
+        QElapsedTimer elapsed;
+        elapsed.start();
+        while (elapsed.elapsed() < 3000 && m_programControlShell->state() != QProcess::NotRunning) {
+            if (!m_programControlShell->waitForReadyRead(100)) {
+                continue;
+            }
+            initialOutput.append(m_programControlShell->readAllStandardOutput());
+            if (puttyHostKeyPromptNeedsAccept(initialOutput)) {
+                m_programControlShell->write("y\n");
+                m_programControlShell->waitForBytesWritten(1000);
+                m_programControlShell->setProperty("puttyHostKeyAccepted", true);
+                break;
+            }
+        }
     }
 
     m_programControlShellKey = key;

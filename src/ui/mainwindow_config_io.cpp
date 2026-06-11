@@ -541,8 +541,14 @@ bool MainWindow::runConfigTransferProcess(const QString &program,
     QByteArray outputBytes;
     QElapsedTimer elapsed;
     elapsed.start();
+    bool acceptedPuttyHostKey = false;
     while (!process.waitForFinished(100)) {
         outputBytes.append(process.readAllStandardOutput());
+        if (!acceptedPuttyHostKey && puttyHostKeyPromptNeedsAccept(outputBytes)) {
+            process.write("y\n");
+            process.waitForBytesWritten(1000);
+            acceptedPuttyHostKey = true;
+        }
         if (progress) {
             const QString text = QString::fromUtf8(outputBytes);
             const QStringList lines = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
@@ -643,8 +649,15 @@ void MainWindow::onUploadConfigClicked()
     const QString port = QString::number(m_configRemotePortEdit ? m_configRemotePortEdit->value() : 10022);
     const QString remoteBaseDir = configRemoteBaseDir();
     const QString remoteArchivePath = QStringLiteral("/tmp/cepb_config_upload.tar.gz");
-    const bool hasPutty = !QStandardPaths::findExecutable(QStringLiteral("plink")).isEmpty()
-        && !QStandardPaths::findExecutable(QStringLiteral("pscp")).isEmpty();
+    const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
+    const QString pscpPath = findRemoteToolExecutable(QStringLiteral("pscp"));
+    const bool hasPutty = !plinkPath.isEmpty() && !pscpPath.isEmpty();
+    if (!password.isEmpty() && !hasPutty) {
+        QMessageBox::warning(this, QStringLiteral("上传配置"), missingPasswordSshToolMessage());
+        statusBar()->showMessage(QStringLiteral("未找到 plink/pscp，无法密码登录设备"), 5000);
+        QFile::remove(archivePath);
+        return;
+    }
 
     QStringList cleanupParts;
     cleanupParts << QStringLiteral("set -e")
@@ -659,7 +672,7 @@ void MainWindow::onUploadConfigClicked()
         .arg(remoteShellQuote(remoteArchivePath), remoteShellQuote(remoteBaseDir));
 
     auto puttyArgs = [&](const QString &command) {
-        QStringList args = {QStringLiteral("-batch"), QStringLiteral("-ssh"), QStringLiteral("-P"), port};
+        QStringList args = {QStringLiteral("-ssh"), QStringLiteral("-P"), port};
         if (!user.isEmpty()) {
             args << QStringLiteral("-l") << user;
         }
@@ -673,10 +686,10 @@ void MainWindow::onUploadConfigClicked()
     bool ok = false;
     if (hasPutty) {
         setUploadStep(1, QStringLiteral("清空设备内对应配置目录..."));
-        ok = runConfigTransferProcess(QStringLiteral("plink"), puttyArgs(cleanupCommand), QStringLiteral("清空设备内对应配置目录"), &output, &progress);
+        ok = runConfigTransferProcess(plinkPath, puttyArgs(cleanupCommand), QStringLiteral("清空设备内对应配置目录"), &output, &progress);
         if (ok) {
             setUploadStep(2, QStringLiteral("上传配置压缩包..."));
-            QStringList args = {QStringLiteral("-batch"), QStringLiteral("-P"), port};
+            QStringList args = {QStringLiteral("-P"), port};
             if (!user.isEmpty()) {
                 args << QStringLiteral("-l") << user;
             }
@@ -684,32 +697,43 @@ void MainWindow::onUploadConfigClicked()
                 args << QStringLiteral("-pw") << password;
             }
             args << archivePath << QStringLiteral("%1:%2").arg(host, remoteArchivePath);
-            ok = runConfigTransferProcess(QStringLiteral("pscp"), args, QStringLiteral("上传配置压缩包"), &output, &progress);
+            ok = runConfigTransferProcess(pscpPath, args, QStringLiteral("上传配置压缩包"), &output, &progress);
         }
         if (ok) {
             setUploadStep(3, QStringLiteral("设备端解包配置..."));
-            ok = runConfigTransferProcess(QStringLiteral("plink"), puttyArgs(extractCommand), QStringLiteral("设备端解包配置"), &output, &progress);
+            ok = runConfigTransferProcess(plinkPath, puttyArgs(extractCommand), QStringLiteral("设备端解包配置"), &output, &progress);
         }
     } else {
         const QString target = configRemoteTarget();
         setUploadStep(1, QStringLiteral("清空设备内对应配置目录..."));
+        const QStringList sshOptions = {
+            QStringLiteral("-o"), QStringLiteral("BatchMode=yes"),
+            QStringLiteral("-o"), QStringLiteral("StrictHostKeyChecking=accept-new"),
+            QStringLiteral("-o"), QStringLiteral("ConnectTimeout=10"),
+        };
+        QStringList sshArgs = sshOptions;
+        sshArgs << QStringLiteral("-p") << port << target << cleanupCommand;
         ok = runConfigTransferProcess(QStringLiteral("ssh"),
-                                      {QStringLiteral("-p"), port, target, cleanupCommand},
+                                      sshArgs,
                                       QStringLiteral("清空设备内对应配置目录"),
                                       &output,
                                       &progress);
         if (ok) {
             setUploadStep(2, QStringLiteral("上传配置压缩包..."));
+            QStringList scpArgs = sshOptions;
+            scpArgs << QStringLiteral("-P") << port << archivePath << QStringLiteral("%1:%2").arg(target, remoteArchivePath);
             ok = runConfigTransferProcess(QStringLiteral("scp"),
-                                          {QStringLiteral("-P"), port, archivePath, QStringLiteral("%1:%2").arg(target, remoteArchivePath)},
+                                          scpArgs,
                                           QStringLiteral("上传配置压缩包"),
                                           &output,
                                           &progress);
         }
         if (ok) {
             setUploadStep(3, QStringLiteral("设备端解包配置..."));
+            sshArgs = sshOptions;
+            sshArgs << QStringLiteral("-p") << port << target << extractCommand;
             ok = runConfigTransferProcess(QStringLiteral("ssh"),
-                                          {QStringLiteral("-p"), port, target, extractCommand},
+                                          sshArgs,
                                           QStringLiteral("设备端解包配置"),
                                           &output,
                                           &progress);
@@ -720,7 +744,7 @@ void MainWindow::onUploadConfigClicked()
     if (!ok) {
         QMessageBox::warning(this,
                              QStringLiteral("上传配置"),
-                             QStringLiteral("配置上传失败。\n\n若设备需要密码，请确认本机已安装 plink/pscp，程序会使用密码 root 自动连接。\n\n%1").arg(output));
+                             QStringLiteral("配置上传失败。\n\n密码登录需要 plink/pscp；SSH key 登录会使用系统 ssh/scp。\n\n%1").arg(output));
         statusBar()->showMessage(QStringLiteral("配置上传失败"), 5000);
         return;
     }
@@ -751,8 +775,14 @@ void MainWindow::onDownloadConfigClicked()
     const QString remoteArchivePath = QStringLiteral("/tmp/cepb_config_download.tar.gz");
     const QString archivePath = QDir::temp().filePath(
         QStringLiteral("cepb_config_download_%1.tar.gz").arg(QUuid::createUuid().toString(QUuid::Id128)));
-    const bool hasPutty = !QStandardPaths::findExecutable(QStringLiteral("plink")).isEmpty()
-        && !QStandardPaths::findExecutable(QStringLiteral("pscp")).isEmpty();
+    const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
+    const QString pscpPath = findRemoteToolExecutable(QStringLiteral("pscp"));
+    const bool hasPutty = !plinkPath.isEmpty() && !pscpPath.isEmpty();
+    if (!password.isEmpty() && !hasPutty) {
+        QMessageBox::warning(this, QStringLiteral("下载配置"), missingPasswordSshToolMessage());
+        statusBar()->showMessage(QStringLiteral("未找到 plink/pscp，无法密码登录设备"), 5000);
+        return;
+    }
 
     QStringList quotedPaths;
     for (const QString &relativePath : configTransferPathList()) {
@@ -766,7 +796,7 @@ void MainWindow::onDownloadConfigClicked()
              remoteShellQuote(remoteArchivePath));
 
     auto puttyArgs = [&](const QString &command) {
-        QStringList args = {QStringLiteral("-batch"), QStringLiteral("-ssh"), QStringLiteral("-P"), port};
+        QStringList args = {QStringLiteral("-ssh"), QStringLiteral("-P"), port};
         if (!user.isEmpty()) {
             args << QStringLiteral("-l") << user;
         }
@@ -791,10 +821,10 @@ void MainWindow::onDownloadConfigClicked()
     bool ok = false;
     if (hasPutty) {
         setDownloadStep(0, QStringLiteral("设备端扫描并打包配置..."));
-        ok = runConfigTransferProcess(QStringLiteral("plink"), puttyArgs(packageCommand), QStringLiteral("设备端扫描并打包配置"), &output, &progress);
+        ok = runConfigTransferProcess(plinkPath, puttyArgs(packageCommand), QStringLiteral("设备端扫描并打包配置"), &output, &progress);
         if (ok) {
             setDownloadStep(1, QStringLiteral("下载配置压缩包..."));
-            QStringList args = {QStringLiteral("-batch"), QStringLiteral("-P"), port};
+            QStringList args = {QStringLiteral("-P"), port};
             if (!user.isEmpty()) {
                 args << QStringLiteral("-l") << user;
             }
@@ -802,32 +832,43 @@ void MainWindow::onDownloadConfigClicked()
                 args << QStringLiteral("-pw") << password;
             }
             args << QStringLiteral("%1:%2").arg(host, remoteArchivePath) << archivePath;
-            ok = runConfigTransferProcess(QStringLiteral("pscp"), args, QStringLiteral("下载配置压缩包"), &output, &progress);
+            ok = runConfigTransferProcess(pscpPath, args, QStringLiteral("下载配置压缩包"), &output, &progress);
         }
         if (ok) {
-            runConfigTransferProcess(QStringLiteral("plink"),
+            runConfigTransferProcess(plinkPath,
                                      puttyArgs(QStringLiteral("rm -f %1").arg(remoteShellQuote(remoteArchivePath))),
                                      QStringLiteral("清理远端临时文件"));
         }
     } else {
         const QString target = configRemoteTarget();
         setDownloadStep(0, QStringLiteral("设备端扫描并打包配置..."));
+        const QStringList sshOptions = {
+            QStringLiteral("-o"), QStringLiteral("BatchMode=yes"),
+            QStringLiteral("-o"), QStringLiteral("StrictHostKeyChecking=accept-new"),
+            QStringLiteral("-o"), QStringLiteral("ConnectTimeout=10"),
+        };
+        QStringList sshArgs = sshOptions;
+        sshArgs << QStringLiteral("-p") << port << target << packageCommand;
         ok = runConfigTransferProcess(QStringLiteral("ssh"),
-                                      {QStringLiteral("-p"), port, target, packageCommand},
+                                      sshArgs,
                                       QStringLiteral("设备端扫描并打包配置"),
                                       &output,
                                       &progress);
         if (ok) {
             setDownloadStep(1, QStringLiteral("下载配置压缩包..."));
+            QStringList scpArgs = sshOptions;
+            scpArgs << QStringLiteral("-P") << port << QStringLiteral("%1:%2").arg(target, remoteArchivePath) << archivePath;
             ok = runConfigTransferProcess(QStringLiteral("scp"),
-                                          {QStringLiteral("-P"), port, QStringLiteral("%1:%2").arg(target, remoteArchivePath), archivePath},
+                                          scpArgs,
                                           QStringLiteral("下载配置压缩包"),
                                           &output,
                                           &progress);
         }
         if (ok) {
+            sshArgs = sshOptions;
+            sshArgs << QStringLiteral("-p") << port << target << QStringLiteral("rm -f %1").arg(remoteShellQuote(remoteArchivePath));
             runConfigTransferProcess(QStringLiteral("ssh"),
-                                     {QStringLiteral("-p"), port, target, QStringLiteral("rm -f %1").arg(remoteShellQuote(remoteArchivePath))},
+                                     sshArgs,
                                      QStringLiteral("清理远端临时文件"));
         }
     }
@@ -836,7 +877,7 @@ void MainWindow::onDownloadConfigClicked()
         QFile::remove(archivePath);
         QMessageBox::warning(this,
                              QStringLiteral("下载配置"),
-                             QStringLiteral("配置下载失败。\n\n若设备需要密码，请确认本机已安装 plink/pscp，程序会使用密码 root 自动连接。\n\n%1").arg(output));
+                             QStringLiteral("配置下载失败。\n\n密码登录需要 plink/pscp；SSH key 登录会使用系统 ssh/scp。\n\n%1").arg(output));
         statusBar()->showMessage(QStringLiteral("配置下载失败"), 5000);
         return;
     }
