@@ -29,7 +29,6 @@ class QSplitter;
 class QEvent;
 class QFrame;
 class QProgressDialog;
-class QProcess;
 class QWidget;
 
 enum class AppViewMode {
@@ -265,6 +264,10 @@ private:
     void highlightIec101DuplicateAddresses();
     QString configBrowseStartDir() const;
     QStringList configTransferRelativePaths(const QString &projectRoot) const;
+    QString deviceHost() const;
+    QString fixedRemoteUser() const;
+    QString fixedRemotePassword() const;
+    QString fixedRemoteSshPort() const;
     QString configRemoteTarget() const;
     QString configRemoteBaseDir() const;
     bool runConfigTransferProcess(const QString &program,
@@ -398,8 +401,8 @@ private:
     QFrame *m_iec101PointDropLine = nullptr;
     QList<configtool::ConfigProject> m_configUndoStack;
     QList<QJsonObject> m_iec101PointsUndoStack;
-    QProcess *m_programControlShell = nullptr;
     QString m_programControlShellKey;
+    bool m_programControlConnected = false;
     quint64 m_programControlCommandSerial = 0;
     bool m_programControlCommandRunning = false;
     ProgramControlCommandKind m_programControlCommandKind = ProgramControlCommandKind::RefreshStatus;
@@ -431,10 +434,6 @@ private:
     QPushButton *m_checkConfigIssuesBtn = nullptr;
     QPushButton *m_uploadConfigBtn = nullptr;
     QPushButton *m_downloadConfigBtn = nullptr;
-    QLineEdit *m_configRemoteHostEdit = nullptr;
-    QLineEdit *m_configRemoteUserEdit = nullptr;
-    QLineEdit *m_configRemotePasswordEdit = nullptr;
-    QSpinBox *m_configRemotePortEdit = nullptr;
     QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceFromModelBtn = nullptr;
@@ -522,10 +521,6 @@ private:
     QPushButton *m_generateLogicVirtualOnlineLinksBtn = nullptr;
     QTableWidget *m_logicOnlineLinkTable = nullptr;
     QPushButton *m_refreshProgramStatusBtn = nullptr;
-    QLineEdit *m_programRemoteHostEdit = nullptr;
-    QLineEdit *m_programRemoteUserEdit = nullptr;
-    QLineEdit *m_programRemotePasswordEdit = nullptr;
-    QSpinBox *m_programRemotePortEdit = nullptr;
     QPushButton *m_connectProgramControlBtn = nullptr;
     QPushButton *m_disconnectProgramControlBtn = nullptr;
     QTableWidget *m_programControlTable = nullptr;

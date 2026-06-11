@@ -6,5 +6,9 @@
         <file>icons/spin-up-light.svg</file>
         <file>icons/spin-down-dark.svg</file>
         <file>icons/spin-down-light.svg</file>
+        <file>icons/tab-left-dark.svg</file>
+        <file>icons/tab-left-light.svg</file>
+        <file>icons/tab-right-dark.svg</file>
+        <file>icons/tab-right-light.svg</file>
     </qresource>
 </RCC>

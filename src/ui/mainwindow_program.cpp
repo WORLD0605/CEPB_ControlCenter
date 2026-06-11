@@ -1,4 +1,5 @@
 #include "mainwindow_config_p.h"
+#include "network/ssh_client.h"
 
 #include <QApplication>
 #include <QColor>
@@ -8,7 +9,6 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressDialog>
-#include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStatusBar>
@@ -32,10 +32,6 @@ QString remoteProgramShellQuote(const QString &text)
     quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
     return QStringLiteral("'%1'").arg(quoted);
 }
-
-using cepb_config_helpers::findRemoteToolExecutable;
-using cepb_config_helpers::missingPasswordSshToolMessage;
-using cepb_config_helpers::puttyHostKeyPromptNeedsAccept;
 
 QString trimRemoteBaseDir(QString baseDir)
 {
@@ -169,7 +165,7 @@ bool MainWindow::startProgramControlCommand(const QString &command,
                                             ProgramControlCommandKind kind,
                                             const QString &appName)
 {
-    if (!m_programControlShell || m_programControlShell->state() == QProcess::NotRunning) {
+    if (!m_programControlConnected) {
         closeProgramControlShell();
         statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开，请手动连接"), 5000);
         QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("请先在“程序控制”页面点击“连接”。"));
@@ -185,89 +181,26 @@ bool MainWindow::startProgramControlCommand(const QString &command,
         return false;
     }
 
-    const QString token = QStringLiteral("__CEPB_PROGRAM_DONE_%1__").arg(++m_programControlCommandSerial);
-    const QString wrappedCommand = QStringLiteral(
-        "(\n%1\n); __cepb_program_code=$?; "
-        "printf '\\n%2|%s\\n' \"$__cepb_program_code\"\n")
-        .arg(command, token);
-
     m_programControlCommandRunning = true;
     m_programControlCommandKind = kind;
-    m_programControlCommandToken = token;
     m_programControlCommandTitle = title;
     m_programControlCommandAppName = appName;
     m_programControlCommandBuffer.clear();
-    m_programControlCommandBuffer.append(m_programControlShell->readAllStandardOutput());
     updateProgramControlBusyUi(true);
-
-    m_programControlShell->write(wrappedCommand.toUtf8());
-    if (m_programControlShell->state() == QProcess::NotRunning) {
-        const QString error = m_programControlShell->errorString();
-        closeProgramControlShell();
-        QMessageBox::warning(this,
-                             QStringLiteral("程序控制"),
-                             QStringLiteral("%1 失败。\n\n%2").arg(title, error));
-        return false;
-    }
-
-    QTimer::singleShot(180000, this, [this, token]() {
-        if (!m_programControlCommandRunning || m_programControlCommandToken != token) {
-            return;
-        }
-        const QString title = m_programControlCommandTitle;
-        clearProgramControlCommandState();
-        QMessageBox::warning(this,
-                             QStringLiteral("程序控制"),
-                             QStringLiteral("%1 超时。").arg(title));
-        closeProgramControlShell();
-        statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开"), 5000);
-    });
-
     statusBar()->showMessage(title, 3000);
+
+    SshClient::Connection sshConnection{deviceHost(),
+                                        fixedRemoteSshPort().toUShort(),
+                                        fixedRemoteUser(),
+                                        fixedRemotePassword()};
+    const SshClient::CommandResult result = SshClient::execCommand(sshConnection, command);
+    finishProgramControlCommand(result.ok ? 0 : result.exitCode,
+                                result.output.isEmpty() ? result.error : result.output);
     return true;
 }
 
 void MainWindow::handleProgramControlShellReadyRead()
 {
-    if (!m_programControlShell) {
-        return;
-    }
-
-    if (!m_programControlCommandRunning) {
-        const QByteArray output = m_programControlShell->readAllStandardOutput();
-        if (!m_programControlShell->property("puttyHostKeyAccepted").toBool()
-            && puttyHostKeyPromptNeedsAccept(output)) {
-            m_programControlShell->write("y\n");
-            m_programControlShell->waitForBytesWritten(1000);
-            m_programControlShell->setProperty("puttyHostKeyAccepted", true);
-        }
-        return;
-    }
-
-    m_programControlCommandBuffer.append(m_programControlShell->readAllStandardOutput());
-    if (!m_programControlShell->property("puttyHostKeyAccepted").toBool()
-        && puttyHostKeyPromptNeedsAccept(m_programControlCommandBuffer)) {
-        m_programControlShell->write("y\n");
-        m_programControlShell->waitForBytesWritten(1000);
-        m_programControlShell->setProperty("puttyHostKeyAccepted", true);
-    }
-
-    const QByteArray tokenBytes = m_programControlCommandToken.toUtf8() + '|';
-    const int tokenIndex = m_programControlCommandBuffer.indexOf(tokenBytes);
-    if (tokenIndex < 0) {
-        return;
-    }
-
-    const int codeStart = tokenIndex + tokenBytes.size();
-    const int codeEnd = m_programControlCommandBuffer.indexOf('\n', codeStart);
-    if (codeEnd < 0) {
-        return;
-    }
-
-    bool ok = false;
-    const int exitCode = m_programControlCommandBuffer.mid(codeStart, codeEnd - codeStart).trimmed().toInt(&ok);
-    const QString output = QString::fromUtf8(m_programControlCommandBuffer.left(tokenIndex));
-    finishProgramControlCommand(ok ? exitCode : -1, output);
 }
 
 void MainWindow::finishProgramControlCommand(int exitCode, const QString &output)
@@ -365,40 +298,19 @@ void MainWindow::clearProgramControlCommandState()
 
 void MainWindow::closeProgramControlShell()
 {
-    if (!m_programControlShell) {
-        return;
-    }
-
-    QProcess *shell = m_programControlShell;
-    m_programControlShell = nullptr;
+    m_programControlConnected = false;
     m_programControlShellKey.clear();
     clearProgramControlCommandState();
     updateProgramControlConnectionUi(false);
-
-    if (shell->state() != QProcess::NotRunning) {
-        shell->write("exit\n");
-        shell->waitForBytesWritten(500);
-        if (!shell->waitForFinished(1000)) {
-            shell->terminate();
-            if (!shell->waitForFinished(1000)) {
-                shell->kill();
-                shell->waitForFinished(1000);
-            }
-        }
-    }
-
-    delete shell;
 }
 
 QString MainWindow::programControlShellKey() const
 {
-    const QString host = m_programRemoteHostEdit ? m_programRemoteHostEdit->text().trimmed() : QString();
-    const QString user = m_programRemoteUserEdit ? m_programRemoteUserEdit->text().trimmed() : QString();
-    const QString password = m_programRemotePasswordEdit ? m_programRemotePasswordEdit->text() : QString();
-    const QString port = QString::number(m_programRemotePortEdit ? m_programRemotePortEdit->value() : 10022);
-    const bool usePuttyPasswordLogin = !password.isEmpty()
-        && !findRemoteToolExecutable(QStringLiteral("plink")).isEmpty();
-    return QStringList({usePuttyPasswordLogin ? QStringLiteral("plink") : QStringLiteral("ssh"),
+    const QString host = deviceHost();
+    const QString user = fixedRemoteUser();
+    const QString password = fixedRemotePassword();
+    const QString port = fixedRemoteSshPort();
+    return QStringList({QStringLiteral("libssh2"),
                         host,
                         user,
                         password,
@@ -407,8 +319,8 @@ QString MainWindow::programControlShellKey() const
 
 QString MainWindow::programControlRemoteTarget() const
 {
-    const QString host = m_programRemoteHostEdit ? m_programRemoteHostEdit->text().trimmed() : QString();
-    const QString user = m_programRemoteUserEdit ? m_programRemoteUserEdit->text().trimmed() : QString();
+    const QString host = deviceHost();
+    const QString user = fixedRemoteUser();
     if (host.isEmpty()) {
         return QString();
     }
@@ -427,95 +339,33 @@ bool MainWindow::openProgramControlShell(const QString &title,
     }
 
     const QString key = programControlShellKey();
-    if (m_programControlShell
-        && m_programControlShell->state() != QProcess::NotRunning
-        && m_programControlShellKey == key) {
+    if (m_programControlConnected && m_programControlShellKey == key) {
         return true;
     }
 
     closeProgramControlShell();
 
-    const QString host = m_programRemoteHostEdit ? m_programRemoteHostEdit->text().trimmed() : QString();
-    const QString user = m_programRemoteUserEdit ? m_programRemoteUserEdit->text().trimmed() : QString();
-    const QString password = m_programRemotePasswordEdit ? m_programRemotePasswordEdit->text() : QString();
-    const QString port = QString::number(m_programRemotePortEdit ? m_programRemotePortEdit->value() : 10022);
-    const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
-    const bool usePuttyPasswordLogin = !password.isEmpty() && !plinkPath.isEmpty();
-    if (!password.isEmpty() && !usePuttyPasswordLogin) {
-        if (output) {
-            *output = missingPasswordSshToolMessage();
-        }
-        return false;
-    }
-
-    QString program;
-    QStringList args;
-    if (usePuttyPasswordLogin) {
-        program = plinkPath;
-        args = {QStringLiteral("-ssh"), QStringLiteral("-P"), port};
-        if (!user.isEmpty()) {
-            args << QStringLiteral("-l") << user;
-        }
-        if (!password.isEmpty()) {
-            args << QStringLiteral("-pw") << password;
-        }
-        args << host;
-    } else {
-        program = QStringLiteral("ssh");
-        args = {QStringLiteral("-o"), QStringLiteral("BatchMode=yes"),
-                QStringLiteral("-o"), QStringLiteral("StrictHostKeyChecking=accept-new"),
-                QStringLiteral("-o"), QStringLiteral("ConnectTimeout=10"),
-                QStringLiteral("-p"), port, programControlRemoteTarget()};
-    }
-
-    m_programControlShell = new QProcess(this);
-    m_programControlShell->setProcessChannelMode(QProcess::MergedChannels);
-    QProcess *shell = m_programControlShell;
-    connect(shell, &QProcess::readyReadStandardOutput, this, &MainWindow::handleProgramControlShellReadyRead);
-    connect(shell, &QProcess::finished, this, [this, shell]() {
-        if (m_programControlShell != shell) {
-            return;
-        }
-        m_programControlShell = nullptr;
-        m_programControlShellKey.clear();
-        clearProgramControlCommandState();
-        updateProgramControlConnectionUi(false);
-        shell->deleteLater();
-        statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开"), 5000);
-    });
+    const QString host = deviceHost();
+    const QString user = fixedRemoteUser();
+    const QString password = fixedRemotePassword();
+    const QString port = fixedRemoteSshPort();
     if (progress) {
-        progress->setLabelText(QStringLiteral("%1\n正在建立 SSH 长连接...").arg(title));
+        progress->setLabelText(QStringLiteral("%1\n正在验证 SSH 连接...").arg(title));
         progress->show();
         QApplication::processEvents();
     }
 
-    m_programControlShell->start(program, args);
-    if (!m_programControlShell->waitForStarted(10000)) {
+    SshClient::Connection sshConnection{host, port.toUShort(), user, password};
+    const SshClient::CommandResult result = SshClient::execCommand(sshConnection, QStringLiteral(":"));
+    if (!result.ok) {
         if (output) {
-            *output = m_programControlShell->errorString();
+            *output = result.output.isEmpty() ? result.error : result.output;
         }
-        closeProgramControlShell();
         return false;
-    }
-    if (usePuttyPasswordLogin) {
-        QByteArray initialOutput;
-        QElapsedTimer elapsed;
-        elapsed.start();
-        while (elapsed.elapsed() < 3000 && m_programControlShell->state() != QProcess::NotRunning) {
-            if (!m_programControlShell->waitForReadyRead(100)) {
-                continue;
-            }
-            initialOutput.append(m_programControlShell->readAllStandardOutput());
-            if (puttyHostKeyPromptNeedsAccept(initialOutput)) {
-                m_programControlShell->write("y\n");
-                m_programControlShell->waitForBytesWritten(1000);
-                m_programControlShell->setProperty("puttyHostKeyAccepted", true);
-                break;
-            }
-        }
     }
 
     m_programControlShellKey = key;
+    m_programControlConnected = true;
     updateProgramControlConnectionUi(true);
     return true;
 }
@@ -549,17 +399,9 @@ void MainWindow::onDisconnectProgramControlClicked()
 
 void MainWindow::updateProgramControlConnectionUi(bool connected)
 {
-    if (m_programRemoteHostEdit) {
-        m_programRemoteHostEdit->setEnabled(!connected);
-    }
-    if (m_programRemoteUserEdit) {
-        m_programRemoteUserEdit->setEnabled(!connected);
-    }
-    if (m_programRemotePasswordEdit) {
-        m_programRemotePasswordEdit->setEnabled(!connected);
-    }
-    if (m_programRemotePortEdit) {
-        m_programRemotePortEdit->setEnabled(!connected);
+    if (m_ipEdit) {
+        const bool debugConnected = m_client && m_client->isConnected();
+        m_ipEdit->setEnabled(!connected && !debugConnected);
     }
     if (m_connectProgramControlBtn) {
         m_connectProgramControlBtn->setEnabled(!connected);
@@ -575,13 +417,13 @@ void MainWindow::updateProgramControlConnectionUi(bool connected)
 void MainWindow::updateProgramControlBusyUi(bool busy)
 {
     if (m_refreshProgramStatusBtn) {
-        m_refreshProgramStatusBtn->setEnabled(!busy && m_programControlShell);
+        m_refreshProgramStatusBtn->setEnabled(!busy && m_programControlConnected);
     }
     if (m_connectProgramControlBtn) {
-        m_connectProgramControlBtn->setEnabled(!busy && !m_programControlShell);
+        m_connectProgramControlBtn->setEnabled(!busy && !m_programControlConnected);
     }
     if (m_disconnectProgramControlBtn) {
-        m_disconnectProgramControlBtn->setEnabled(!busy && m_programControlShell);
+        m_disconnectProgramControlBtn->setEnabled(!busy && m_programControlConnected);
     }
     if (!m_programControlTable) {
         return;

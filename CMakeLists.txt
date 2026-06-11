@@ -7,6 +7,21 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(LIBSSH2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+set(LIBSSH2_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(ENABLE_DEBUG_LOGGING OFF CACHE BOOL "" FORCE)
+set(CRYPTO_BACKEND "WinCNG" CACHE STRING "" FORCE)
+add_subdirectory(third_party/libssh2 EXCLUDE_FROM_ALL)
+set_target_properties(libssh2_static PROPERTIES
+    AUTOMOC OFF
+    AUTOUIC OFF
+    AUTORCC OFF
+)
+
 # Qt6 优先，回退到 Qt5
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Network Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Network Widgets)
@@ -20,6 +35,7 @@ set(SOURCES
     src/config/modbus_mapping_utils.cpp
     src/config/config_project_manager.cpp
     src/network/debug_console_client.cpp
+    src/network/ssh_client.cpp
     src/ui/mainwindow.cpp
     src/ui/mainwindow_debug.cpp
     src/ui/mainwindow_config_io.cpp
@@ -38,6 +54,7 @@ set(HEADERS
     src/config/modbus_mapping_utils.h
     src/config/config_project_manager.h
     src/network/debug_console_client.h
+    src/network/ssh_client.h
     src/ui/mainwindow.h
     src/ui/point_selector_dialog.h
 )
@@ -61,6 +78,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Widgets
+    libssh2_static
 )
 
 # 安装规则（交叉编译到嵌入式时有用）

@@ -300,7 +300,7 @@ bool isKnownServiceChannelServiceId(const QString &serviceId)
 
 void MainWindow::onConnectClicked()
 {
-    QString host = m_ipEdit->text().trimmed();
+    QString host = deviceHost();
     const AppConfig appConfig = currentAppConfig();
     quint16 port = appConfig.port;
     if (host.isEmpty()) {
@@ -595,7 +595,7 @@ void MainWindow::updateUIState(bool connected)
     m_connectBtn->setEnabled(!connected);
     m_disconnectBtn->setEnabled(connected);
     m_sendBtn->setEnabled(connected && terminalMode);
-    m_ipEdit->setEnabled(!connected);
+    m_ipEdit->setEnabled(!connected && !m_programControlConnected);
     m_appCombo->setEnabled(!connected);
     m_cmdEdit->setEnabled(connected && terminalMode);
     m_refreshDataBtn->setEnabled(connected && dataViewMode);
@@ -752,7 +752,7 @@ void MainWindow::onOpenRawFrameLogClicked()
         return;
     }
 
-    const QString host = m_ipEdit->text().trimmed();
+    const QString host = deviceHost();
     if (host.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("IP地址不能为空"));
         return;

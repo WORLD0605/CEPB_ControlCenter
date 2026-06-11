@@ -124,6 +124,29 @@ QString themeStyleSheet(bool darkMode)
             "  border-color: #4d8fd5;"
             "}"
             "QTabBar::tab:hover:!selected { background-color: #29303a; color: #edf3f9; }"
+            "QTabBar QToolButton {"
+            "  background-color: #20242b;"
+            "  border: 1px solid #343b46;"
+            "  border-bottom: none;"
+            "  border-radius: 3px;"
+            "  margin: 0 1px 0 1px;"
+            "  padding: 0;"
+            "  width: 22px;"
+            "  height: 30px;"
+            "}"
+            "QTabBar QToolButton:hover { background-color: #29303a; border-color: #4d8fd5; }"
+            "QTabBar QToolButton:pressed { background-color: #2e3540; border-color: #62a8ee; }"
+            "QTabBar QToolButton:disabled { background-color: #252b33; border-color: #3b424d; }"
+            "QTabBar QToolButton::left-arrow {"
+            "  image: url(:/theme/icons/tab-left-light.svg);"
+            "  width: 12px;"
+            "  height: 12px;"
+            "}"
+            "QTabBar QToolButton::right-arrow {"
+            "  image: url(:/theme/icons/tab-right-light.svg);"
+            "  width: 12px;"
+            "  height: 12px;"
+            "}"
             "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {"
             "  background-color: #151a20;"
             "  color: #f0f4f8;"
@@ -306,6 +329,29 @@ QString themeStyleSheet(bool darkMode)
         "  border-color: #3e7db8;"
         "}"
         "QTabBar::tab:hover:!selected { background-color: #edf3f8; color: #111820; }"
+        "QTabBar QToolButton {"
+        "  background-color: #dfe6ee;"
+        "  border: 1px solid #c3ccd8;"
+        "  border-bottom: none;"
+        "  border-radius: 3px;"
+        "  margin: 0 1px 0 1px;"
+        "  padding: 0;"
+        "  width: 22px;"
+        "  height: 30px;"
+        "}"
+        "QTabBar QToolButton:hover { background-color: #edf3f8; border-color: #3e7db8; }"
+        "QTabBar QToolButton:pressed { background-color: #d4e7f8; border-color: #1f6fb8; }"
+        "QTabBar QToolButton:disabled { background-color: #e3e9f0; border-color: #c1cad6; }"
+        "QTabBar QToolButton::left-arrow {"
+        "  image: url(:/theme/icons/tab-left-dark.svg);"
+        "  width: 12px;"
+        "  height: 12px;"
+        "}"
+        "QTabBar QToolButton::right-arrow {"
+        "  image: url(:/theme/icons/tab-right-dark.svg);"
+        "  width: 12px;"
+        "  height: 12px;"
+        "}"
         "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {"
         "  background-color: #ffffff;"
         "  color: #111820;"
@@ -483,17 +529,23 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget = new QTabWidget(this);
     mainLayout->addWidget(m_mainTabWidget, 1);
 
+    auto *deviceIpWidget = new QWidget(m_mainTabWidget);
+    auto *deviceIpLayout = new QHBoxLayout(deviceIpWidget);
+    deviceIpLayout->setContentsMargins(0, 0, 8, 0);
+    deviceIpLayout->setSpacing(6);
+    deviceIpLayout->addWidget(new QLabel(QStringLiteral("设备IP:"), deviceIpWidget));
+    m_ipEdit = new QLineEdit(QStringLiteral("192.168.7.10"), deviceIpWidget);
+    m_ipEdit->setMinimumWidth(180);
+    m_ipEdit->setPlaceholderText(QStringLiteral("设备IP"));
+    deviceIpLayout->addWidget(m_ipEdit);
+    m_mainTabWidget->setCornerWidget(deviceIpWidget, Qt::TopRightCorner);
+
     auto *debugPage = new QWidget(this);
     auto *debugLayout = new QVBoxLayout(debugPage);
     debugLayout->setContentsMargins(0, 0, 0, 0);
     debugLayout->setSpacing(10);
 
     auto *topLayout = new QHBoxLayout();
-    topLayout->addWidget(new QLabel("IP地址:"));
-    m_ipEdit = new QLineEdit("192.168.7.10");
-    m_ipEdit->setMinimumWidth(140);
-    topLayout->addWidget(m_ipEdit);
-
     topLayout->addWidget(new QLabel("APP:"));
     m_appCombo = new QComboBox();
     for (int index = 0; index < m_appConfigs.size(); ++index) {
@@ -691,27 +743,7 @@ MainWindow::MainWindow(QWidget *parent)
     configLayout->addLayout(importRow);
 
     auto *transferRow = new QHBoxLayout();
-    transferRow->addWidget(new QLabel(QStringLiteral("设备:")));
-    m_configRemoteHostEdit = new QLineEdit(QStringLiteral("192.168.7.10"), this);
-    m_configRemoteHostEdit->setMinimumWidth(100);
-    transferRow->addWidget(m_configRemoteHostEdit);
-    transferRow->addWidget(new QLabel(QStringLiteral("用户:")));
-    m_configRemoteUserEdit = new QLineEdit(QStringLiteral("root"), this);
-    m_configRemoteUserEdit->setMaximumWidth(90);
-    transferRow->addWidget(m_configRemoteUserEdit);
-    transferRow->addWidget(new QLabel(QStringLiteral("密码:")));
-    m_configRemotePasswordEdit = new QLineEdit(this);
-    m_configRemotePasswordEdit->setEchoMode(QLineEdit::Password);
-    m_configRemotePasswordEdit->setPlaceholderText(QStringLiteral("留空用SSH key"));
-    m_configRemotePasswordEdit->setToolTip(QStringLiteral("留空时使用系统 ssh/scp 和当前 Windows 用户的 SSH key；填写密码时使用 PuTTY plink/pscp。"));
-    m_configRemotePasswordEdit->setMaximumWidth(120);
-    transferRow->addWidget(m_configRemotePasswordEdit);
-    transferRow->addWidget(new QLabel(QStringLiteral("端口:")));
-    m_configRemotePortEdit = new QSpinBox(this);
-    m_configRemotePortEdit->setRange(1, 65535);
-    m_configRemotePortEdit->setValue(10022);
-    m_configRemotePortEdit->setMaximumWidth(120);
-    transferRow->addWidget(m_configRemotePortEdit);
+    transferRow->addWidget(new QLabel(QStringLiteral("SSH: root@设备IP:10022"), this));
 
     m_uploadConfigBtn = new QPushButton(QStringLiteral("上传到设备"), this);
     m_downloadConfigBtn = new QPushButton(QStringLiteral("从设备下载"), this);
@@ -1647,27 +1679,7 @@ MainWindow::MainWindow(QWidget *parent)
     programControlLayout->setSpacing(8);
 
     auto *programConnectionRow = new QHBoxLayout();
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("IP:"), this));
-    m_programRemoteHostEdit = new QLineEdit(QStringLiteral("192.168.7.10"), this);
-    m_programRemoteHostEdit->setMinimumWidth(100);
-    programConnectionRow->addWidget(m_programRemoteHostEdit);
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("用户:"), this));
-    m_programRemoteUserEdit = new QLineEdit(QStringLiteral("root"), this);
-    m_programRemoteUserEdit->setMaximumWidth(90);
-    programConnectionRow->addWidget(m_programRemoteUserEdit);
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("密码:"), this));
-    m_programRemotePasswordEdit = new QLineEdit(this);
-    m_programRemotePasswordEdit->setEchoMode(QLineEdit::Password);
-    m_programRemotePasswordEdit->setPlaceholderText(QStringLiteral("留空用SSH key"));
-    m_programRemotePasswordEdit->setToolTip(QStringLiteral("留空时使用系统 ssh 和当前 Windows 用户的 SSH key；填写密码时使用 PuTTY plink。"));
-    m_programRemotePasswordEdit->setMaximumWidth(120);
-    programConnectionRow->addWidget(m_programRemotePasswordEdit);
-    programConnectionRow->addWidget(new QLabel(QStringLiteral("端口:"), this));
-    m_programRemotePortEdit = new QSpinBox(this);
-    m_programRemotePortEdit->setRange(1, 65535);
-    m_programRemotePortEdit->setValue(10022);
-    m_programRemotePortEdit->setMaximumWidth(120);
-    programConnectionRow->addWidget(m_programRemotePortEdit);
+    programConnectionRow->addWidget(new QLabel(QStringLiteral("SSH: root@设备IP:10022"), this));
 
     m_connectProgramControlBtn = new QPushButton(QStringLiteral("连接"), this);
     m_disconnectProgramControlBtn = new QPushButton(QStringLiteral("断开"), this);
