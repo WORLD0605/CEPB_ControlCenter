@@ -464,8 +464,7 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
                 ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed() : QStringLiteral("0.2");
 
             QJsonObject point;
-            point[QStringLiteral("datafrom")] = QStringLiteral("4");
-            point[QStringLiteral("deviceId")] = deviceId;
+            point[QStringLiteral("datafrom")] = deviceId;
             point[QStringLiteral("dataRef")] = dataRef;
             point[QStringLiteral("deviceaddr")] = deviceaddr;
             if (!description.isEmpty()) {
@@ -599,7 +598,10 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
             continue;
         }
         const QJsonObject pt = pointVal.toObject();
-        const QString deviceId = pt.value(QStringLiteral("deviceId")).toString();
+        QString deviceId = pt.value(QStringLiteral("deviceId")).toString();
+        if (deviceId.isEmpty()) {
+            deviceId = pt.value(QStringLiteral("datafrom")).toString();
+        }
         const QString dataRef = pt.value(QStringLiteral("dataRef")).toString();
         if (dataRef.isEmpty()) {
             continue;
