@@ -2694,11 +2694,13 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     if (m_modbusParamsGroupBox) {
         m_modbusParamsGroupBox->setVisible(modbusDevice);
     }
+    const QString modbusTransportType = modbusDevice
+        ? device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper()
+        : QString();
     if (modbusDevice) {
-        const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).toUpper();
         {
             QSignalBlocker blocker(m_modbusTypeCombo);
-            const int typeIndex = m_modbusTypeCombo->findText(type);
+            const int typeIndex = m_modbusTypeCombo->findText(modbusTransportType);
             m_modbusTypeCombo->setCurrentIndex(typeIndex >= 0 ? typeIndex : 0);
         }
         const QJsonObject rtu = device.transport.serial;
@@ -2733,6 +2735,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     const QSet<QString> duplicateAddresses = device.protocol == configtool::ProtocolType::Iec104
         ? duplicateIec104ChannelBindingAddresses(project, device)
         : duplicateBindingAddresses(device);
+    const QSet<QString> duplicateModbusRegisterAddresses =
+        modbusTransportType == QStringLiteral("TCP")
+            ? duplicateModbusRegisterAddressesByTcpChannel(project.devices).value(modbusTcpChannelKey(device))
+            : QSet<QString>();
     int emptyAddressCount = 0;
     for (const configtool::PointBinding &binding : device.bindings) {
         if (binding.enabled && binding.address.trimmed().isEmpty()) {
@@ -2837,7 +2843,21 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsEditable);
             dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
 
-            if (binding.enabled && !hasRegister) {
+            if (binding.enabled && hasRegister && duplicateModbusRegisterAddresses.contains(registerAddress)) {
+                const QColor duplicateColor(QStringLiteral("#c0392b"));
+                enabledItem->setForeground(duplicateColor);
+                kindItem->setForeground(duplicateColor);
+                dataRefItem->setForeground(duplicateColor);
+                descriptionItem->setForeground(duplicateColor);
+                funCodeItem->setForeground(duplicateColor);
+                registerItem->setForeground(duplicateColor);
+                dataTypeItem->setForeground(duplicateColor);
+                scaleItem->setForeground(duplicateColor);
+                groupItem->setForeground(duplicateColor);
+                entryItem->setForeground(duplicateColor);
+                dataIndexItem->setForeground(duplicateColor);
+                selfSignalItem->setForeground(duplicateColor);
+            } else if (binding.enabled && !hasRegister) {
                 ++missingRegisterCount;
                 const QColor warningColor(QStringLiteral("#b9770e"));
                 dataRefItem->setForeground(warningColor);
@@ -2977,7 +2997,13 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         fitDataTypeCombosToCells();
         QTimer::singleShot(0, this, fitDataTypeCombosToCells);
 
-        if (missingRegisterCount > 0) {
+        if (!duplicateModbusRegisterAddresses.isEmpty()) {
+            m_deviceValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
+            m_deviceValidationLabel->setText(
+                QStringLiteral("检测到同 TCP 通道重复 Modbus 寄存器地址：%1。请检查 %2 下所有设备的启用点位寄存器。")
+                    .arg(QStringList(duplicateModbusRegisterAddresses.begin(), duplicateModbusRegisterAddresses.end()).join(QStringLiteral("，")),
+                         modbusTcpChannelDisplayName(device)));
+        } else if (missingRegisterCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
             m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 Modbus 寄存器地址。填写后会自动生成分组、组内序号和 dataIndex。")
                 .arg(missingRegisterCount));

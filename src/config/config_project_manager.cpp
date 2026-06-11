@@ -1119,6 +1119,73 @@ QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(const QLi
     return duplicateAddressesByChannel;
 }
 
+QString modbusTcpChannelKey(const ProtocolDeviceInstance &device)
+{
+    return QStringLiteral("%1|%2|%3|%4")
+        .arg(QStringLiteral("TCP"),
+             device.transport.ip.trimmed().toLower(),
+             device.transport.port.trimmed(),
+             device.transport.stationAddress.trimmed());
+}
+
+QString modbusTcpChannelDisplayName(const ProtocolDeviceInstance &device)
+{
+    return QStringLiteral("IP=%1，端口=%2，协议地址=%3")
+        .arg(device.transport.ip.trimmed(),
+             device.transport.port.trimmed(),
+             device.transport.stationAddress.trimmed());
+}
+
+QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByTcpChannel(const QList<ProtocolDeviceInstance> &devices)
+{
+    QHash<QString, QSet<QString>> seenAddressesByChannel;
+    QHash<QString, QSet<QString>> duplicateAddressesByChannel;
+
+    for (const ProtocolDeviceInstance &device : devices) {
+        if (device.protocol != ProtocolType::Modbus
+            && device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+
+        const QString type = device.transport.protocolOptions
+                                 .value(QStringLiteral("type"))
+                                 .toString(QStringLiteral("TCP"))
+                                 .trimmed()
+                                 .toUpper();
+        if (type != QStringLiteral("TCP")) {
+            continue;
+        }
+
+        const QString channelKey = modbusTcpChannelKey(device);
+        QSet<QString> &seenAddresses = seenAddressesByChannel[channelKey];
+        QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
+
+        for (const PointBinding &binding : device.bindings) {
+            if (!binding.enabled || !binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
+                continue;
+            }
+
+            const QJsonValue value = binding.extensions.value(QStringLiteral("modbusRegisterAddress"));
+            bool ok = value.isDouble();
+            const int registerAddress = value.isDouble()
+                ? value.toInt()
+                : value.toString().trimmed().toInt(&ok, 0);
+            if (!ok) {
+                continue;
+            }
+
+            const QString address = QString::number(registerAddress);
+            if (seenAddresses.contains(address)) {
+                duplicateAddresses.insert(address);
+            } else {
+                seenAddresses.insert(address);
+            }
+        }
+    }
+
+    return duplicateAddressesByChannel;
+}
+
 ImportIssueSeverity importSeverityForConfigIssue(ConfigIssueSeverity severity)
 {
     switch (severity) {

@@ -61,6 +61,9 @@ QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device);
 QString iec104ChannelKey(const ProtocolDeviceInstance &device);
 QString iec104ChannelDisplayName(const ProtocolDeviceInstance &device);
 QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(const QList<ProtocolDeviceInstance> &devices);
+QString modbusTcpChannelKey(const ProtocolDeviceInstance &device);
+QString modbusTcpChannelDisplayName(const ProtocolDeviceInstance &device);
+QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByTcpChannel(const QList<ProtocolDeviceInstance> &devices);
 ImportIssueSeverity importSeverityForConfigIssue(ConfigIssueSeverity severity);
 QString formatConfigIssue(const ConfigIssue &issue);
 void appendConfigIssuesToReport(const QList<ConfigIssue> &issues,

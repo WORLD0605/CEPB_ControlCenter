@@ -173,6 +173,8 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
 
     const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Modbus);
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
+    const QHash<QString, QSet<QString>> duplicateRegisterAddressesByChannel =
+        duplicateModbusRegisterAddressesByTcpChannel(exportDevices);
 
     for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
@@ -188,7 +190,23 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     }
 
     QSet<QString> exportedDeviceFileNames;
+    QSet<QString> reportedDuplicateRegisterAddressChannels;
     for (const ProtocolDeviceInstance &device : exportDevices) {
+        const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper();
+        if (type == QStringLiteral("TCP")) {
+            const QString channelKey = modbusTcpChannelKey(device);
+            const QSet<QString> duplicateRegisterAddresses = duplicateRegisterAddressesByChannel.value(channelKey);
+            if (!duplicateRegisterAddresses.isEmpty()
+                && !reportedDuplicateRegisterAddressChannels.contains(channelKey)) {
+                reportedDuplicateRegisterAddressChannels.insert(channelKey);
+                report.addIssue(ImportIssueSeverity::Error,
+                                appDir,
+                                QStringLiteral("同 TCP 通道 Modbus 设备存在重复寄存器地址：%1（%2）")
+                                    .arg(QStringList(duplicateRegisterAddresses.begin(), duplicateRegisterAddresses.end()).join(QStringLiteral("，")),
+                                         modbusTcpChannelDisplayName(device)));
+            }
+        }
+
         if (device.deviceId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在 Modbus 设备 DeviceId 为空，无法导出"));
         }
@@ -208,7 +226,6 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
                                 .arg(device.modelId));
         }
 
-        const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper();
         if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
             report.addIssue(ImportIssueSeverity::Error,
                             device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
