@@ -58,9 +58,19 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         }
     }
 
+    QSet<QString> exportedDeviceFileNames;
     for (const ProtocolDeviceInstance &device : exportDevices) {
         if (device.deviceId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在设备 DeviceId 为空，无法导出"));
+        }
+        const QString deviceFileName = deviceFileNameForExport(device);
+        if (exportedDeviceFileNames.contains(deviceFileName)) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("存在多个 104 设备将导出为同一个文件：%1，请检查 DeviceId 是否重复")
+                                .arg(deviceFileName));
+        } else {
+            exportedDeviceFileNames.insert(deviceFileName);
         }
 
         for (const PointBinding &binding : device.bindings) {
@@ -177,9 +187,19 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         }
     }
 
+    QSet<QString> exportedDeviceFileNames;
     for (const ProtocolDeviceInstance &device : exportDevices) {
         if (device.deviceId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在 Modbus 设备 DeviceId 为空，无法导出"));
+        }
+        const QString deviceFileName = deviceFileNameForExport(device);
+        if (exportedDeviceFileNames.contains(deviceFileName)) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
+                            QStringLiteral("存在多个 Modbus 设备将导出为同一个文件：%1，请检查 DeviceId 是否重复")
+                                .arg(deviceFileName));
+        } else {
+            exportedDeviceFileNames.insert(deviceFileName);
         }
         if (!device.modelId.trimmed().isEmpty() && !findModelById(m_project, device.modelId)) {
             report.addIssue(ImportIssueSeverity::Warning,

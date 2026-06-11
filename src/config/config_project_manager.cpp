@@ -391,16 +391,9 @@ QString modelFileNameForExport(const ModelTemplate &model)
 
 QString deviceFileNameForExport(const ProtocolDeviceInstance &device)
 {
-    const QFileInfo sourceInfo(device.source.filePath);
-    if (!device.source.fileName.trimmed().isEmpty()
-        && sourceInfo.exists()
-        && sourceInfo.suffix().compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0) {
-        return device.source.fileName;
-    }
-
-    const QString stem = !device.deviceDesc.trimmed().isEmpty()
-        ? device.deviceDesc
-        : device.deviceId;
+    const QString stem = !device.deviceId.trimmed().isEmpty()
+        ? device.deviceId
+        : device.deviceDesc;
     return QStringLiteral("device-%1.json")
         .arg(safeFileSegment(stem, QStringLiteral("device")));
 }
