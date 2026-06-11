@@ -294,6 +294,9 @@ private:
                                    const QString &oldDataRef,
                                    const QString &newDataRef);
     int syncDeviceBindingsForModel(const QString &modelId);
+    int removeDeviceBindingsForModelPoints(const QString &modelId,
+                                           const QSet<QString> &pointRefs,
+                                           const QSet<QString> &dataRefs);
     int renameLogicDeviceReferences(const QString &oldDeviceId, const QString &newDeviceId);
     void selectModelPointById(const QString &pointId);
     int currentConfigModelIndex() const;

@@ -501,6 +501,43 @@ int MainWindow::syncDeviceBindingsForModel(const QString &modelId)
     return addedCount;
 }
 
+int MainWindow::removeDeviceBindingsForModelPoints(const QString &modelId,
+                                                   const QSet<QString> &pointRefs,
+                                                   const QSet<QString> &dataRefs)
+{
+    const QString targetModelId = modelId.trimmed();
+    if (targetModelId.isEmpty() || (pointRefs.isEmpty() && dataRefs.isEmpty())) {
+        return 0;
+    }
+
+    int removedCount = 0;
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    for (configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId.trimmed() != targetModelId) {
+            continue;
+        }
+
+        bool deviceChanged = false;
+        for (int index = device.bindings.size() - 1; index >= 0; --index) {
+            const configtool::PointBinding &binding = device.bindings.at(index);
+            const QString bindingPointRef = binding.pointRef.trimmed();
+            const QString bindingDataRef = binding.dataRef.trimmed();
+            if ((!bindingPointRef.isEmpty() && pointRefs.contains(bindingPointRef))
+                || (!bindingDataRef.isEmpty() && dataRefs.contains(bindingDataRef))) {
+                device.bindings.removeAt(index);
+                deviceChanged = true;
+                ++removedCount;
+            }
+        }
+
+        if (deviceChanged && isModbusDevice(device)) {
+            rebuildModbusDeviceConfig(device);
+        }
+    }
+
+    return removedCount;
+}
+
 void MainWindow::onAddPointClicked()
 {
     const int modelIndex = currentConfigModelIndex();
@@ -749,6 +786,26 @@ void MainWindow::onDeletePointClicked()
         return;
     }
 
+    pushConfigUndoSnapshot();
+    QSet<QString> deletedPointRefs;
+    QSet<QString> deletedDataRefs;
+    for (const QPair<int, int> &pointLocation : pointLocations) {
+        if (pointLocation.first >= 0
+            && pointLocation.first < model.services.size()
+            && pointLocation.second >= 0
+            && pointLocation.second < model.services.at(pointLocation.first).points.size()) {
+            const configtool::PointTemplate &point = model.services.at(pointLocation.first).points.at(pointLocation.second);
+            const QString pointRef = point.pointRef(model.modelId).trimmed();
+            const QString dataRef = point.dataRef().trimmed();
+            if (!pointRef.isEmpty()) {
+                deletedPointRefs.insert(pointRef);
+            }
+            if (!dataRef.isEmpty()) {
+                deletedDataRefs.insert(dataRef);
+            }
+        }
+    }
+
     std::sort(pointLocations.begin(), pointLocations.end(), [](const QPair<int, int> &left,
                                                                const QPair<int, int> &right) {
         if (left.first != right.first) {
@@ -765,12 +822,20 @@ void MainWindow::onDeletePointClicked()
             model.services[pointLocation.first].points.removeAt(pointLocation.second);
         }
     }
+    const int removedBindingCount = removeDeviceBindingsForModelPoints(model.modelId,
+                                                                       deletedPointRefs,
+                                                                       deletedDataRefs);
 
     refreshConfigObjectViews();
     refreshModelDetail(modelIndex);
-    statusBar()->showMessage(pointLocations.size() == 1
-                                 ? QStringLiteral("已删除模型点位")
-                                 : QStringLiteral("已删除 %1 个模型点位").arg(pointLocations.size()),
+    refreshDeviceDetail(currentConfigDeviceIndex());
+    refreshDeviceEditor(currentConfigDeviceIndex());
+    const QString pointMessage = pointLocations.size() == 1
+        ? QStringLiteral("已删除模型点位")
+        : QStringLiteral("已删除 %1 个模型点位").arg(pointLocations.size());
+    statusBar()->showMessage(removedBindingCount > 0
+                                 ? QStringLiteral("%1，并同步删除 %2 个设备绑定").arg(pointMessage).arg(removedBindingCount)
+                                 : pointMessage,
                              3000);
 }
 
