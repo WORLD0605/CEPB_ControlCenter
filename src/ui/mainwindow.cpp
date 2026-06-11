@@ -745,7 +745,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_modelGroupBox = new QGroupBox("模型列表", this);
     auto *modelGroupLayout = new QVBoxLayout(m_modelGroupBox);
-    auto *modelToolbar = new QHBoxLayout();
+    auto *modelContentLayout = new QHBoxLayout();
+    modelContentLayout->setSpacing(8);
+    auto *modelToolbar = new QVBoxLayout();
+    modelToolbar->setSpacing(8);
     m_newModelBtn = new QPushButton("新建模型");
     modelToolbar->addWidget(m_newModelBtn);
     m_createDeviceFromModelBtn = new QPushButton("由模型创建设备");
@@ -754,47 +757,61 @@ MainWindow::MainWindow(QWidget *parent)
     m_deleteModelBtn->setEnabled(false);
     modelToolbar->addWidget(m_deleteModelBtn);
     modelToolbar->addStretch();
-    modelGroupLayout->addLayout(modelToolbar);
+    modelContentLayout->addLayout(modelToolbar);
     m_configModelTable = new QTableWidget(0, 4, this);
     m_configModelTable->setHorizontalHeaderLabels({"模型", "展示名", "设备类型", "点位数"});
     m_configModelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_configModelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_configModelTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_configModelTable->verticalHeader()->setVisible(false);
-    m_configModelTable->horizontalHeader()->setStretchLastSection(true);
-    m_configModelTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_configModelTable->horizontalHeader()->setStretchLastSection(false);
+    m_configModelTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_configModelTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_configModelTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_configModelTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    m_configModelTable->setColumnWidth(3, 80);
     m_configModelTable->setStyleSheet(
         "QTableWidget::item:selected {"
         "  background-color: #355c7d;"
         "  color: #ffffff;"
         "}"
     );
-    modelGroupLayout->addWidget(m_configModelTable, 1);
+    modelContentLayout->addWidget(m_configModelTable, 1);
+    modelGroupLayout->addLayout(modelContentLayout, 1);
     objectPanelLayout->addWidget(m_modelGroupBox, 1);
 
     m_deviceGroupBox = new QGroupBox("设备列表", this);
     auto *deviceGroupLayout = new QVBoxLayout(m_deviceGroupBox);
-    auto *deviceToolbar = new QHBoxLayout();
+    auto *deviceContentLayout = new QHBoxLayout();
+    deviceContentLayout->setSpacing(8);
+    auto *deviceToolbar = new QVBoxLayout();
+    deviceToolbar->setSpacing(8);
     m_deleteDeviceBtn = new QPushButton("删除设备");
     m_deleteDeviceBtn->setEnabled(false);
     deviceToolbar->addWidget(m_deleteDeviceBtn);
     deviceToolbar->addStretch();
-    deviceGroupLayout->addLayout(deviceToolbar);
+    deviceContentLayout->addLayout(deviceToolbar);
     m_configDeviceTable = new QTableWidget(0, 5, this);
     m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "协议地址", "点位数"});
     m_configDeviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_configDeviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_configDeviceTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_configDeviceTable->verticalHeader()->setVisible(false);
-    m_configDeviceTable->horizontalHeader()->setStretchLastSection(true);
-    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_configDeviceTable->horizontalHeader()->setStretchLastSection(false);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
+    m_configDeviceTable->setColumnWidth(4, 80);
     m_configDeviceTable->setStyleSheet(
         "QTableWidget::item:selected {"
         "  background-color: #7d4f50;"
         "  color: #ffffff;"
         "}"
     );
-    deviceGroupLayout->addWidget(m_configDeviceTable, 1);
+    deviceContentLayout->addWidget(m_configDeviceTable, 1);
+    deviceGroupLayout->addLayout(deviceContentLayout, 1);
     objectPanelLayout->addWidget(m_deviceGroupBox, 1);
 
     configWorkspaceSplitter->addWidget(objectPanel);
