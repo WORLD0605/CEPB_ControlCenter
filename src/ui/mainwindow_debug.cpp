@@ -8,7 +8,10 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFrame>
+#include <QGridLayout>
 #include <QHash>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -17,7 +20,9 @@
 #include <QRegularExpression>
 #include <QShortcut>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QStackedWidget>
+#include <QTabWidget>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
@@ -54,6 +59,191 @@ bool isServiceChannelApp(const AppConfig &appConfig)
 {
     return appConfig.name.compare(QStringLiteral("ServiceChannel"), Qt::CaseInsensitive) == 0 ||
            appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
+}
+
+bool isDataViewApp(const AppConfig &appConfig)
+{
+    return appConfig.viewMode == AppViewMode::DataTable ||
+           appConfig.viewMode == AppViewMode::LogicAgcAvcTable;
+}
+
+QHash<QString, QString> parseAgcAvcParams(const QString &params)
+{
+    QHash<QString, QString> fields;
+    static const QRegularExpression fieldPattern(R"((enable|distant|openloop|lock|upLock|downLock|target)=([^\s]+))");
+    QRegularExpressionMatchIterator it = fieldPattern.globalMatch(params);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        fields.insert(match.captured(1), match.captured(2));
+    }
+    return fields;
+}
+
+bool isAgcAvcGatePassing(const QString &gateName, const QString &value)
+{
+    bool ok = false;
+    const int intValue = value.toInt(&ok);
+    if (!ok) {
+        return false;
+    }
+
+    if (gateName == QStringLiteral("enable") ||
+        gateName == QStringLiteral("distant")) {
+        return intValue == 1;
+    }
+
+    return intValue == 0;
+}
+
+void clearTabWidgetPages(QTabWidget *tabs)
+{
+    if (!tabs) {
+        return;
+    }
+
+    while (tabs->count() > 0) {
+        QWidget *page = tabs->widget(0);
+        tabs->removeTab(0);
+        delete page;
+    }
+}
+
+QFrame *createLogicMetricPanel(const QString &title,
+                               const QString &value,
+                               const QString &unit,
+                               const QString &accentColor,
+                               QWidget *parent)
+{
+    auto *panel = new QFrame(parent);
+    panel->setObjectName(QStringLiteral("logicMetricPanel"));
+    panel->setFrameShape(QFrame::StyledPanel);
+    panel->setStyleSheet(QStringLiteral(
+        "QFrame#logicMetricPanel {"
+        "  border: 1px solid #c6d3df;"
+        "  border-radius: 6px;"
+        "  background: #ffffff;"
+        "}"
+    ));
+
+    auto *layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(14, 12, 14, 12);
+    layout->setSpacing(6);
+
+    auto *titleLabel = new QLabel(title, panel);
+    titleLabel->setStyleSheet(QStringLiteral("color: #5d6b78; font-size: 12px;"));
+    layout->addWidget(titleLabel);
+
+    auto *valueLabel = new QLabel(value.isEmpty() ? QStringLiteral("-") : value, panel);
+    valueLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 26px; font-weight: 700;").arg(accentColor));
+    valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(valueLabel);
+
+    if (!unit.isEmpty()) {
+        auto *unitLabel = new QLabel(unit, panel);
+        unitLabel->setStyleSheet(QStringLiteral("color: #7c8792; font-size: 12px;"));
+        layout->addWidget(unitLabel);
+    }
+
+    panel->setMinimumHeight(104);
+    return panel;
+}
+
+QFrame *createLogicGateLamp(const QString &label,
+                            const QString &value,
+                            bool passing,
+                            QWidget *parent)
+{
+    const QString color = passing ? QStringLiteral("#1f9d55") : QStringLiteral("#d64545");
+    const QString softColor = passing ? QStringLiteral("#e7f6ed") : QStringLiteral("#fdeaea");
+    const QString text = passing ? QStringLiteral("放行") : QStringLiteral("闭锁");
+
+    auto *panel = new QFrame(parent);
+    panel->setObjectName(QStringLiteral("logicGateLampPanel"));
+    panel->setFrameShape(QFrame::StyledPanel);
+    panel->setStyleSheet(QStringLiteral(
+        "QFrame#logicGateLampPanel {"
+        "  border: 1px solid #c6d3df;"
+        "  border-radius: 6px;"
+        "  background: #ffffff;"
+        "}"
+    ));
+    panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    auto *layout = new QHBoxLayout(panel);
+    layout->setContentsMargins(12, 10, 12, 10);
+    layout->setSpacing(10);
+
+    auto *lamp = new QLabel(panel);
+    lamp->setFixedSize(28, 28);
+    lamp->setStyleSheet(QStringLiteral(
+        "border-radius: 14px;"
+        "background: %1;"
+        "border: 3px solid %2;"
+    ).arg(color, softColor));
+    layout->addWidget(lamp);
+
+    auto *textLayout = new QVBoxLayout();
+    textLayout->setContentsMargins(0, 0, 0, 0);
+    textLayout->setSpacing(2);
+
+    auto *nameLabel = new QLabel(label, panel);
+    nameLabel->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 700;"));
+    textLayout->addWidget(nameLabel);
+
+    auto *statusLabel = new QLabel(QStringLiteral("%1  value=%2").arg(text, value.isEmpty() ? QStringLiteral("-") : value), panel);
+    statusLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(color));
+    textLayout->addWidget(statusLabel);
+
+    layout->addLayout(textLayout, 1);
+    return panel;
+}
+
+QWidget *createLogicGateSection(const QString &title,
+                                const QString &params,
+                                QWidget *parent)
+{
+    const QHash<QString, QString> fields = parseAgcAvcParams(params);
+    auto *section = new QFrame(parent);
+    section->setObjectName(QStringLiteral("logicGateSection"));
+    section->setStyleSheet(QStringLiteral(
+        "QFrame#logicGateSection {"
+        "  border: 1px solid #d6e0ea;"
+        "  border-radius: 6px;"
+        "  background: #f8fafc;"
+        "}"
+    ));
+
+    auto *layout = new QVBoxLayout(section);
+    layout->setContentsMargins(14, 12, 14, 14);
+    layout->setSpacing(10);
+
+    auto *titleLabel = new QLabel(title, section);
+    titleLabel->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+    layout->addWidget(titleLabel);
+
+    auto *grid = new QGridLayout();
+    grid->setHorizontalSpacing(10);
+    grid->setVerticalSpacing(10);
+
+    const QStringList gates = {
+        QStringLiteral("enable"),
+        QStringLiteral("distant"),
+        QStringLiteral("openloop"),
+        QStringLiteral("lock"),
+        QStringLiteral("upLock"),
+        QStringLiteral("downLock")
+    };
+
+    for (int index = 0; index < gates.size(); ++index) {
+        const QString gateName = gates.at(index);
+        const QString value = fields.value(gateName);
+        grid->addWidget(createLogicGateLamp(gateName, value, isAgcAvcGatePassing(gateName, value), section),
+                        index / 3,
+                        index % 3);
+    }
+
+    layout->addLayout(grid);
+    return section;
 }
 
 bool isKnownServiceChannelServiceId(const QString &serviceId)
@@ -119,11 +309,12 @@ void MainWindow::onConnected()
     appendSystem("已连接", "#32cd32");
     m_statusLabel->setText("已连接 | " + m_ipEdit->text() + ":" + QString::number(appConfig.port));
 
-    if (appConfig.viewMode == AppViewMode::DataTable) {
-        m_deviceFilterCombo->setEnabled(true);
-        m_serviceTypeFilterCombo->setEnabled(true);
-        m_dataRefFilterEdit->setEnabled(true);
-        m_descriptionFilterEdit->setEnabled(true);
+    if (isDataViewApp(appConfig)) {
+        const bool serviceChannelApp = isServiceChannelApp(appConfig);
+        m_deviceFilterCombo->setEnabled(serviceChannelApp);
+        m_serviceTypeFilterCombo->setEnabled(serviceChannelApp);
+        m_dataRefFilterEdit->setEnabled(serviceChannelApp);
+        m_descriptionFilterEdit->setEnabled(serviceChannelApp);
         m_autoRefreshCombo->setEnabled(true);
         updateControlCommandUi();
         requestServiceChannelData(false);
@@ -141,7 +332,7 @@ void MainWindow::onDisconnected()
     appendSystem("已断开", "#ff4500");
     m_statusLabel->setText("未连接");
 
-    if (currentAppConfig().viewMode == AppViewMode::DataTable) {
+    if (isDataViewApp(currentAppConfig())) {
         m_serviceChannelItems.clear();
         m_previousServiceChannelItemMap.clear();
         m_timeHighlightUntilMap.clear();
@@ -163,6 +354,9 @@ void MainWindow::onDisconnected()
         if (m_controlStatusLabel) {
             m_controlStatusLabel->setText(QStringLiteral("状态: -"));
             m_controlStatusLabel->setStyleSheet(QString());
+        }
+        if (m_logicAgcAvcStatusTabs) {
+            clearTabWidgetPages(m_logicAgcAvcStatusTabs);
         }
         updateControlCommandUi();
     }
@@ -190,10 +384,22 @@ void MainWindow::onLogLine(const QString &line)
 
 void MainWindow::onCommandReply(const QString &reply)
 {
-    if (currentAppConfig().viewMode == AppViewMode::DataTable) {
+    if (isDataViewApp(currentAppConfig())) {
         const QString appName = currentAppConfig().name;
         const QString pendingCommand = m_pendingDataTableCommand;
         m_pendingDataTableCommand.clear();
+
+        if (currentAppConfig().viewMode == AppViewMode::LogicAgcAvcTable) {
+            const QList<LogicAgcAvcStatusItem> items = parseLogicAgcAvcReply(reply);
+            if (items.isEmpty()) {
+                appendReply(reply);
+            } else {
+                populateLogicAgcAvcTable(items);
+                appendSystem(QStringLiteral("%1 AGC/AVC 状态已加载，共 %2 组").arg(appName).arg(items.size()), "#87ceeb");
+            }
+            updateControlCommandUi();
+            return;
+        }
 
         if (pendingCommand == QStringLiteral("ctrlcmd")) {
             appendReply(reply);
@@ -339,6 +545,8 @@ void MainWindow::updateUIState(bool connected)
 {
     const AppConfig appConfig = currentAppConfig();
     const bool terminalMode = appConfig.viewMode == AppViewMode::Terminal;
+    const bool serviceChannelMode = isServiceChannelApp(appConfig);
+    const bool dataViewMode = isDataViewApp(appConfig);
 
     m_connectBtn->setEnabled(!connected);
     m_disconnectBtn->setEnabled(connected);
@@ -346,13 +554,14 @@ void MainWindow::updateUIState(bool connected)
     m_ipEdit->setEnabled(!connected);
     m_appCombo->setEnabled(!connected);
     m_cmdEdit->setEnabled(connected && terminalMode);
-    m_refreshDataBtn->setEnabled(connected && !terminalMode);
+    m_refreshDataBtn->setEnabled(connected && dataViewMode);
+    m_refreshDataBtn->setVisible(dataViewMode);
     updateControlCommandUi();
-    m_deviceFilterCombo->setEnabled(connected && !terminalMode);
-    m_serviceTypeFilterCombo->setEnabled(connected && !terminalMode);
-    m_dataRefFilterEdit->setEnabled(connected && !terminalMode);
-    m_descriptionFilterEdit->setEnabled(connected && !terminalMode);
-    m_autoRefreshCombo->setEnabled(connected && !terminalMode);
+    m_deviceFilterCombo->setEnabled(connected && serviceChannelMode);
+    m_serviceTypeFilterCombo->setEnabled(connected && serviceChannelMode);
+    m_dataRefFilterEdit->setEnabled(connected && serviceChannelMode);
+    m_descriptionFilterEdit->setEnabled(connected && serviceChannelMode);
+    m_autoRefreshCombo->setEnabled(connected && dataViewMode);
 
     for (auto *btn : findChildren<QPushButton*>()) {
         if (btn->property("command").isValid()) {
@@ -365,9 +574,20 @@ void MainWindow::applyCurrentAppView()
 {
     const AppConfig appConfig = currentAppConfig();
     const bool terminalMode = appConfig.viewMode == AppViewMode::Terminal;
+    const bool serviceChannelMode = isServiceChannelApp(appConfig);
 
     m_contentStack->setCurrentIndex(terminalMode ? 0 : 1);
     m_cmdEdit->setPlaceholderText(terminalMode ? "输入命令后按回车..." : "当前 APP 使用数据展示视图");
+    configureDataTableForCurrentApp();
+    if (m_dataFreezeBtn) {
+        m_dataFreezeBtn->setVisible(serviceChannelMode);
+    }
+    if (m_sendControlBtn) {
+        m_sendControlBtn->setVisible(serviceChannelMode);
+    }
+    if (m_refreshDataBtn) {
+        m_refreshDataBtn->setVisible(!terminalMode);
+    }
 
     if (!m_client->isConnected()) {
         updateUIState(false);
@@ -392,7 +612,7 @@ AppConfig MainWindow::currentAppConfig() const
 
 void MainWindow::requestServiceChannelData(bool logRequest)
 {
-    if (currentAppConfig().viewMode != AppViewMode::DataTable) {
+    if (!isDataViewApp(currentAppConfig())) {
         return;
     }
 
@@ -405,11 +625,13 @@ void MainWindow::requestServiceChannelData(bool logRequest)
         return;
     }
 
+    const bool logicCenterMode = currentAppConfig().viewMode == AppViewMode::LogicAgcAvcTable;
+    const QString command = logicCenterMode ? QStringLiteral("agcavc") : QStringLiteral("dataread all");
     if (logRequest) {
-        appendSystem("=> dataread all", "#aaaaaa");
+        appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
     }
-    m_pendingDataTableCommand = QStringLiteral("dataread");
-    m_client->sendCommand("dataread all");
+    m_pendingDataTableCommand = logicCenterMode ? QStringLiteral("agcavc") : QStringLiteral("dataread");
+    m_client->sendCommand(command);
     updateControlCommandUi();
 }
 
@@ -518,6 +740,217 @@ QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QSt
     }
 
     return items;
+}
+
+QList<LogicAgcAvcStatusItem> MainWindow::parseLogicAgcAvcReply(const QString &reply) const
+{
+    static const QRegularExpression devicesPattern(
+        R"(^AGCAVC\[([^/\]]+)(?:/([^\]]+))?\]\s+devices:\s+total=([^\s]+)\s+online=([^\s]+)\s+offline=([^\s]+))"
+    );
+    static const QRegularExpression agcPattern(R"(^AGC\[([^\]]+)\]\s+params:\s+(.+)$)");
+    static const QRegularExpression avcPattern(R"(^AVC\[([^\]]+)\]\s+params:\s+(.+)$)");
+    static const QRegularExpression totalPPattern(R"(^(.+)的实时总有功[:：]\s*(.+)$)");
+    static const QRegularExpression totalQPattern(R"(^(.+)的实时总无功[:：]\s*(.+)$)");
+    static const QRegularExpression offlinePattern(R"(^AGCAVC\[([^\]]+)\]\s+offline=\(([^)]*)\):\s*(.*)$)");
+
+    QList<LogicAgcAvcStatusItem> items;
+    QHash<QString, int> groupRows;
+
+    const auto ensureItem = [&items, &groupRows](const QString &groupId) -> LogicAgcAvcStatusItem& {
+        const QString key = groupId.trimmed();
+        if (!groupRows.contains(key)) {
+            LogicAgcAvcStatusItem item;
+            item.groupId = key;
+            groupRows.insert(key, items.size());
+            items.append(item);
+        }
+        return items[groupRows.value(key)];
+    };
+
+    for (const QString &rawLine : reply.split('\n')) {
+        QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+        line.remove(QRegularExpression(QStringLiteral(R"(\x1B\[[0-9;]*[A-Za-z])")));
+
+        QRegularExpressionMatch match = devicesPattern.match(line);
+        if (match.hasMatch()) {
+            LogicAgcAvcStatusItem &item = ensureItem(match.captured(1));
+            item.virtualDeviceId = match.captured(2).trimmed();
+            item.totalDevices = match.captured(3).trimmed();
+            item.onlineDevices = match.captured(4).trimmed();
+            item.offlineDevices = match.captured(5).trimmed();
+            continue;
+        }
+
+        match = agcPattern.match(line);
+        if (match.hasMatch()) {
+            LogicAgcAvcStatusItem &item = ensureItem(match.captured(1));
+            item.agcParams = match.captured(2).trimmed();
+            item.agcTarget = parseAgcAvcParams(item.agcParams).value(QStringLiteral("target"));
+            continue;
+        }
+
+        match = avcPattern.match(line);
+        if (match.hasMatch()) {
+            LogicAgcAvcStatusItem &item = ensureItem(match.captured(1));
+            item.avcParams = match.captured(2).trimmed();
+            item.avcTarget = parseAgcAvcParams(item.avcParams).value(QStringLiteral("target"));
+            continue;
+        }
+
+        match = totalPPattern.match(line);
+        if (match.hasMatch()) {
+            ensureItem(match.captured(1)).totalP = match.captured(2).trimmed();
+            continue;
+        }
+
+        match = totalQPattern.match(line);
+        if (match.hasMatch()) {
+            ensureItem(match.captured(1)).totalQ = match.captured(2).trimmed();
+            continue;
+        }
+
+        match = offlinePattern.match(line);
+        if (match.hasMatch()) {
+            LogicAgcAvcStatusItem &item = ensureItem(match.captured(1));
+            if (item.offlineDevices.isEmpty()) {
+                item.offlineDevices = match.captured(2).trimmed();
+            }
+            item.offlineList = match.captured(3).trimmed();
+            continue;
+        }
+    }
+
+    return items;
+}
+
+void MainWindow::populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &items)
+{
+    if (!m_logicAgcAvcStatusTabs) {
+        return;
+    }
+
+    clearTabWidgetPages(m_logicAgcAvcStatusTabs);
+
+    for (const LogicAgcAvcStatusItem &item : items) {
+        auto *page = new QWidget(m_logicAgcAvcStatusTabs);
+        auto *layout = new QVBoxLayout(page);
+        layout->setContentsMargins(12, 12, 12, 12);
+        layout->setSpacing(12);
+
+        auto *summary = new QFrame(page);
+        summary->setObjectName(QStringLiteral("logicSummaryPanel"));
+        summary->setStyleSheet(QStringLiteral(
+            "QFrame#logicSummaryPanel {"
+            "  border: 1px solid #c6d3df;"
+            "  border-radius: 6px;"
+            "  background: #ffffff;"
+            "}"
+        ));
+        auto *summaryLayout = new QGridLayout(summary);
+        summaryLayout->setContentsMargins(14, 12, 14, 12);
+        summaryLayout->setHorizontalSpacing(22);
+        summaryLayout->setVerticalSpacing(6);
+
+        const QString offlineList = item.offlineList.isEmpty() ? QStringLiteral("-") : item.offlineList;
+        const QList<QPair<QString, QString>> summaryFields = {
+            {QStringLiteral("Group"), item.groupId},
+            {QStringLiteral("VirtualDevice"), item.virtualDeviceId},
+            {QStringLiteral("设备总数"), item.totalDevices},
+            {QStringLiteral("在线"), item.onlineDevices},
+            {QStringLiteral("离线"), item.offlineDevices},
+            {QStringLiteral("离线设备"), offlineList}
+        };
+        for (int index = 0; index < summaryFields.size(); ++index) {
+            auto *nameLabel = new QLabel(summaryFields.at(index).first, summary);
+            nameLabel->setStyleSheet(QStringLiteral("color: #607080; font-size: 12px;"));
+            auto *valueLabel = new QLabel(summaryFields.at(index).second.isEmpty()
+                                              ? QStringLiteral("-")
+                                              : summaryFields.at(index).second,
+                                          summary);
+            valueLabel->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+            valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            const int row = index / 3;
+            const int column = (index % 3) * 2;
+            summaryLayout->addWidget(nameLabel, row, column);
+            summaryLayout->addWidget(valueLabel, row, column + 1);
+        }
+        layout->addWidget(summary);
+
+        auto *metricGrid = new QGridLayout();
+        metricGrid->setHorizontalSpacing(12);
+        metricGrid->setVerticalSpacing(12);
+        metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("AGC Target"),
+                                                     item.agcTarget,
+                                                     QStringLiteral("目标有功"),
+                                                     QStringLiteral("#1b5fa7"),
+                                                     page),
+                              0,
+                              0);
+        metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("实时总有功"),
+                                                     item.totalP,
+                                                     QStringLiteral("AGC 实时值"),
+                                                     QStringLiteral("#188038"),
+                                                     page),
+                              0,
+                              1);
+        metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("AVC Target"),
+                                                     item.avcTarget,
+                                                     QStringLiteral("目标无功"),
+                                                     QStringLiteral("#6d4bc2"),
+                                                     page),
+                              0,
+                              2);
+        metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("实时总无功"),
+                                                     item.totalQ,
+                                                     QStringLiteral("AVC 实时值"),
+                                                     QStringLiteral("#188038"),
+                                                     page),
+                              0,
+                              3);
+        layout->addLayout(metricGrid);
+
+        auto *gateGrid = new QGridLayout();
+        gateGrid->setHorizontalSpacing(12);
+        gateGrid->setVerticalSpacing(12);
+        gateGrid->addWidget(createLogicGateSection(QStringLiteral("AGC 门禁状态"), item.agcParams, page), 0, 0);
+        gateGrid->addWidget(createLogicGateSection(QStringLiteral("AVC 门禁状态"), item.avcParams, page), 0, 1);
+        layout->addLayout(gateGrid);
+        layout->addStretch();
+
+        m_logicAgcAvcStatusTabs->addTab(page, item.groupId.isEmpty() ? QStringLiteral("AGC/AVC") : item.groupId);
+    }
+}
+
+void MainWindow::configureDataTableForCurrentApp()
+{
+    if (!m_dataTable || !m_dataViewStack) {
+        return;
+    }
+
+    const bool logicMode = currentAppConfig().viewMode == AppViewMode::LogicAgcAvcTable;
+    m_dataViewStack->setCurrentIndex(logicMode ? 1 : 0);
+    if (m_serviceDataFilterWidget) {
+        m_serviceDataFilterWidget->setVisible(!logicMode);
+    }
+
+    if (logicMode) {
+        if (m_logicAgcAvcStatusTabs) {
+            clearTabWidgetPages(m_logicAgcAvcStatusTabs);
+        }
+        return;
+    }
+
+    m_dataTable->clear();
+    m_dataTable->setRowCount(0);
+    m_dataTable->setColumnCount(7);
+    m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "ServiceId", "Description", "DataTime", "Value", "Status"});
+    const QList<int> widths = {140, 280, 90, 360, 170, 90, 180};
+    for (int column = 0; column < widths.size(); ++column) {
+        m_dataTable->setColumnWidth(column, widths.at(column));
+    }
 }
 
 void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem> &items)
@@ -642,7 +1075,7 @@ void MainWindow::applyServiceChannelFilter()
 
 void MainWindow::updateAutoRefreshTimer()
 {
-    if (!m_client->isConnected() || currentAppConfig().viewMode != AppViewMode::DataTable) {
+    if (!m_client->isConnected() || !isDataViewApp(currentAppConfig())) {
         m_autoRefreshTimer->stop();
         return;
     }

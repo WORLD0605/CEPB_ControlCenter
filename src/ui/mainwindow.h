@@ -30,10 +30,12 @@ class QEvent;
 class QFrame;
 class QProgressDialog;
 class QProcess;
+class QWidget;
 
 enum class AppViewMode {
     Terminal,
-    DataTable
+    DataTable,
+    LogicAgcAvcTable
 };
 
 struct AppConfig {
@@ -50,6 +52,21 @@ struct ServiceChannelDataItem {
     QString description;
     QString dataTime;
     QString value;
+};
+
+struct LogicAgcAvcStatusItem {
+    QString groupId;
+    QString virtualDeviceId;
+    QString totalDevices;
+    QString onlineDevices;
+    QString offlineDevices;
+    QString agcParams;
+    QString avcParams;
+    QString agcTarget;
+    QString avcTarget;
+    QString totalP;
+    QString totalQ;
+    QString offlineList;
 };
 
 class MainWindow : public QMainWindow
@@ -186,6 +203,9 @@ private:
     void navigateForward();
     AppConfig currentAppConfig() const;
     void requestServiceChannelData(bool logRequest = true);
+    QList<LogicAgcAvcStatusItem> parseLogicAgcAvcReply(const QString &reply) const;
+    void populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &items);
+    void configureDataTableForCurrentApp();
     QList<ServiceChannelDataItem> parseServiceChannelDataReply(const QString &reply) const;
     void populateServiceChannelTable(const QList<ServiceChannelDataItem> &items);
     void refreshDeviceFilterOptions();
@@ -431,6 +451,10 @@ private:
     QPushButton *m_refreshDataBtn = nullptr;
     QPushButton *m_sendControlBtn = nullptr;
     QPushButton *m_dataFreezeBtn = nullptr;
+    QWidget *m_serviceDataFilterWidget = nullptr;
+    QStackedWidget *m_dataViewStack = nullptr;
+    QWidget *m_serviceDataViewPage = nullptr;
+    QTabWidget *m_logicAgcAvcStatusTabs = nullptr;
     QTableWidget *m_dataTable = nullptr;
     QTableWidget *m_configModelTable = nullptr;
     QTableWidget *m_configDeviceTable = nullptr;

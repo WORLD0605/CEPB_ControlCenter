@@ -467,7 +467,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_appConfigs = {
         {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
         {"IEC101ServiceChannel", 3333, "IEC101>", AppViewMode::DataTable},
-        {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable}
+        {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable},
+        {"LogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
     };
 
     setWindowTitle("CEPB Control Center");
@@ -563,15 +564,20 @@ MainWindow::MainWindow(QWidget *parent)
     dataToolbar->setSpacing(6);
     auto *dataFilterToolbar = new QHBoxLayout();
     dataFilterToolbar->setSpacing(8);
-    dataFilterToolbar->addWidget(new QLabel("DeviceId:"));
+
+    m_serviceDataFilterWidget = new QWidget(dataPage);
+    auto *serviceDataFilterLayout = new QHBoxLayout(m_serviceDataFilterWidget);
+    serviceDataFilterLayout->setContentsMargins(0, 0, 0, 0);
+    serviceDataFilterLayout->setSpacing(8);
+    serviceDataFilterLayout->addWidget(new QLabel("DeviceId:"));
     m_deviceFilterCombo = new QComboBox();
     m_deviceFilterCombo->addItem("all", QString());
     m_deviceFilterCombo->setMinimumContentsLength(18);
     m_deviceFilterCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_deviceFilterCombo->setMinimumWidth(180);
     m_deviceFilterCombo->setEnabled(false);
-    dataFilterToolbar->addWidget(m_deviceFilterCombo);
-    dataFilterToolbar->addWidget(new QLabel("Type:"));
+    serviceDataFilterLayout->addWidget(m_deviceFilterCombo);
+    serviceDataFilterLayout->addWidget(new QLabel("Type:"));
     m_serviceTypeFilterCombo = new QComboBox();
     m_serviceTypeFilterCombo->addItem(QStringLiteral("all"), QString());
     m_serviceTypeFilterCombo->addItem(QStringLiteral("遥测"), QStringLiteral("analog"));
@@ -579,21 +585,23 @@ MainWindow::MainWindow(QWidget *parent)
     m_serviceTypeFilterCombo->addItem(QStringLiteral("控制"), QStringLiteral("control"));
     m_serviceTypeFilterCombo->setMinimumWidth(90);
     m_serviceTypeFilterCombo->setEnabled(false);
-    dataFilterToolbar->addWidget(m_serviceTypeFilterCombo);
-    dataFilterToolbar->addWidget(new QLabel("DataRef:"));
+    serviceDataFilterLayout->addWidget(m_serviceTypeFilterCombo);
+    serviceDataFilterLayout->addWidget(new QLabel("DataRef:"));
     m_dataRefFilterEdit = new QLineEdit();
     m_dataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
     m_dataRefFilterEdit->setClearButtonEnabled(true);
     m_dataRefFilterEdit->setMinimumWidth(220);
     m_dataRefFilterEdit->setEnabled(false);
-    dataFilterToolbar->addWidget(m_dataRefFilterEdit, 1);
-    dataFilterToolbar->addWidget(new QLabel("Description:"));
+    serviceDataFilterLayout->addWidget(m_dataRefFilterEdit, 1);
+    serviceDataFilterLayout->addWidget(new QLabel("Description:"));
     m_descriptionFilterEdit = new QLineEdit();
     m_descriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
     m_descriptionFilterEdit->setClearButtonEnabled(true);
     m_descriptionFilterEdit->setMinimumWidth(220);
     m_descriptionFilterEdit->setEnabled(false);
-    dataFilterToolbar->addWidget(m_descriptionFilterEdit, 1);
+    serviceDataFilterLayout->addWidget(m_descriptionFilterEdit, 1);
+    dataFilterToolbar->addWidget(m_serviceDataFilterWidget, 1);
+    dataFilterToolbar->addStretch();
     dataFilterToolbar->addWidget(new QLabel("自动刷新:"));
     m_autoRefreshCombo = new QComboBox();
     m_autoRefreshCombo->addItem("关闭", 0);
@@ -619,6 +627,12 @@ MainWindow::MainWindow(QWidget *parent)
     topLayout->addWidget(m_refreshDataBtn);
     dataLayout->addLayout(dataToolbar);
 
+    m_dataViewStack = new QStackedWidget(dataPage);
+    m_serviceDataViewPage = new QWidget(dataPage);
+    auto *serviceDataViewLayout = new QVBoxLayout(m_serviceDataViewPage);
+    serviceDataViewLayout->setContentsMargins(0, 0, 0, 0);
+    serviceDataViewLayout->setSpacing(0);
+
     m_dataTable = new QTableWidget(0, 7);
     m_dataTable->setHorizontalHeaderLabels({"DeviceId", "DataRef", "ServiceId", "Description", "DataTime", "Value", "Status"});
     m_dataTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -638,7 +652,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_dataTable->setColumnWidth(4, 170);
     m_dataTable->setColumnWidth(5, 90);
     m_dataTable->setColumnWidth(6, 180);
-    dataLayout->addWidget(m_dataTable, 1);
+    serviceDataViewLayout->addWidget(m_dataTable, 1);
+    m_dataViewStack->addWidget(m_serviceDataViewPage);
+
+    m_logicAgcAvcStatusTabs = new QTabWidget(dataPage);
+    m_logicAgcAvcStatusTabs->setDocumentMode(true);
+    m_dataViewStack->addWidget(m_logicAgcAvcStatusTabs);
+    dataLayout->addWidget(m_dataViewStack, 1);
 
     m_contentStack->addWidget(terminalPage);
     m_contentStack->addWidget(dataPage);
