@@ -651,8 +651,8 @@ void MainWindow::onUploadConfigClicked()
     const QString remoteArchivePath = QStringLiteral("/tmp/cepb_config_upload.tar.gz");
     const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
     const QString pscpPath = findRemoteToolExecutable(QStringLiteral("pscp"));
-    const bool hasPutty = !plinkPath.isEmpty() && !pscpPath.isEmpty();
-    if (!password.isEmpty() && !hasPutty) {
+    const bool usePuttyPasswordLogin = !password.isEmpty() && !plinkPath.isEmpty() && !pscpPath.isEmpty();
+    if (!password.isEmpty() && !usePuttyPasswordLogin) {
         QMessageBox::warning(this, QStringLiteral("上传配置"), missingPasswordSshToolMessage());
         statusBar()->showMessage(QStringLiteral("未找到 plink/pscp，无法密码登录设备"), 5000);
         QFile::remove(archivePath);
@@ -684,7 +684,7 @@ void MainWindow::onUploadConfigClicked()
     };
 
     bool ok = false;
-    if (hasPutty) {
+    if (usePuttyPasswordLogin) {
         setUploadStep(1, QStringLiteral("清空设备内对应配置目录..."));
         ok = runConfigTransferProcess(plinkPath, puttyArgs(cleanupCommand), QStringLiteral("清空设备内对应配置目录"), &output, &progress);
         if (ok) {
@@ -777,8 +777,8 @@ void MainWindow::onDownloadConfigClicked()
         QStringLiteral("cepb_config_download_%1.tar.gz").arg(QUuid::createUuid().toString(QUuid::Id128)));
     const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
     const QString pscpPath = findRemoteToolExecutable(QStringLiteral("pscp"));
-    const bool hasPutty = !plinkPath.isEmpty() && !pscpPath.isEmpty();
-    if (!password.isEmpty() && !hasPutty) {
+    const bool usePuttyPasswordLogin = !password.isEmpty() && !plinkPath.isEmpty() && !pscpPath.isEmpty();
+    if (!password.isEmpty() && !usePuttyPasswordLogin) {
         QMessageBox::warning(this, QStringLiteral("下载配置"), missingPasswordSshToolMessage());
         statusBar()->showMessage(QStringLiteral("未找到 plink/pscp，无法密码登录设备"), 5000);
         return;
@@ -819,7 +819,7 @@ void MainWindow::onDownloadConfigClicked()
 
     QString output;
     bool ok = false;
-    if (hasPutty) {
+    if (usePuttyPasswordLogin) {
         setDownloadStep(0, QStringLiteral("设备端扫描并打包配置..."));
         ok = runConfigTransferProcess(plinkPath, puttyArgs(packageCommand), QStringLiteral("设备端扫描并打包配置"), &output, &progress);
         if (ok) {

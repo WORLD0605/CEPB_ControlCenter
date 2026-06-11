@@ -700,9 +700,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_configRemoteUserEdit->setMaximumWidth(90);
     transferRow->addWidget(m_configRemoteUserEdit);
     transferRow->addWidget(new QLabel(QStringLiteral("密码:")));
-    m_configRemotePasswordEdit = new QLineEdit(QStringLiteral("root"), this);
+    m_configRemotePasswordEdit = new QLineEdit(this);
     m_configRemotePasswordEdit->setEchoMode(QLineEdit::Password);
-    m_configRemotePasswordEdit->setMaximumWidth(90);
+    m_configRemotePasswordEdit->setPlaceholderText(QStringLiteral("留空用SSH key"));
+    m_configRemotePasswordEdit->setToolTip(QStringLiteral("留空时使用系统 ssh/scp 和当前 Windows 用户的 SSH key；填写密码时使用 PuTTY plink/pscp。"));
+    m_configRemotePasswordEdit->setMaximumWidth(120);
     transferRow->addWidget(m_configRemotePasswordEdit);
     transferRow->addWidget(new QLabel(QStringLiteral("端口:")));
     m_configRemotePortEdit = new QSpinBox(this);
@@ -1654,9 +1656,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_programRemoteUserEdit->setMaximumWidth(90);
     programConnectionRow->addWidget(m_programRemoteUserEdit);
     programConnectionRow->addWidget(new QLabel(QStringLiteral("密码:"), this));
-    m_programRemotePasswordEdit = new QLineEdit(QStringLiteral("root"), this);
+    m_programRemotePasswordEdit = new QLineEdit(this);
     m_programRemotePasswordEdit->setEchoMode(QLineEdit::Password);
-    m_programRemotePasswordEdit->setMaximumWidth(90);
+    m_programRemotePasswordEdit->setPlaceholderText(QStringLiteral("留空用SSH key"));
+    m_programRemotePasswordEdit->setToolTip(QStringLiteral("留空时使用系统 ssh 和当前 Windows 用户的 SSH key；填写密码时使用 PuTTY plink。"));
+    m_programRemotePasswordEdit->setMaximumWidth(120);
     programConnectionRow->addWidget(m_programRemotePasswordEdit);
     programConnectionRow->addWidget(new QLabel(QStringLiteral("端口:"), this));
     m_programRemotePortEdit = new QSpinBox(this);

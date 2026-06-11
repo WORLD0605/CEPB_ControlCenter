@@ -396,8 +396,9 @@ QString MainWindow::programControlShellKey() const
     const QString user = m_programRemoteUserEdit ? m_programRemoteUserEdit->text().trimmed() : QString();
     const QString password = m_programRemotePasswordEdit ? m_programRemotePasswordEdit->text() : QString();
     const QString port = QString::number(m_programRemotePortEdit ? m_programRemotePortEdit->value() : 10022);
-    const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
-    return QStringList({plinkPath.isEmpty() ? QStringLiteral("ssh") : plinkPath,
+    const bool usePuttyPasswordLogin = !password.isEmpty()
+        && !findRemoteToolExecutable(QStringLiteral("plink")).isEmpty();
+    return QStringList({usePuttyPasswordLogin ? QStringLiteral("plink") : QStringLiteral("ssh"),
                         host,
                         user,
                         password,
@@ -439,8 +440,8 @@ bool MainWindow::openProgramControlShell(const QString &title,
     const QString password = m_programRemotePasswordEdit ? m_programRemotePasswordEdit->text() : QString();
     const QString port = QString::number(m_programRemotePortEdit ? m_programRemotePortEdit->value() : 10022);
     const QString plinkPath = findRemoteToolExecutable(QStringLiteral("plink"));
-    const bool hasPutty = !plinkPath.isEmpty();
-    if (!password.isEmpty() && !hasPutty) {
+    const bool usePuttyPasswordLogin = !password.isEmpty() && !plinkPath.isEmpty();
+    if (!password.isEmpty() && !usePuttyPasswordLogin) {
         if (output) {
             *output = missingPasswordSshToolMessage();
         }
@@ -449,7 +450,7 @@ bool MainWindow::openProgramControlShell(const QString &title,
 
     QString program;
     QStringList args;
-    if (hasPutty) {
+    if (usePuttyPasswordLogin) {
         program = plinkPath;
         args = {QStringLiteral("-ssh"), QStringLiteral("-P"), port};
         if (!user.isEmpty()) {
@@ -496,7 +497,7 @@ bool MainWindow::openProgramControlShell(const QString &title,
         closeProgramControlShell();
         return false;
     }
-    if (hasPutty) {
+    if (usePuttyPasswordLogin) {
         QByteArray initialOutput;
         QElapsedTimer elapsed;
         elapsed.start();
