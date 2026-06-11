@@ -2,6 +2,42 @@
 
 using namespace cepb_config_helpers;
 
+namespace {
+
+configtool::PointBinding createBindingForModelPoint(const configtool::ModelTemplate &model,
+                                                    const configtool::PointTemplate &point,
+                                                    bool modbusDevice)
+{
+    configtool::PointBinding binding;
+    binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    binding.pointRef = point.pointRef(model.modelId);
+    binding.dataRef = point.dataRef();
+    binding.descriptionOverride = point.description;
+    binding.enabled = true;
+    if (modbusDevice) {
+        QString kind = QStringLiteral("yc");
+        if (point.category == configtool::ModelServiceType::Status) {
+            kind = QStringLiteral("yx");
+        } else if (point.category == configtool::ModelServiceType::Control) {
+            const QString dataType = point.dataType.trimmed().toLower();
+            kind = dataType == QStringLiteral("boolean") || dataType == QStringLiteral("dbool")
+                ? QStringLiteral("yk")
+                : QStringLiteral("yt");
+        }
+        const QString lowerDataType = point.dataType.toLower();
+        const QString modbusDataType = kind == QStringLiteral("yx")
+            ? QStringLiteral("BIT")
+            : (lowerDataType.contains(QStringLiteral("float")) ? QStringLiteral("FLOAT") : QStringLiteral("WORD"));
+        binding.extensions.insert(QStringLiteral("modbusKind"), kind);
+        binding.extensions.insert(QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : (kind == QStringLiteral("yc") ? 3 : 6));
+        binding.extensions.insert(QStringLiteral("modbusDataType"), modbusDataType);
+        binding.extensions.insert(QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+    }
+    return binding;
+}
+
+} // namespace
+
 void MainWindow::onConfigModelSelectionChanged()
 {
     const int modelIndex = currentConfigModelIndex();
@@ -399,6 +435,72 @@ int MainWindow::renameModelPointReferences(const QString &modelId,
     return updateCount;
 }
 
+int MainWindow::syncDeviceBindingsForModel(const QString &modelId)
+{
+    const QString targetModelId = modelId.trimmed();
+    if (targetModelId.isEmpty()) {
+        return 0;
+    }
+
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    const configtool::ModelTemplate *model = nullptr;
+    for (const configtool::ModelTemplate &candidate : project.models) {
+        if (candidate.modelId.trimmed() == targetModelId) {
+            model = &candidate;
+            break;
+        }
+    }
+    if (!model) {
+        return 0;
+    }
+
+    int addedCount = 0;
+    for (configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId.trimmed() != targetModelId) {
+            continue;
+        }
+
+        QSet<QString> existingRefs;
+        QSet<QString> existingDataRefs;
+        for (const configtool::PointBinding &binding : device.bindings) {
+            const QString pointRef = binding.pointRef.trimmed();
+            if (!pointRef.isEmpty()) {
+                existingRefs.insert(pointRef);
+            }
+            const QString dataRef = binding.dataRef.trimmed();
+            if (!dataRef.isEmpty()) {
+                existingDataRefs.insert(dataRef);
+            }
+        }
+
+        const bool modbusDevice = isModbusDevice(device);
+        bool deviceChanged = false;
+        for (const configtool::ServiceTemplate &service : model->services) {
+            for (const configtool::PointTemplate &point : service.points) {
+                const QString pointRef = point.pointRef(model->modelId).trimmed();
+                const QString dataRef = point.dataRef().trimmed();
+                if ((!pointRef.isEmpty() && existingRefs.contains(pointRef))
+                    || (!dataRef.isEmpty() && existingDataRefs.contains(dataRef))) {
+                    continue;
+                }
+
+                configtool::PointBinding binding = createBindingForModelPoint(*model, point, modbusDevice);
+                existingRefs.insert(binding.pointRef.trimmed());
+                existingDataRefs.insert(binding.dataRef.trimmed());
+                device.bindings.append(binding);
+                deviceChanged = true;
+                ++addedCount;
+            }
+        }
+
+        if (deviceChanged && modbusDevice) {
+            rebuildModbusDeviceConfig(device);
+        }
+    }
+
+    return addedCount;
+}
+
 void MainWindow::onAddPointClicked()
 {
     const int modelIndex = currentConfigModelIndex();
@@ -448,11 +550,15 @@ void MainWindow::onAddPointClicked()
         ? QStringLiteral("Float")
         : QStringLiteral("Boolean");
     service->points.append(point);
+    const int syncedBindingCount = syncDeviceBindingsForModel(model.modelId);
 
     refreshConfigObjectViews();
     refreshModelDetail(modelIndex);
     selectModelPointById(point.pointId);
-    statusBar()->showMessage(QStringLiteral("已新增模型点位"), 3000);
+    statusBar()->showMessage(syncedBindingCount > 0
+                                 ? QStringLiteral("已新增模型点位，并同步到 %1 个设备绑定").arg(syncedBindingCount)
+                                 : QStringLiteral("已新增模型点位"),
+                             3000);
 }
 
 void MainWindow::onModelPointFilterChanged(int index)
@@ -566,13 +672,17 @@ void MainWindow::onCopyPointClicked()
     copied.doName = copied.name;
     copied.description += QStringLiteral("-副本");
     service.points.insert(pointLocation.second + 1, copied);
+    const int syncedBindingCount = syncDeviceBindingsForModel(model.modelId);
 
     refreshConfigObjectViews();
     refreshModelDetail(modelIndex);
     if (pointLocation.second + 1 < m_modelPointsTable->rowCount()) {
         m_modelPointsTable->selectRow(pointLocation.second + 1);
     }
-    statusBar()->showMessage(QStringLiteral("已复制模型点位"), 3000);
+    statusBar()->showMessage(syncedBindingCount > 0
+                                 ? QStringLiteral("已复制模型点位，并同步到 %1 个设备绑定").arg(syncedBindingCount)
+                                 : QStringLiteral("已复制模型点位"),
+                             3000);
 }
 
 void MainWindow::onDeletePointClicked()
@@ -727,32 +837,7 @@ void MainWindow::onCreateDeviceFromModelClicked()
 
     for (const configtool::ServiceTemplate &service : model.services) {
         for (const configtool::PointTemplate &point : service.points) {
-            configtool::PointBinding binding;
-            binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-            binding.pointRef = point.pointRef(model.modelId);
-            binding.dataRef = point.dataRef();
-            binding.descriptionOverride = point.description;
-            binding.enabled = true;
-            if (createModbus) {
-                QString kind = QStringLiteral("yc");
-                if (point.category == configtool::ModelServiceType::Status) {
-                    kind = QStringLiteral("yx");
-                } else if (point.category == configtool::ModelServiceType::Control) {
-                    const QString dataType = point.dataType.trimmed().toLower();
-                    kind = dataType == QStringLiteral("boolean") || dataType == QStringLiteral("dbool")
-                        ? QStringLiteral("yk")
-                        : QStringLiteral("yt");
-                }
-                const QString lowerDataType = point.dataType.toLower();
-                const QString modbusDataType = kind == QStringLiteral("yx")
-                    ? QStringLiteral("BIT")
-                    : (lowerDataType.contains(QStringLiteral("float")) ? QStringLiteral("FLOAT") : QStringLiteral("WORD"));
-                binding.extensions.insert(QStringLiteral("modbusKind"), kind);
-                binding.extensions.insert(QStringLiteral("modbusFunctionCode"), kind == QStringLiteral("yx") ? 2 : (kind == QStringLiteral("yc") ? 3 : 6));
-                binding.extensions.insert(QStringLiteral("modbusDataType"), modbusDataType);
-                binding.extensions.insert(QStringLiteral("modbusScale"), QStringLiteral("1.0"));
-            }
-            device.bindings.append(binding);
+            device.bindings.append(createBindingForModelPoint(model, point, createModbus));
         }
     }
 
@@ -1497,12 +1582,22 @@ void MainWindow::pasteClipboardIntoModelPointsTable()
     m_updatingModelPointsTable = false;
 
     const int modelIndex = currentConfigModelIndex();
+    int syncedBindingCount = 0;
+    if (modelIndex >= 0) {
+        configtool::ConfigProject &project = m_configProjectManager.project();
+        if (modelIndex < project.models.size()) {
+            syncedBindingCount = syncDeviceBindingsForModel(project.models.at(modelIndex).modelId);
+        }
+    }
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
     }
     refreshModelDetail(modelIndex);
     m_modelPointsTable->setCurrentCell(startRow, startColumn);
+    if (syncedBindingCount > 0) {
+        statusBar()->showMessage(QStringLiteral("已同步新增 %1 个设备绑定").arg(syncedBindingCount), 3000);
+    }
 }
 
 void MainWindow::pasteClipboardIntoDeviceBindingsTable()
