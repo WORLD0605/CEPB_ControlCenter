@@ -444,6 +444,53 @@ int MainWindow::renameModelPointReferences(const QString &modelId,
     return updateCount;
 }
 
+int MainWindow::syncModelPointDescriptionToDeviceBindings(const QString &modelId,
+                                                          const configtool::PointTemplate &point,
+                                                          const QString &oldDescription,
+                                                          const QString &newDescription)
+{
+    const QString targetModelId = modelId.trimmed();
+    const QString oldValue = oldDescription.trimmed();
+    const QString newValue = newDescription.trimmed();
+    if (targetModelId.isEmpty() || oldValue == newValue) {
+        return 0;
+    }
+
+    const QString targetPointRef = point.pointRef(targetModelId).trimmed();
+    const QString targetDataRef = point.dataRef().trimmed();
+    if (targetPointRef.isEmpty() && targetDataRef.isEmpty()) {
+        return 0;
+    }
+
+    int updateCount = 0;
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    for (configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId.trimmed() != targetModelId) {
+            continue;
+        }
+
+        for (configtool::PointBinding &binding : device.bindings) {
+            const bool samePointRef = !targetPointRef.isEmpty()
+                && binding.pointRef.trimmed() == targetPointRef;
+            const bool sameDataRef = !targetDataRef.isEmpty()
+                && binding.dataRef.trimmed() == targetDataRef;
+            if (!samePointRef && !sameDataRef) {
+                continue;
+            }
+
+            const QString bindingDescription = binding.descriptionOverride.trimmed();
+            if (!bindingDescription.isEmpty() && bindingDescription != oldValue) {
+                continue;
+            }
+
+            binding.descriptionOverride = newValue;
+            ++updateCount;
+        }
+    }
+
+    return updateCount;
+}
+
 int MainWindow::syncDeviceBindingsForModel(const QString &modelId)
 {
     const QString targetModelId = modelId.trimmed();
@@ -1346,6 +1393,11 @@ int MainWindow::renameLogicDeviceReferences(const QString &oldDeviceId, const QS
     return updateCount;
 }
 
+void MainWindow::onDeviceBindingFilterChanged(int /*index*/)
+{
+    refreshDeviceEditor(currentConfigDeviceIndex());
+}
+
 void MainWindow::onDeviceBindingDataRefFilterTextChanged(const QString & /*text*/)
 {
     refreshDeviceEditor(currentConfigDeviceIndex());
@@ -1534,7 +1586,9 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
 
     configtool::PointTemplate &point = service.points[pointIndex];
     const QString oldDataRef = point.dataRef();
+    const QString oldDescription = point.description;
     const QString value = text.trimmed();
+    int descriptionSyncCount = 0;
     switch (column) {
     case ModelPointColumnDoName:
         point.name = value;
@@ -1542,6 +1596,10 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
         break;
     case ModelPointColumnDescription:
         point.description = value;
+        descriptionSyncCount = syncModelPointDescriptionToDeviceBindings(model.modelId,
+                                                                         point,
+                                                                         oldDescription,
+                                                                         point.description);
         break;
     case ModelPointColumnLdName:
         point.ldName = value;
@@ -1566,6 +1624,8 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
     const int renamedReferenceCount = renameModelPointReferences(model.modelId, oldDataRef, newDataRef);
     if (renamedReferenceCount > 0) {
         statusBar()->showMessage(QStringLiteral("已同步更新 %1 处点位引用").arg(renamedReferenceCount), 5000);
+    } else if (descriptionSyncCount > 0) {
+        statusBar()->showMessage(QStringLiteral("已同步更新 %1 个设备绑定描述").arg(descriptionSyncCount), 5000);
     }
 }
 
@@ -3038,6 +3098,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #666666; }");
         m_deviceValidationLabel->setText(QStringLiteral("请选择一个 104 设备。"));
+        if (m_deviceBindingFilterTabBar) {
+            m_deviceBindingFilterTabBar->setVisible(true);
+            m_deviceBindingFilterTabBar->setEnabled(false);
+        }
         refreshDeviceOnlineLinkPanel(-1);
         m_deviceBindingsTable->setRowCount(0);
         return;
@@ -3058,6 +3122,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     }
 
     const bool modbusDevice = isModbusDevice(device);
+    if (m_deviceBindingFilterTabBar) {
+        m_deviceBindingFilterTabBar->setVisible(!modbusDevice);
+        m_deviceBindingFilterTabBar->setEnabled(!modbusDevice);
+    }
     if (m_modbusParamsGroupBox) {
         m_modbusParamsGroupBox->setVisible(modbusDevice);
     }
@@ -3120,6 +3188,33 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     const QString descriptionKeyword = m_deviceBindingDescriptionFilterEdit
         ? m_deviceBindingDescriptionFilterEdit->text().trimmed()
         : QString();
+    const int bindingFilterTabIndex = (!modbusDevice && m_deviceBindingFilterTabBar)
+        ? m_deviceBindingFilterTabBar->currentIndex()
+        : 0;
+    QHash<QString, int> modelPointTabByPointRef;
+    QHash<QString, int> modelPointTabByDataRef;
+    if (!modbusDevice && bindingFilterTabIndex > 0) {
+        for (const configtool::ModelTemplate &model : project.models) {
+            if (model.modelId.trimmed() != device.modelId.trimmed()) {
+                continue;
+            }
+
+            for (const configtool::ServiceTemplate &service : model.services) {
+                const int tabIndex = modelPointFilterTabIndex(service.type);
+                for (const configtool::PointTemplate &point : service.points) {
+                    const QString pointRef = point.pointRef(model.modelId).trimmed();
+                    if (!pointRef.isEmpty()) {
+                        modelPointTabByPointRef.insert(pointRef, tabIndex);
+                    }
+                    const QString dataRef = point.dataRef().trimmed();
+                    if (!dataRef.isEmpty()) {
+                        modelPointTabByDataRef.insert(dataRef, tabIndex);
+                    }
+                }
+            }
+            break;
+        }
+    }
     QList<int> visibleBindingIndexes;
     for (int bindingIndex = 0; bindingIndex < device.bindings.size(); ++bindingIndex) {
         const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
@@ -3127,7 +3222,16 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             || binding.dataRef.contains(dataRefKeyword, Qt::CaseInsensitive);
         const bool matchesDescription = descriptionKeyword.isEmpty()
             || binding.descriptionOverride.contains(descriptionKeyword, Qt::CaseInsensitive);
-        if (matchesDataRef && matchesDescription) {
+        bool matchesCategory = true;
+        if (bindingFilterTabIndex > 0) {
+            const QString pointRef = binding.pointRef.trimmed();
+            const QString dataRef = binding.dataRef.trimmed();
+            const int pointTabIndex = modelPointTabByPointRef.value(
+                pointRef,
+                modelPointTabByDataRef.value(dataRef, 0));
+            matchesCategory = pointTabIndex == bindingFilterTabIndex;
+        }
+        if (matchesDataRef && matchesDescription && matchesCategory) {
             visibleBindingIndexes.append(bindingIndex);
         }
     }

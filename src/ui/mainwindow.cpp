@@ -476,6 +476,17 @@ QString themeStyleSheet(bool darkMode)
         "  background-color: #1f6fb8;"
         "  color: #ffffff;"
         "}"
+        "QTableWidget::indicator:unchecked, QTableView::indicator:unchecked {"
+        "  width: 15px;"
+        "  height: 15px;"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #7f91a5;"
+        "  border-radius: 3px;"
+        "}"
+        "QTableWidget::indicator:unchecked:hover, QTableView::indicator:unchecked:hover {"
+        "  border-color: #1f6fb8;"
+        "  background-color: #eef6ff;"
+        "}"
         "QGroupBox, QFrame[frameShape=\"6\"] {"
         "  background-color: #ffffff;"
         "  border: 1px solid #c7d0dc;"
@@ -1132,6 +1143,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *bindingToolbar = new QHBoxLayout();
     bindingToolbar->addWidget(new QLabel(QStringLiteral("点位映射:"), this));
+    m_deviceBindingFilterTabBar = new QTabBar(this);
+    m_deviceBindingFilterTabBar->addTab(QStringLiteral("全部"));
+    m_deviceBindingFilterTabBar->addTab(QStringLiteral("遥测"));
+    m_deviceBindingFilterTabBar->addTab(QStringLiteral("遥信"));
+    m_deviceBindingFilterTabBar->addTab(QStringLiteral("控制"));
+    m_deviceBindingFilterTabBar->setExpanding(false);
+    m_deviceBindingFilterTabBar->setCurrentIndex(0);
+    bindingToolbar->addWidget(m_deviceBindingFilterTabBar);
     bindingToolbar->addStretch();
     deviceEditorLayout->addLayout(bindingToolbar);
 
@@ -2145,6 +2164,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceOnlineLinkEnabledChanged);
     connect(m_deviceOnlineLinkTargetCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceOnlineLinkTargetChanged);
+    connect(m_deviceBindingFilterTabBar, &QTabBar::currentChanged,
+            this, &MainWindow::onDeviceBindingFilterChanged);
     connect(m_deviceBindingDataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDeviceBindingDataRefFilterTextChanged);
     connect(m_deviceBindingDescriptionFilterEdit, &QLineEdit::textChanged,

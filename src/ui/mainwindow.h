@@ -140,6 +140,7 @@ private slots:
     void onDeleteModelClicked();
     void onDeleteDeviceClicked();
     void onDeviceFieldEdited();
+    void onDeviceBindingFilterChanged(int index);
     void onDeviceBindingDataRefFilterTextChanged(const QString &text);
     void onDeviceBindingDescriptionFilterTextChanged(const QString &text);
     void onDeviceBindingItemChanged(QTableWidgetItem *item);
@@ -301,6 +302,10 @@ private:
     int renameModelPointReferences(const QString &modelId,
                                    const QString &oldDataRef,
                                    const QString &newDataRef);
+    int syncModelPointDescriptionToDeviceBindings(const QString &modelId,
+                                                  const configtool::PointTemplate &point,
+                                                  const QString &oldDescription,
+                                                  const QString &newDescription);
     int syncDeviceBindingsForModel(const QString &modelId);
     int removeDeviceBindingsForModelPoints(const QString &modelId,
                                            const QSet<QString> &pointRefs,
@@ -492,6 +497,7 @@ private:
     QTableWidget *m_deviceBindingsTable = nullptr;
     QTabWidget *m_mainTabWidget = nullptr;
     QTabBar *m_modelPointFilterTabBar = nullptr;
+    QTabBar *m_deviceBindingFilterTabBar = nullptr;
     QLineEdit *m_modelPointDataRefFilterEdit = nullptr;
     QLineEdit *m_modelPointDescriptionFilterEdit = nullptr;
     QLineEdit *m_deviceBindingDataRefFilterEdit = nullptr;
