@@ -25,11 +25,13 @@ class QTableWidgetItem;
 class QTabWidget;
 class QTabBar;
 class QTimer;
+class QThread;
 class QSplitter;
 class QEvent;
 class QFrame;
 class QProgressDialog;
 class QWidget;
+class ProgramControlSshWorker;
 
 enum class AppViewMode {
     Terminal,
@@ -361,9 +363,20 @@ private:
     void closeProgramControlShell();
     QString programControlShellKey() const;
     QString programControlRemoteTarget() const;
-    bool openProgramControlShell(const QString &title,
-                                 QString *output,
-                                 QProgressDialog *progress);
+    void startOpenProgramControlShell(const QString &title,
+                                      QProgressDialog *progress);
+    void handleProgramControlConnected(quint64 serial, const QString &key);
+    void handleProgramControlConnectFailed(quint64 serial, const QString &message);
+    void handleProgramControlCommandFinished(quint64 serial,
+                                             int kind,
+                                             const QString &title,
+                                             const QString &appName,
+                                             int exitCode,
+                                             const QString &output);
+    void handleProgramControlUpgradeProgress(quint64 serial,
+                                             const QString &appName,
+                                             qint64 sentBytes,
+                                             qint64 totalBytes);
     void updateProgramControlConnectionUi(bool connected);
     void updateProgramControlBusyUi(bool busy);
     void startProgramStatusRefresh();
@@ -411,6 +424,10 @@ private:
     QFrame *m_iec101PointDropLine = nullptr;
     QList<configtool::ConfigProject> m_configUndoStack;
     QList<QJsonObject> m_iec101PointsUndoStack;
+    QThread *m_programControlThread = nullptr;
+    ProgramControlSshWorker *m_programControlWorker = nullptr;
+    QProgressDialog *m_programControlUpgradeProgress = nullptr;
+    quint64 m_programControlConnectSerial = 0;
     QString m_programControlShellKey;
     bool m_programControlConnected = false;
     quint64 m_programControlCommandSerial = 0;

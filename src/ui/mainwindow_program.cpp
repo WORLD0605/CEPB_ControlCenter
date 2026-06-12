@@ -1,5 +1,6 @@
 #include "mainwindow_config_p.h"
 #include "network/ssh_client.h"
+#include "program_control_ssh_worker.h"
 
 #include <QApplication>
 #include <QColor>
@@ -14,11 +15,15 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QPointer>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QThread>
 #include <QTimer>
+
+#include <memory>
 
 namespace {
 
@@ -125,6 +130,49 @@ QString programStatusScanCommand(const QString &baseDir, const QStringList &appN
     return command;
 }
 
+QString programActionAndStatusCommand(const QString &actionCommand,
+                                      const QString &serviceName,
+                                      const QString &waitActiveState,
+                                      const QString &waitAutostartState,
+                                      const QString &baseDir,
+                                      const QStringList &appNames)
+{
+    QString waitCondition;
+    if (!waitActiveState.isEmpty()) {
+        waitCondition = QStringLiteral(
+            "state=$(systemctl show \"$wait_service\" -p ActiveState --value --no-page 2>/dev/null || true); "
+            "[ \"$state\" = %1 ] && break; ")
+            .arg(remoteProgramShellQuote(waitActiveState));
+    } else if (!waitAutostartState.isEmpty()) {
+        waitCondition = QStringLiteral(
+            "enabled=$(systemctl is-enabled \"$wait_service\" 2>/dev/null || true); "
+            "[ \"$enabled\" = %1 ] && break; ")
+            .arg(remoteProgramShellQuote(waitAutostartState));
+    }
+
+    QString waitSnippet;
+    if (!waitCondition.isEmpty()) {
+        waitSnippet = QStringLiteral(
+            "if [ \"$action_rc\" -eq 0 ]; then "
+            "wait_service=%1; i=0; "
+            "while [ \"$i\" -lt 15 ]; do "
+            "%2"
+            "sleep 0.2; i=$((i + 1)); "
+            "done; "
+            "fi; ")
+            .arg(remoteProgramShellQuote(serviceName), waitCondition);
+    }
+
+    return QStringLiteral(
+        "action_rc=0; { %1; } || action_rc=$?; "
+        "%2"
+        "%3"
+        "exit \"$action_rc\"")
+        .arg(actionCommand,
+             waitSnippet,
+             programStatusScanCommand(baseDir, appNames));
+}
+
 QString legacyProgramStatusScanCommand(const QString &baseDir, const QStringList &appNames)
 {
     return QStringLiteral(
@@ -162,6 +210,33 @@ QTableWidgetItem *makeProgramItem(const QString &text)
     auto *item = new QTableWidgetItem(text);
     item->setToolTip(text);
     return item;
+}
+
+QString counterpartNorthboundProgram(const QString &appName)
+{
+    if (appName == QStringLiteral("ServiceChannel")) {
+        return QStringLiteral("IEC101ServiceChannel");
+    }
+    if (appName == QStringLiteral("IEC101ServiceChannel")) {
+        return QStringLiteral("ServiceChannel");
+    }
+    return QString();
+}
+
+bool programTableAppIsRunning(const QTableWidget *table, const QString &appName)
+{
+    if (!table) {
+        return false;
+    }
+    for (int row = 0; row < table->rowCount(); ++row) {
+        const QTableWidgetItem *appItem = table->item(row, ProgramColumnApp);
+        if (!appItem || appItem->text() != appName) {
+            continue;
+        }
+        const QTableWidgetItem *statusItem = table->item(row, ProgramColumnStatus);
+        return statusItem && statusItem->text().contains(QStringLiteral("运行中"));
+    }
+    return false;
 }
 
 } // namespace
@@ -214,7 +289,14 @@ bool MainWindow::startProgramControlCommand(const QString &command,
         statusBar()->showMessage(QStringLiteral("程序控制正在执行上一条命令"), 3000);
         return false;
     }
+    if (!m_programControlWorker || !m_programControlThread || !m_programControlThread->isRunning()) {
+        closeProgramControlShell();
+        statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开，请重新连接"), 5000);
+        QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("程序控制 SSH 已断开，请重新连接。"));
+        return false;
+    }
 
+    const quint64 serial = ++m_programControlCommandSerial;
     m_programControlCommandRunning = true;
     m_programControlCommandKind = kind;
     m_programControlCommandTitle = title;
@@ -223,13 +305,14 @@ bool MainWindow::startProgramControlCommand(const QString &command,
     updateProgramControlBusyUi(true);
     statusBar()->showMessage(title, 3000);
 
-    SshClient::Connection sshConnection{deviceHost(),
-                                        fixedRemoteSshPort().toUShort(),
-                                        fixedRemoteUser(),
-                                        fixedRemotePassword()};
-    const SshClient::CommandResult result = SshClient::execCommand(sshConnection, command);
-    finishProgramControlCommand(result.ok ? 0 : result.exitCode,
-                                result.output.isEmpty() ? result.error : result.output);
+    QMetaObject::invokeMethod(m_programControlWorker,
+                              "runCommand",
+                              Qt::QueuedConnection,
+                              Q_ARG(quint64, serial),
+                              Q_ARG(int, static_cast<int>(kind)),
+                              Q_ARG(QString, title),
+                              Q_ARG(QString, appName),
+                              Q_ARG(QString, command));
     return true;
 }
 
@@ -243,6 +326,10 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
     const QString title = m_programControlCommandTitle;
     const QString appName = m_programControlCommandAppName;
     clearProgramControlCommandState();
+    if (kind == ProgramControlCommandKind::Upgrade && m_programControlUpgradeProgress) {
+        m_programControlUpgradeProgress->close();
+        m_programControlUpgradeProgress = nullptr;
+    }
 
     if (exitCode != 0) {
         switch (kind) {
@@ -295,6 +382,12 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
                                  QStringLiteral("禁用 %1 开机自启失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
+        case ProgramControlCommandKind::Upgrade:
+            QMessageBox::warning(this,
+                                 QStringLiteral("程序升级"),
+                                 QStringLiteral("升级 %1 失败。\n\n%2").arg(appName, output));
+            startProgramStatusRefresh();
+            break;
         }
         return;
     }
@@ -314,6 +407,13 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
     case ProgramControlCommandKind::Restart:
     case ProgramControlCommandKind::EnableAutostart:
     case ProgramControlCommandKind::DisableAutostart:
+        refreshProgramControlTable(output);
+        statusBar()->showMessage(QStringLiteral("%1 完成").arg(title), 3000);
+        break;
+    case ProgramControlCommandKind::Upgrade:
+        QMessageBox::information(this,
+                                 QStringLiteral("程序升级"),
+                                 QStringLiteral("%1 完成。\n\n%2").arg(title, output.trimmed()));
         statusBar()->showMessage(QStringLiteral("%1 完成").arg(title), 3000);
         startProgramStatusRefresh();
         break;
@@ -332,6 +432,26 @@ void MainWindow::clearProgramControlCommandState()
 
 void MainWindow::closeProgramControlShell()
 {
+    if (m_programControlUpgradeProgress) {
+        m_programControlUpgradeProgress->close();
+        m_programControlUpgradeProgress = nullptr;
+    }
+
+    ProgramControlSshWorker *worker = m_programControlWorker;
+    QThread *thread = m_programControlThread;
+    m_programControlWorker = nullptr;
+    m_programControlThread = nullptr;
+
+    if (worker && thread) {
+        if (thread->isRunning()) {
+            if (QThread::currentThread() != thread) {
+                QMetaObject::invokeMethod(worker, "disconnectSession", Qt::BlockingQueuedConnection);
+            }
+            thread->quit();
+            thread->wait(3000);
+        }
+    }
+
     m_programControlConnected = false;
     m_programControlShellKey.clear();
     clearProgramControlCommandState();
@@ -361,20 +481,24 @@ QString MainWindow::programControlRemoteTarget() const
     return user.isEmpty() ? host : QStringLiteral("%1@%2").arg(user, host);
 }
 
-bool MainWindow::openProgramControlShell(const QString &title,
-                                         QString *output,
-                                         QProgressDialog *progress)
+void MainWindow::startOpenProgramControlShell(const QString &title,
+                                              QProgressDialog *progress)
 {
     if (programControlRemoteTarget().isEmpty()) {
-        if (output) {
-            *output = QStringLiteral("请先填写程序控制设备地址。");
+        if (progress) {
+            progress->close();
         }
-        return false;
+        QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("请先填写程序控制设备地址。"));
+        return;
     }
 
     const QString key = programControlShellKey();
     if (m_programControlConnected && m_programControlShellKey == key) {
-        return true;
+        if (progress) {
+            progress->close();
+        }
+        startProgramStatusRefresh();
+        return;
     }
 
     closeProgramControlShell();
@@ -386,43 +510,130 @@ bool MainWindow::openProgramControlShell(const QString &title,
     if (progress) {
         progress->setLabelText(QStringLiteral("%1\n正在验证 SSH 连接...").arg(title));
         progress->show();
-        QApplication::processEvents();
     }
 
-    SshClient::Connection sshConnection{host, port.toUShort(), user, password};
-    const SshClient::CommandResult result = SshClient::execCommand(sshConnection, QStringLiteral(":"));
-    if (!result.ok) {
-        if (output) {
-            *output = result.output.isEmpty() ? result.error : result.output;
-        }
-        return false;
+    m_programControlThread = new QThread(this);
+    m_programControlWorker = new ProgramControlSshWorker();
+    m_programControlWorker->moveToThread(m_programControlThread);
+    connect(m_programControlThread, &QThread::finished, m_programControlWorker, &QObject::deleteLater);
+    connect(m_programControlThread, &QThread::finished, m_programControlThread, &QObject::deleteLater);
+
+    const QPointer<QProgressDialog> progressGuard(progress);
+    connect(m_programControlWorker, &ProgramControlSshWorker::connected, this,
+            [this, progressGuard](quint64 serial, const QString &connectedKey) {
+                if (progressGuard) {
+                    progressGuard->close();
+                }
+                handleProgramControlConnected(serial, connectedKey);
+            },
+            Qt::QueuedConnection);
+    connect(m_programControlWorker, &ProgramControlSshWorker::connectFailed, this,
+            [this, progressGuard](quint64 serial, const QString &message) {
+                if (progressGuard) {
+                    progressGuard->close();
+                }
+                handleProgramControlConnectFailed(serial, message);
+            },
+            Qt::QueuedConnection);
+    connect(m_programControlWorker, &ProgramControlSshWorker::commandFinished,
+            this, &MainWindow::handleProgramControlCommandFinished, Qt::QueuedConnection);
+    connect(m_programControlWorker, &ProgramControlSshWorker::upgradeProgress,
+            this, &MainWindow::handleProgramControlUpgradeProgress, Qt::QueuedConnection);
+
+    m_programControlCommandRunning = true;
+    updateProgramControlBusyUi(true);
+    statusBar()->showMessage(title, 3000);
+
+    const quint64 serial = ++m_programControlConnectSerial;
+    m_programControlThread->start();
+    QMetaObject::invokeMethod(m_programControlWorker,
+                              "connectSession",
+                              Qt::QueuedConnection,
+                              Q_ARG(quint64, serial),
+                              Q_ARG(QString, key),
+                              Q_ARG(QString, host),
+                              Q_ARG(quint16, port.toUShort()),
+                              Q_ARG(QString, user),
+                              Q_ARG(QString, password),
+                              Q_ARG(int, 10000));
+}
+
+void MainWindow::handleProgramControlConnected(quint64 serial, const QString &key)
+{
+    if (serial != m_programControlConnectSerial) {
+        return;
     }
 
     m_programControlShellKey = key;
     m_programControlConnected = true;
+    clearProgramControlCommandState();
     updateProgramControlConnectionUi(true);
-    return true;
+    statusBar()->showMessage(QStringLiteral("程序控制 SSH 已连接"), 5000);
+    startProgramStatusRefresh();
+}
+
+void MainWindow::handleProgramControlConnectFailed(quint64 serial, const QString &message)
+{
+    if (serial != m_programControlConnectSerial) {
+        return;
+    }
+
+    closeProgramControlShell();
+    QMessageBox::warning(this,
+                         QStringLiteral("程序控制"),
+                         QStringLiteral("连接程序控制 SSH 失败。\n\n%1").arg(message));
+    statusBar()->showMessage(QStringLiteral("程序控制 SSH 连接失败"), 5000);
+}
+
+void MainWindow::handleProgramControlCommandFinished(quint64 serial,
+                                                     int kind,
+                                                     const QString &title,
+                                                     const QString &appName,
+                                                     int exitCode,
+                                                     const QString &output)
+{
+    if (serial != m_programControlCommandSerial || !m_programControlCommandRunning) {
+        return;
+    }
+
+    m_programControlCommandKind = static_cast<ProgramControlCommandKind>(kind);
+    m_programControlCommandTitle = title;
+    m_programControlCommandAppName = appName;
+    finishProgramControlCommand(exitCode, output);
+}
+
+void MainWindow::handleProgramControlUpgradeProgress(quint64 serial,
+                                                     const QString &appName,
+                                                     qint64 sentBytes,
+                                                     qint64 totalBytes)
+{
+    if (serial != m_programControlCommandSerial || !m_programControlUpgradeProgress) {
+        return;
+    }
+
+    const int value = totalBytes > 0 ? int((sentBytes * 100) / totalBytes) : 100;
+    m_programControlUpgradeProgress->setRange(0, 100);
+    m_programControlUpgradeProgress->setValue(qBound(0, value, 100));
+    m_programControlUpgradeProgress->setLabelText(QStringLiteral("正在上传 %1... %2/%3 KB")
+                                                      .arg(appName)
+                                                      .arg(sentBytes / 1024)
+                                                      .arg(qMax<qint64>(1, totalBytes / 1024)));
 }
 
 void MainWindow::onConnectProgramControlClicked()
 {
-    QString output;
-    QProgressDialog progress(QStringLiteral("连接程序控制 SSH"), QStringLiteral("取消"), 0, 0, this);
-    progress.setWindowTitle(QStringLiteral("程序控制"));
-    progress.setWindowModality(Qt::ApplicationModal);
-    progress.setMinimumDuration(300);
+    auto *progress = new QProgressDialog(QStringLiteral("连接程序控制 SSH"),
+                                         QString(),
+                                         0,
+                                         0,
+                                         this);
+    progress->setWindowTitle(QStringLiteral("程序控制"));
+    progress->setWindowModality(Qt::ApplicationModal);
+    progress->setMinimumDuration(0);
+    progress->setAttribute(Qt::WA_DeleteOnClose);
+    progress->setCancelButton(nullptr);
 
-    if (!openProgramControlShell(QStringLiteral("连接程序控制 SSH"), &output, &progress)) {
-        QMessageBox::warning(this,
-                             QStringLiteral("程序控制"),
-                             QStringLiteral("连接程序控制 SSH 失败。\n\n%1").arg(output));
-        statusBar()->showMessage(QStringLiteral("程序控制 SSH 连接失败"), 5000);
-        return;
-    }
-
-    startProgramControlCommand(QStringLiteral(":"),
-                               QStringLiteral("验证程序控制 SSH"),
-                               ProgramControlCommandKind::Verify);
+    startOpenProgramControlShell(QStringLiteral("连接程序控制 SSH"), progress);
 }
 
 void MainWindow::onDisconnectProgramControlClicked()
@@ -552,6 +763,9 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         }
         const bool running = status.state == QStringLiteral("active");
         const bool enabled = status.autostart == QStringLiteral("enabled");
+        const QString counterpart = counterpartNorthboundProgram(appName);
+        const bool blockedByNorthboundPeer = !counterpart.isEmpty()
+            && statusByApp.value(counterpart).state == QStringLiteral("active");
         const QString statusText = running ? QStringLiteral("● 运行中")
             : status.state == QStringLiteral("inactive") ? QStringLiteral("● 未运行")
             : status.state == QStringLiteral("failed") ? QStringLiteral("● 失败")
@@ -575,7 +789,10 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
 
         auto *startButton = makeCellButton(QStringLiteral("启动"), this);
         startButton->setProperty("appName", appName);
-        startButton->setEnabled(!running);
+        startButton->setEnabled(!running && !blockedByNorthboundPeer);
+        if (blockedByNorthboundPeer) {
+            startButton->setToolTip(QStringLiteral("%1 与 %2 互斥，请先停止 %2").arg(appName, counterpart));
+        }
         connect(startButton, &QPushButton::clicked, this, &MainWindow::onStartProgramClicked);
         m_programControlTable->setCellWidget(row, ProgramColumnStart, wrapCellButton(startButton));
 
@@ -693,7 +910,7 @@ bool MainWindow::upgradeProgramBinary(const QString &appName,
     }
 
     if (progress) {
-        progress->setLabelText(QStringLiteral("正在停止服务、覆盖程序并重新启动 %1...").arg(appName));
+        progress->setLabelText(QStringLiteral("正在停止服务并覆盖程序 %1...").arg(appName));
         progress->setRange(0, 0);
         QApplication::processEvents();
     }
@@ -730,15 +947,29 @@ void MainWindow::onStartProgramClicked()
         return;
     }
 
-    const QString service = programServiceName(appName);
-    const QString command = QStringLiteral("systemctl start %1").arg(remoteProgramShellQuote(service));
-
-    if (startProgramControlCommand(command,
-                                   QStringLiteral("启动 %1").arg(appName),
-                                   ProgramControlCommandKind::Start,
-                                   appName)) {
-        setProgramControlRowPending(appName, QStringLiteral("启动中"));
+    const QString counterpart = counterpartNorthboundProgram(appName);
+    if (!counterpart.isEmpty() && programTableAppIsRunning(m_programControlTable, counterpart)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("程序控制"),
+                             QStringLiteral("%1 与 %2 互斥，请先停止 %2。").arg(appName, counterpart));
+        return;
     }
+
+    const QString service = programServiceName(appName);
+    const QString command = programActionAndStatusCommand(
+        QStringLiteral("systemctl start %1").arg(remoteProgramShellQuote(service)),
+        service,
+        QStringLiteral("active"),
+        QString(),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        managedProgramAppNames());
+
+    setProgramControlRowPending(appName, QStringLiteral("启动中"));
+    QApplication::processEvents();
+    startProgramControlCommand(command,
+                               QStringLiteral("启动 %1").arg(appName),
+                               ProgramControlCommandKind::Start,
+                               appName);
 }
 
 void MainWindow::onStopProgramClicked()
@@ -750,14 +981,20 @@ void MainWindow::onStopProgramClicked()
     }
 
     const QString service = programServiceName(appName);
-    const QString command = QStringLiteral("systemctl stop %1").arg(remoteProgramShellQuote(service));
+    const QString command = programActionAndStatusCommand(
+        QStringLiteral("systemctl stop %1").arg(remoteProgramShellQuote(service)),
+        service,
+        QStringLiteral("inactive"),
+        QString(),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        managedProgramAppNames());
 
-    if (startProgramControlCommand(command,
-                                   QStringLiteral("停止 %1").arg(appName),
-                                   ProgramControlCommandKind::Stop,
-                                   appName)) {
-        setProgramControlRowPending(appName, QStringLiteral("停止中"));
-    }
+    setProgramControlRowPending(appName, QStringLiteral("停止中"));
+    QApplication::processEvents();
+    startProgramControlCommand(command,
+                               QStringLiteral("停止 %1").arg(appName),
+                               ProgramControlCommandKind::Stop,
+                               appName);
 }
 
 void MainWindow::onForceStopProgramClicked()
@@ -779,14 +1016,20 @@ void MainWindow::onForceStopProgramClicked()
     }
 
     const QString service = programServiceName(appName);
-    const QString command = QStringLiteral("systemctl kill --signal=SIGKILL %1").arg(remoteProgramShellQuote(service));
+    const QString command = programActionAndStatusCommand(
+        QStringLiteral("systemctl kill --signal=SIGKILL %1").arg(remoteProgramShellQuote(service)),
+        service,
+        QStringLiteral("inactive"),
+        QString(),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        managedProgramAppNames());
 
-    if (startProgramControlCommand(command,
-                                   QStringLiteral("强制停止 %1").arg(appName),
-                                   ProgramControlCommandKind::ForceStop,
-                                   appName)) {
-        setProgramControlRowPending(appName, QStringLiteral("强制停止中"));
-    }
+    setProgramControlRowPending(appName, QStringLiteral("强制停止中"));
+    QApplication::processEvents();
+    startProgramControlCommand(command,
+                               QStringLiteral("强制停止 %1").arg(appName),
+                               ProgramControlCommandKind::ForceStop,
+                               appName);
 }
 
 void MainWindow::onRestartProgramClicked()
@@ -798,14 +1041,20 @@ void MainWindow::onRestartProgramClicked()
     }
 
     const QString service = programServiceName(appName);
-    const QString command = QStringLiteral("systemctl restart %1").arg(remoteProgramShellQuote(service));
+    const QString command = programActionAndStatusCommand(
+        QStringLiteral("systemctl restart %1").arg(remoteProgramShellQuote(service)),
+        service,
+        QStringLiteral("active"),
+        QString(),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        managedProgramAppNames());
 
-    if (startProgramControlCommand(command,
-                                   QStringLiteral("重启 %1").arg(appName),
-                                   ProgramControlCommandKind::Restart,
-                                   appName)) {
-        setProgramControlRowPending(appName, QStringLiteral("重启中"));
-    }
+    setProgramControlRowPending(appName, QStringLiteral("重启中"));
+    QApplication::processEvents();
+    startProgramControlCommand(command,
+                               QStringLiteral("重启 %1").arg(appName),
+                               ProgramControlCommandKind::Restart,
+                               appName);
 }
 
 void MainWindow::onToggleProgramAutostartClicked()
@@ -825,7 +1074,15 @@ void MainWindow::onToggleProgramAutostartClicked()
     const QString title = autostartEnabled
         ? QStringLiteral("禁用 %1 开机自启").arg(appName)
         : QStringLiteral("启用 %1 开机自启").arg(appName);
-    const QString command = QStringLiteral("systemctl %1 %2").arg(action, remoteProgramShellQuote(service));
+    const QString command = programActionAndStatusCommand(
+        QStringLiteral("systemctl %1 %2").arg(action, remoteProgramShellQuote(service)),
+        service,
+        QString(),
+        autostartEnabled ? QStringLiteral("disabled") : QStringLiteral("enabled"),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        managedProgramAppNames());
+    setProgramControlRowPending(appName, autostartEnabled ? QStringLiteral("禁用自启中") : QStringLiteral("启用自启中"));
+    QApplication::processEvents();
     startProgramControlCommand(command,
                                title,
                                kind,
@@ -859,7 +1116,7 @@ void MainWindow::onUpgradeProgramClicked()
     const QMessageBox::StandardButton confirm = QMessageBox::question(
         this,
         QStringLiteral("程序升级"),
-        QStringLiteral("将使用本地文件覆盖设备端程序：\n\n%1\n-> %2\n\n升级过程会停止并重新启动 %3，是否继续？")
+        QStringLiteral("将使用本地文件覆盖设备端程序：\n\n%1\n-> %2\n\n升级过程会停止 %3，但不会自动重新启动，是否继续？")
             .arg(localPath, remotePath, appName),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
@@ -867,6 +1124,28 @@ void MainWindow::onUpgradeProgramClicked()
         return;
     }
 
+    if (!m_programControlWorker || !m_programControlThread || !m_programControlThread->isRunning()) {
+        closeProgramControlShell();
+        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("程序控制 SSH 已断开，请重新连接。"));
+        return;
+    }
+
+    const QString remoteTempPath = QStringLiteral("/tmp/cepb_upgrade_%1_%2")
+        .arg(appName, QString::number(QDateTime::currentMSecsSinceEpoch()));
+    const QString service = programServiceName(appName);
+    const QString command = QStringLiteral(
+        "set -e; "
+        "target=%1; tmp=%2; service=%3; "
+        "mkdir -p \"$(dirname \"$target\")\"; "
+        "systemctl stop \"$service\"; "
+        "install -m 0755 \"$tmp\" \"$target\"; "
+        "rm -f \"$tmp\"; "
+        "echo upgraded \"$target\"")
+        .arg(remoteProgramShellQuote(remotePath),
+             remoteProgramShellQuote(remoteTempPath),
+             remoteProgramShellQuote(service));
+
+    const quint64 serial = ++m_programControlCommandSerial;
     m_programControlCommandRunning = true;
     m_programControlCommandKind = ProgramControlCommandKind::Upgrade;
     m_programControlCommandTitle = QStringLiteral("升级 %1").arg(appName);
@@ -875,29 +1154,32 @@ void MainWindow::onUpgradeProgramClicked()
     setProgramControlRowPending(appName, QStringLiteral("升级中"));
     statusBar()->showMessage(QStringLiteral("正在升级 %1").arg(appName), 3000);
 
-    QProgressDialog progress(QStringLiteral("正在上传 %1...").arg(appName),
-                             QStringLiteral("取消"),
-                             0,
-                             100,
-                             this);
-    progress.setWindowTitle(QStringLiteral("程序升级"));
-    progress.setWindowModality(Qt::ApplicationModal);
-    progress.setMinimumDuration(0);
+    auto *progress = new QProgressDialog(QStringLiteral("正在上传 %1...").arg(appName),
+                                         QString(),
+                                         0,
+                                         100,
+                                         this);
+    progress->setWindowTitle(QStringLiteral("程序升级"));
+    progress->setWindowModality(Qt::ApplicationModal);
+    progress->setMinimumDuration(0);
+    progress->setCancelButton(nullptr);
+    progress->setAttribute(Qt::WA_DeleteOnClose);
+    connect(progress, &QObject::destroyed, this, [this, progress]() {
+        if (m_programControlUpgradeProgress == progress) {
+            m_programControlUpgradeProgress = nullptr;
+        }
+    });
+    m_programControlUpgradeProgress = progress;
+    progress->show();
 
-    QString output;
-    const bool ok = upgradeProgramBinary(appName, &output, &progress);
-    progress.close();
-    clearProgramControlCommandState();
-    if (!ok) {
-        QMessageBox::warning(this,
-                             QStringLiteral("程序升级"),
-                             QStringLiteral("升级 %1 失败。\n\n%2").arg(appName, output));
-        startProgramStatusRefresh();
-        return;
-    }
-
-    QMessageBox::information(this,
-                             QStringLiteral("程序升级"),
-                             QStringLiteral("%1 升级完成。\n\n%2").arg(appName, output.trimmed()));
-    startProgramStatusRefresh();
+    QMetaObject::invokeMethod(m_programControlWorker,
+                              "runUpgrade",
+                              Qt::QueuedConnection,
+                              Q_ARG(quint64, serial),
+                              Q_ARG(int, static_cast<int>(ProgramControlCommandKind::Upgrade)),
+                              Q_ARG(QString, m_programControlCommandTitle),
+                              Q_ARG(QString, appName),
+                              Q_ARG(QString, localPath),
+                              Q_ARG(QString, remoteTempPath),
+                              Q_ARG(QString, command));
 }

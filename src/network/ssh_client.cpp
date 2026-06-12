@@ -8,6 +8,8 @@
 #include <QtGlobal>
 #include <QTcpSocket>
 
+#include <memory>
+
 #include <libssh2.h>
 
 #ifdef Q_OS_WIN
@@ -210,18 +212,28 @@ public:
 
     ~SshSession()
     {
+        disconnect();
+    }
+
+    void disconnect()
+    {
         if (session) {
             runLibssh2([this]() { return libssh2_session_disconnect(session, "shutdown"); },
                        socket,
                        session,
                        3000);
             libssh2_session_free(session);
+            session = nullptr;
         }
         socket.disconnectFromHost();
     }
 
     LIBSSH2_SESSION *raw() const { return session; }
     QTcpSocket &tcpSocket() { return socket; }
+    bool isConnected() const
+    {
+        return session && socket.state() == QAbstractSocket::ConnectedState;
+    }
 
 private:
     static void setError(QString *error, const QString &message)
@@ -299,18 +311,16 @@ bool writeAllToChannel(SshSession &ssh,
     return true;
 }
 
-} // namespace
-
-SshClient::CommandResult SshClient::execCommand(const Connection &connection,
-                                                const QString &command,
-                                                int timeoutMs)
+SshClient::CommandResult execCommandOnSession(SshSession &ssh,
+                                              const QString &command,
+                                              int timeoutMs)
 {
-    CommandResult result;
+    SshClient::CommandResult result;
     QString error;
-    SshSession ssh;
-    if (!ssh.connect(connection, &error)) {
-        result.error = error;
-        result.output = error;
+
+    if (!ssh.isConnected()) {
+        result.error = QStringLiteral("SSH session 未连接");
+        result.output = result.error;
         return result;
     }
 
@@ -379,14 +389,17 @@ SshClient::CommandResult SshClient::execCommand(const Connection &connection,
     return result;
 }
 
-bool SshClient::uploadFileScp(const Connection &connection,
-                              const QString &localPath,
-                              const QString &remotePath,
-                              QString *error,
-                              const std::function<bool(qint64, qint64)> &progressCallback)
+bool uploadFileScpOnSession(SshSession &ssh,
+                            const QString &localPath,
+                            const QString &remotePath,
+                            QString *error,
+                            const std::function<bool(qint64, qint64)> &progressCallback,
+                            int openTimeoutMs)
 {
-    SshSession ssh;
-    if (!ssh.connect(connection, error)) {
+    if (!ssh.isConnected()) {
+        if (error) {
+            *error = QStringLiteral("SSH session 未连接");
+        }
         return false;
     }
 
@@ -428,7 +441,7 @@ bool SshClient::uploadFileScp(const Connection &connection,
             }
             return false;
         }
-        if (timer.elapsed() >= connection.timeoutMs) {
+        if (timer.elapsed() >= openTimeoutMs) {
             if (error) {
                 *error = QStringLiteral("打开远程 SCP 写入通道超时");
             }
@@ -438,7 +451,7 @@ bool SshClient::uploadFileScp(const Connection &connection,
     }
 
     while (!file.atEnd()) {
-        const QByteArray chunk = file.read(64 * 1024);
+        const QByteArray chunk = file.read(16 * 1024);
         if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
             if (error) {
                 *error = QStringLiteral("读取本地文件失败：%1").arg(file.errorString());
@@ -465,6 +478,103 @@ bool SshClient::uploadFileScp(const Connection &connection,
     runLibssh2([&]() { return libssh2_channel_wait_closed(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
     libssh2_channel_free(channel);
     return true;
+}
+
+} // namespace
+
+class SshClient::Session::Impl
+{
+public:
+    explicit Impl(const Connection &connection)
+        : connection(connection)
+    {
+    }
+
+    Connection connection;
+    std::unique_ptr<SshSession> ssh;
+};
+
+SshClient::Session::Session(const Connection &connection)
+    : d(std::make_unique<Impl>(connection))
+{
+}
+
+SshClient::Session::~Session() = default;
+
+bool SshClient::Session::connect(QString *error)
+{
+    disconnect();
+    auto ssh = std::make_unique<SshSession>();
+    if (!ssh->connect(d->connection, error)) {
+        return false;
+    }
+    d->ssh = std::move(ssh);
+    return true;
+}
+
+void SshClient::Session::disconnect()
+{
+    d->ssh.reset();
+}
+
+bool SshClient::Session::isConnected() const
+{
+    return d->ssh && d->ssh->isConnected();
+}
+
+SshClient::CommandResult SshClient::Session::execCommand(const QString &command, int timeoutMs)
+{
+    if (!d->ssh) {
+        CommandResult result;
+        result.error = QStringLiteral("SSH session 未连接");
+        result.output = result.error;
+        return result;
+    }
+    return execCommandOnSession(*d->ssh, command, timeoutMs);
+}
+
+bool SshClient::Session::uploadFileScp(const QString &localPath,
+                                       const QString &remotePath,
+                                       QString *error,
+                                       const std::function<bool(qint64, qint64)> &progressCallback)
+{
+    if (!d->ssh) {
+        if (error) {
+            *error = QStringLiteral("SSH session 未连接");
+        }
+        return false;
+    }
+    return uploadFileScpOnSession(*d->ssh, localPath, remotePath, error, progressCallback, d->connection.timeoutMs);
+}
+
+SshClient::CommandResult SshClient::execCommand(const Connection &connection,
+                                                const QString &command,
+                                                int timeoutMs)
+{
+    CommandResult result;
+    QString error;
+    SshSession ssh;
+    if (!ssh.connect(connection, &error)) {
+        result.error = error;
+        result.output = error;
+        return result;
+    }
+
+    return execCommandOnSession(ssh, command, timeoutMs);
+}
+
+bool SshClient::uploadFileScp(const Connection &connection,
+                              const QString &localPath,
+                              const QString &remotePath,
+                              QString *error,
+                              const std::function<bool(qint64, qint64)> &progressCallback)
+{
+    SshSession ssh;
+    if (!ssh.connect(connection, error)) {
+        return false;
+    }
+
+    return uploadFileScpOnSession(ssh, localPath, remotePath, error, progressCallback, connection.timeoutMs);
 }
 
 bool SshClient::downloadFileScp(const Connection &connection,
