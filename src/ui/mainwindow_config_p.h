@@ -23,6 +23,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFont>
+#include <QFocusEvent>
 #include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
@@ -94,6 +95,21 @@ inline constexpr int ModelPointColumnLnInst = 7;
 inline constexpr int ModelPointColumnDataRef = 8;
 inline constexpr int ModelPointColumnDataType = 9;
 inline constexpr int ModelPointColumnUnit = 10;
+
+inline void configureTableCellCombo(QComboBox *combo, QObject *eventFilterOwner)
+{
+    if (!combo) {
+        return;
+    }
+
+    combo->setProperty("tableCellCombo", true);
+    combo->setAttribute(Qt::WA_Hover, false);
+    combo->setMouseTracking(false);
+    combo->setFocusPolicy(Qt::ClickFocus);
+    if (eventFilterOwner) {
+        combo->installEventFilter(eventFilterOwner);
+    }
+}
 inline constexpr int LogicComputationColumnDragHandle = 0;
 inline constexpr int LogicComputationColumnOutputDevice = 1;
 inline constexpr int LogicComputationColumnOutputPoint = 2;

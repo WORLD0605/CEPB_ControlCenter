@@ -163,6 +163,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
 
         // Col 6: 死区类型 (QComboBox via setCellWidget)
         auto *dzTypeCombo = new QComboBox();
+        configureTableCellCombo(dzTypeCombo, this);
         dzTypeCombo->addItem(QStringLiteral("0 — 百分比"), QStringLiteral("0"));
         dzTypeCombo->addItem(QStringLiteral("1 — 固定值"), QStringLiteral("1"));
         const int dzTypeIdx = dzTypeCombo->findData(deathzoneType);

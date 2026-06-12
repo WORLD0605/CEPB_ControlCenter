@@ -2190,6 +2190,28 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         }
     }
 
+    if (auto *combo = qobject_cast<QComboBox *>(watched)) {
+        if (combo->property("tableCellCombo").toBool()) {
+            switch (event->type()) {
+            case QEvent::Enter:
+            case QEvent::HoverEnter:
+            case QEvent::HoverMove:
+            case QEvent::MouseMove:
+                return true;
+            case QEvent::FocusIn:
+                if (auto *focusEvent = static_cast<QFocusEvent *>(event);
+                    focusEvent->reason() != Qt::MouseFocusReason
+                    && focusEvent->reason() != Qt::TabFocusReason
+                    && focusEvent->reason() != Qt::BacktabFocusReason) {
+                    return true;
+                }
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
     auto dropPosition = [](QDropEvent *dropEvent) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
         return dropEvent->position().toPoint();
@@ -2436,6 +2458,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
                 // Col 6: 死区类型
                 auto *dzTypeCombo = new QComboBox();
+                configureTableCellCombo(dzTypeCombo, this);
                 dzTypeCombo->addItem(QStringLiteral("0 — 百分比"), QStringLiteral("0"));
                 dzTypeCombo->addItem(QStringLiteral("1 — 固定值"), QStringLiteral("1"));
                 const int dzTypeIdx = dzTypeCombo->findData(rs.deathzoneType);
@@ -2785,6 +2808,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
 
             auto *dataTypeCombo = new QComboBox(m_modelPointsTable);
             dataTypeCombo->setObjectName(QStringLiteral("modelPointDataTypeCombo"));
+            configureTableCellCombo(dataTypeCombo, this);
             dataTypeCombo->addItems(modelDataTypeOptions());
             dataTypeCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             dataTypeCombo->setMinimumContentsLength(8);
@@ -2840,6 +2864,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
 
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
             categoryCombo->setObjectName(QStringLiteral("modelPointCategoryCombo"));
+            configureTableCellCombo(categoryCombo, this);
             categoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
             categoryCombo->addItem(QStringLiteral("遥信"), static_cast<int>(configtool::ModelServiceType::Status));
             categoryCombo->addItem(QStringLiteral("控制"), static_cast<int>(configtool::ModelServiceType::Control));
@@ -3340,6 +3365,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnKind, kindItem);
             auto *kindCombo = new QComboBox(m_deviceBindingsTable);
             kindCombo->setObjectName(QStringLiteral("modbusPointKindCombo"));
+            configureTableCellCombo(kindCombo, this);
             kindCombo->addItem(QStringLiteral("遥信"), QStringLiteral("yx"));
             kindCombo->addItem(QStringLiteral("遥测"), QStringLiteral("yc"));
             kindCombo->addItem(QStringLiteral("遥控"), QStringLiteral("yk"));
@@ -3393,6 +3419,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnDataType, dataTypeItem);
             auto *dataTypeCombo = new QComboBox(m_deviceBindingsTable);
             dataTypeCombo->setObjectName(QStringLiteral("modbusDataTypeCombo"));
+            configureTableCellCombo(dataTypeCombo, this);
             dataTypeCombo->addItems(modbusDataTypeOptionsForKind(kind));
             dataTypeCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             dataTypeCombo->setMinimumContentsLength(4);
