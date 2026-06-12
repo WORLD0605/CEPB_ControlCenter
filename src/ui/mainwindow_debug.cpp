@@ -1287,13 +1287,16 @@ void MainWindow::updateHighlightRefreshTimer()
     }
 }
 
-void MainWindow::copySelectedTableCells()
+void MainWindow::copySelectedTableCells(QTableWidget *table)
 {
-    if (!m_dataTable->selectionModel()) {
+    if (!table) {
+        table = m_dataTable;
+    }
+    if (!table || !table->selectionModel()) {
         return;
     }
 
-    const QModelIndexList indexes = m_dataTable->selectionModel()->selectedIndexes();
+    const QModelIndexList indexes = table->selectionModel()->selectedIndexes();
     if (indexes.isEmpty()) {
         return;
     }

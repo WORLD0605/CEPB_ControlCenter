@@ -216,7 +216,7 @@ private:
     void applyServiceChannelFilter();
     void updateAutoRefreshTimer();
     void updateHighlightRefreshTimer();
-    void copySelectedTableCells();
+    void copySelectedTableCells(QTableWidget *table = nullptr);
     void updateControlCommandUi();
     void updateServiceChannelDataFreezeUi();
     void openControlCommandDialog(int row);

@@ -2181,24 +2181,44 @@ MainWindow::MainWindow(QWidget *parent)
             });
     connect(m_controlResponseTimer, &QTimer::timeout,
             this, &MainWindow::handleControlResponseTimeout);
-    connect(new QShortcut(QKeySequence::Copy, m_dataTable), &QShortcut::activated,
-            this, [this]() { copySelectedTableCells(); });
+    auto connectTableShortcut = [this](QKeySequence::StandardKey key, QTableWidget *table, auto handler) {
+        auto *shortcut = new QShortcut(QKeySequence(key), table);
+        shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(shortcut, &QShortcut::activated, this, handler);
+    };
+
+    connectTableShortcut(QKeySequence::Copy, m_dataTable,
+                         [this]() { copySelectedTableCells(); });
     connect(m_dataTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onDataTableCellDoubleClicked);
     connect(m_dataTable, &QTableWidget::itemSelectionChanged,
             this, &MainWindow::onDataTableSelectionChanged);
-    connect(new QShortcut(QKeySequence::Paste, m_modelPointsTable), &QShortcut::activated,
-            this, [this]() { pasteClipboardIntoModelPointsTable(); });
-    connect(new QShortcut(QKeySequence::Paste, m_deviceBindingsTable), &QShortcut::activated,
-            this, [this]() { pasteClipboardIntoDeviceBindingsTable(); });
-    connect(new QShortcut(QKeySequence::Paste, m_iec101PointsTable), &QShortcut::activated,
-            this, [this]() { pasteClipboardIntoIec101PointsTable(); });
-    connect(new QShortcut(QKeySequence::Undo, m_modelPointsTable), &QShortcut::activated,
-            this, [this]() { undoLastConfigEdit(); });
-    connect(new QShortcut(QKeySequence::Undo, m_deviceBindingsTable), &QShortcut::activated,
-            this, [this]() { undoLastConfigEdit(); });
-    connect(new QShortcut(QKeySequence::Undo, m_iec101PointsTable), &QShortcut::activated,
-            this, [this]() { undoIec101PointsLastEdit(); });
+    connectTableShortcut(QKeySequence::Paste, m_modelPointsTable,
+                         [this]() { pasteClipboardIntoModelPointsTable(); });
+    connectTableShortcut(QKeySequence::Paste, m_deviceBindingsTable,
+                         [this]() { pasteClipboardIntoDeviceBindingsTable(); });
+    connectTableShortcut(QKeySequence::Paste, m_iec101PointsTable,
+                         [this]() { pasteClipboardIntoIec101PointsTable(); });
+    connectTableShortcut(QKeySequence::Copy, m_modelPointsTable,
+                         [this]() { copySelectedTableCells(m_modelPointsTable); });
+    connectTableShortcut(QKeySequence::Copy, m_deviceBindingsTable,
+                         [this]() { copySelectedTableCells(m_deviceBindingsTable); });
+    connectTableShortcut(QKeySequence::Copy, m_iec101PointsTable,
+                         [this]() { copySelectedTableCells(m_iec101PointsTable); });
+    connectTableShortcut(QKeySequence::Copy, m_logicAgcAvcDeviceTable,
+                         [this]() { copySelectedTableCells(m_logicAgcAvcDeviceTable); });
+    connectTableShortcut(QKeySequence::Copy, m_logicComputationPointTable,
+                         [this]() { copySelectedTableCells(m_logicComputationPointTable); });
+    connectTableShortcut(QKeySequence::Copy, m_logicControlRuleTable,
+                         [this]() { copySelectedTableCells(m_logicControlRuleTable); });
+    connectTableShortcut(QKeySequence::Copy, m_logicControlTargetTable,
+                         [this]() { copySelectedTableCells(m_logicControlTargetTable); });
+    connectTableShortcut(QKeySequence::Undo, m_modelPointsTable,
+                         [this]() { undoLastConfigEdit(); });
+    connectTableShortcut(QKeySequence::Undo, m_deviceBindingsTable,
+                         [this]() { undoLastConfigEdit(); });
+    connectTableShortcut(QKeySequence::Undo, m_iec101PointsTable,
+                         [this]() { undoIec101PointsLastEdit(); });
     connect(m_dataTable, &QWidget::customContextMenuRequested, this,
             [this](const QPoint &position) {
                 QMenu menu(this);
