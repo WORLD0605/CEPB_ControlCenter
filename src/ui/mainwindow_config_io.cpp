@@ -36,6 +36,8 @@ void MainWindow::onImportIec104ConfigClicked()
     }
 
     m_configImportDirEdit->setText(projectRoot);
+    QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+    settings.setValue(QStringLiteral("config/lastBrowseDir"), projectRoot);
 
     configtool::ImportReport report;
     const QString projectName = QFileInfo(projectRoot).fileName().trimmed().isEmpty()

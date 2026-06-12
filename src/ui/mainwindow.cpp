@@ -767,6 +767,13 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
     m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter、IEC101ServiceChannel 的目录");
+    {
+        QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+        const QString lastDir = settings.value(QStringLiteral("config/lastBrowseDir")).toString().trimmed();
+        if (!lastDir.isEmpty()) {
+            m_configImportDirEdit->setText(lastDir);
+        }
+    }
     importRow->addWidget(m_configImportDirEdit, 1);
     m_selectConfigImportDirBtn = new QPushButton(QStringLiteral("..."));
     m_selectConfigImportDirBtn->setToolTip(QStringLiteral("选择配置工程目录"));

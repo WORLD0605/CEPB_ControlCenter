@@ -16,6 +16,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QShortcut>
@@ -25,11 +26,35 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <functional>
 
 namespace {
+
+class ClickableFrame : public QFrame
+{
+public:
+    using QFrame::QFrame;
+
+    std::function<void()> onClicked;
+
+protected:
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton &&
+            rect().contains(event->position().toPoint()) &&
+            isEnabled() &&
+            onClicked) {
+            onClicked();
+            event->accept();
+            return;
+        }
+        QFrame::mouseReleaseEvent(event);
+    }
+};
 
 QString controlTypeText(int ctrlType)
 {
@@ -137,6 +162,46 @@ bool isAgcAvcGatePassing(const QString &gateName, const QString &value)
     return intValue == 0;
 }
 
+QString logicGateDataRefName(const QString &domain, const QString &gateName)
+{
+    const QString normalizedDomain = domain.trimmed().toUpper();
+    QString normalizedGate = gateName.trimmed();
+    if (normalizedGate == QStringLiteral("upLock")) {
+        normalizedGate = QStringLiteral("uplock");
+    } else if (normalizedGate == QStringLiteral("downLock")) {
+        normalizedGate = QStringLiteral("downlock");
+    }
+
+    if (normalizedDomain.isEmpty() || normalizedGate.isEmpty()) {
+        return QString();
+    }
+
+    return QStringLiteral("PROT.SlrInvAlmGGIO.1.%1_%2").arg(normalizedDomain, normalizedGate);
+}
+
+QString logicGateDisplayName(const QString &gateName)
+{
+    if (gateName == QStringLiteral("enable")) {
+        return QStringLiteral("投退");
+    }
+    if (gateName == QStringLiteral("distant")) {
+        return QStringLiteral("远方");
+    }
+    if (gateName == QStringLiteral("openloop")) {
+        return QStringLiteral("开闭环");
+    }
+    if (gateName == QStringLiteral("lock")) {
+        return QStringLiteral("闭锁");
+    }
+    if (gateName == QStringLiteral("upLock")) {
+        return QStringLiteral("增闭锁");
+    }
+    if (gateName == QStringLiteral("downLock")) {
+        return QStringLiteral("减闭锁");
+    }
+    return gateName;
+}
+
 void clearTabWidgetPages(QTabWidget *tabs)
 {
     if (!tabs) {
@@ -190,29 +255,35 @@ QFrame *createLogicMetricPanel(const QString &title,
     return panel;
 }
 
-QFrame *createLogicGateLamp(const QString &label,
-                            const QString &value,
-                            bool passing,
-                            QWidget *parent)
+ClickableFrame *createLogicGateButton(const QString &label,
+                                      const QString &value,
+                                      bool passing,
+                                      QWidget *parent)
 {
     const QString color = passing ? QStringLiteral("#1f9d55") : QStringLiteral("#d64545");
     const QString softColor = passing ? QStringLiteral("#e7f6ed") : QStringLiteral("#fdeaea");
     const QString text = passing ? QStringLiteral("放行") : QStringLiteral("闭锁");
 
-    auto *panel = new QFrame(parent);
+    auto *panel = new ClickableFrame(parent);
     panel->setObjectName(QStringLiteral("logicGateLampPanel"));
-    panel->setFrameShape(QFrame::StyledPanel);
+    panel->setCursor(Qt::PointingHandCursor);
     panel->setStyleSheet(QStringLiteral(
         "QFrame#logicGateLampPanel {"
         "  border: 1px solid #c6d3df;"
         "  border-radius: 6px;"
         "  background: #ffffff;"
         "}"
+        "QFrame#logicGateLampPanel:hover {"
+        "  border-color: #4d8fd5;"
+        "  background: #f5faff;"
+        "}"
     ));
     panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    panel->setMinimumHeight(76);
+    panel->setToolTip(QStringLiteral("点击发送 datawrite 翻转 %1").arg(label));
 
     auto *layout = new QHBoxLayout(panel);
-    layout->setContentsMargins(12, 10, 12, 10);
+    layout->setContentsMargins(14, 12, 14, 12);
     layout->setSpacing(10);
 
     auto *lamp = new QLabel(panel);
@@ -226,22 +297,26 @@ QFrame *createLogicGateLamp(const QString &label,
 
     auto *textLayout = new QVBoxLayout();
     textLayout->setContentsMargins(0, 0, 0, 0);
-    textLayout->setSpacing(2);
+    textLayout->setSpacing(4);
 
     auto *nameLabel = new QLabel(label, panel);
-    nameLabel->setStyleSheet(QStringLiteral("font-size: 13px; font-weight: 700;"));
+    nameLabel->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: 700; color: #111827;"));
     textLayout->addWidget(nameLabel);
 
     auto *statusLabel = new QLabel(QStringLiteral("%1  value=%2").arg(text, value.isEmpty() ? QStringLiteral("-") : value), panel);
     statusLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 12px; font-weight: 600;").arg(color));
     textLayout->addWidget(statusLabel);
+    textLayout->addStretch();
 
     layout->addLayout(textLayout, 1);
     return panel;
 }
 
 QWidget *createLogicGateSection(const QString &title,
+                                const QString &domain,
                                 const QString &params,
+                                const QString &virtualDeviceId,
+                                const std::function<void(const QString &, const QString &, const QString &)> &onToggle,
                                 QWidget *parent)
 {
     const QHash<QString, QString> fields = parseAgcAvcParams(params);
@@ -265,7 +340,9 @@ QWidget *createLogicGateSection(const QString &title,
 
     auto *grid = new QGridLayout();
     grid->setHorizontalSpacing(10);
-    grid->setVerticalSpacing(10);
+    grid->setVerticalSpacing(12);
+    grid->setRowMinimumHeight(0, 76);
+    grid->setRowMinimumHeight(1, 76);
 
     const QStringList gates = {
         QStringLiteral("enable"),
@@ -278,8 +355,14 @@ QWidget *createLogicGateSection(const QString &title,
 
     for (int index = 0; index < gates.size(); ++index) {
         const QString gateName = gates.at(index);
+        const QString displayName = logicGateDisplayName(gateName);
         const QString value = fields.value(gateName);
-        grid->addWidget(createLogicGateLamp(gateName, value, isAgcAvcGatePassing(gateName, value), section),
+        auto *button = createLogicGateButton(displayName, value, isAgcAvcGatePassing(gateName, value), section);
+        button->setEnabled(!virtualDeviceId.trimmed().isEmpty() && !value.trimmed().isEmpty());
+        button->onClicked = [domain, gateName, value, onToggle]() {
+            onToggle(domain, gateName, value);
+        };
+        grid->addWidget(button,
                         index / 3,
                         index % 3);
     }
@@ -433,6 +516,32 @@ void MainWindow::onCommandReply(const QString &reply)
         m_pendingDataTableCommand.clear();
 
         if (currentAppConfig().viewMode == AppViewMode::LogicAgcAvcTable) {
+            if (pendingCommand == QStringLiteral("datawrite")) {
+                appendReply(reply);
+                const QString replyText = reply.trimmed();
+                const bool sent = replyText.startsWith(QStringLiteral("datawrite sent:"), Qt::CaseInsensitive);
+                const bool rejected = replyText.startsWith(QStringLiteral("datawrite rejected:"), Qt::CaseInsensitive) ||
+                                      replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
+                                      replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
+                                      replyText.startsWith(QStringLiteral("mqtt client unavailable"), Qt::CaseInsensitive);
+                if (sent) {
+                    appendSystem(QStringLiteral("LogicCenter datawrite 已发送: %1#%2=%3，正在刷新 AGC/AVC 状态...")
+                                     .arg(m_pendingDataWriteDeviceId,
+                                          m_pendingDataWriteDataRef,
+                                          m_pendingDataWriteValue),
+                                 "#32cd32");
+                    requestServiceChannelData(false);
+                } else if (rejected) {
+                    appendSystem(QStringLiteral("LogicCenter datawrite 发送失败: %1").arg(replyText), "#ff4444");
+                }
+                m_pendingDataWriteDeviceId.clear();
+                m_pendingDataWriteDataRef.clear();
+                m_pendingDataWriteValue.clear();
+                m_pendingDataWriteQuality.clear();
+                updateControlCommandUi();
+                return;
+            }
+
             const QList<LogicAgcAvcStatusItem> items = parseLogicAgcAvcReply(reply);
             if (items.isEmpty()) {
                 appendReply(reply);
@@ -1078,8 +1187,46 @@ void MainWindow::populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &it
         auto *gateGrid = new QGridLayout();
         gateGrid->setHorizontalSpacing(12);
         gateGrid->setVerticalSpacing(12);
-        gateGrid->addWidget(createLogicGateSection(QStringLiteral("AGC 门禁状态"), item.agcParams, page), 0, 0);
-        gateGrid->addWidget(createLogicGateSection(QStringLiteral("AVC 门禁状态"), item.avcParams, page), 0, 1);
+        const auto sendToggle = [this, virtualDeviceId = item.virtualDeviceId](const QString &domain,
+                                                                               const QString &gateName,
+                                                                               const QString &currentValue) {
+            bool ok = false;
+            const int intValue = currentValue.trimmed().toInt(&ok);
+            if (!ok) {
+                appendSystem(QStringLiteral("无法翻转 %1，当前值不是数字: %2")
+                                 .arg(logicGateDisplayName(gateName), currentValue),
+                             "#ffcc66");
+                return;
+            }
+
+            const QString dataRef = logicGateDataRefName(domain, gateName);
+            if (sendLogicCenterDataWriteCommand(QStringLiteral("cepiec104"),
+                                                virtualDeviceId,
+                                                dataRef,
+                                                QString::number(intValue == 0 ? 1 : 0))) {
+                const QString message = QStringLiteral("%1%2门禁状态翻转已发送")
+                    .arg(domain, logicGateDisplayName(gateName));
+                QTimer::singleShot(0, this, [this, message]() {
+                    QMessageBox::information(this, QStringLiteral("已发送"), message);
+                });
+            }
+        };
+        gateGrid->addWidget(createLogicGateSection(QStringLiteral("AGC 门禁状态"),
+                                                   QStringLiteral("AGC"),
+                                                   item.agcParams,
+                                                   item.virtualDeviceId,
+                                                   sendToggle,
+                                                   page),
+                            0,
+                            0);
+        gateGrid->addWidget(createLogicGateSection(QStringLiteral("AVC 门禁状态"),
+                                                   QStringLiteral("AVC"),
+                                                   item.avcParams,
+                                                   item.virtualDeviceId,
+                                                   sendToggle,
+                                                   page),
+                            0,
+                            1);
         layout->addLayout(gateGrid);
         layout->addStretch();
 
@@ -1898,6 +2045,52 @@ void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem
     m_pendingDataTableCommand = QStringLiteral("datawrite");
     m_client->sendCommand(command);
     updateControlCommandUi();
+}
+
+bool MainWindow::sendLogicCenterDataWriteCommand(const QString &appName,
+                                                 const QString &deviceId,
+                                                 const QString &dataRef,
+                                                 const QString &value)
+{
+    const QString displayAppName = currentAppConfig().name;
+    if (!m_client->isConnected()) {
+        appendSystem(QStringLiteral("未连接 %1，无法发送 datawrite").arg(displayAppName), "#ffcc66");
+        return false;
+    }
+
+    if (m_client->isExecutingCommand()) {
+        appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送 datawrite"), "#ffcc66");
+        return false;
+    }
+
+    const QString trimmedAppName = appName.trimmed();
+    const QString trimmedDeviceId = deviceId.trimmed();
+    const QString trimmedDataRef = dataRef.trimmed();
+    if (trimmedAppName.isEmpty() || trimmedDeviceId.isEmpty() || trimmedDataRef.isEmpty()) {
+        appendSystem(QStringLiteral("LogicCenter datawrite 参数不完整: app=%1 deviceId=%2 dataRef=%3")
+                         .arg(trimmedAppName, trimmedDeviceId, trimmedDataRef),
+                     "#ffcc66");
+        return false;
+    }
+
+    bool valueOk = false;
+    value.toDouble(&valueOk);
+    if (!valueOk) {
+        appendSystem(QStringLiteral("datawrite Value 必须是数字: %1").arg(value), "#ffcc66");
+        return false;
+    }
+
+    const QString command = QStringLiteral("datawrite %1 %2 %3 %4")
+        .arg(trimmedAppName, trimmedDeviceId, trimmedDataRef, value);
+    appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
+    m_pendingDataWriteDeviceId = trimmedDeviceId;
+    m_pendingDataWriteDataRef = trimmedDataRef;
+    m_pendingDataWriteValue = value;
+    m_pendingDataWriteQuality.clear();
+    m_pendingDataTableCommand = QStringLiteral("datawrite");
+    m_client->sendCommand(command);
+    updateControlCommandUi();
+    return true;
 }
 
 void MainWindow::sendServiceChannelDataFreezeCommand(const QString &mode)

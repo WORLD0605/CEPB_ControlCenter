@@ -240,6 +240,10 @@ private:
     void sendServiceChannelDataWriteCommand(const ServiceChannelDataItem &item,
                                             const QString &value,
                                             const QString &quality);
+    bool sendLogicCenterDataWriteCommand(const QString &appName,
+                                         const QString &deviceId,
+                                         const QString &dataRef,
+                                         const QString &value);
     void sendServiceChannelDataFreezeCommand(const QString &mode);
     void pasteClipboardIntoModelPointsTable();
     void pasteClipboardIntoDeviceBindingsTable();
