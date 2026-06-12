@@ -1219,111 +1219,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_configIssueTable->setColumnWidth(3, 520);
     configIssueLayout->addWidget(m_configIssueTable, 1);
 
-    m_logicCenterPage = new QWidget(this);
-    auto *logicLayout = new QVBoxLayout(m_logicCenterPage);
-    logicLayout->setContentsMargins(0, 0, 0, 0);
-    logicLayout->setSpacing(10);
-
-    auto *logicSummaryFrame = new QFrame(this);
-    logicSummaryFrame->setFrameShape(QFrame::StyledPanel);
-    auto *logicSummaryLayout = new QGridLayout(logicSummaryFrame);
-    logicSummaryLayout->setContentsMargins(10, 8, 10, 8);
-    logicSummaryLayout->setHorizontalSpacing(28);
-    logicSummaryLayout->setVerticalSpacing(6);
-    m_logicAgcAvcGroupCountLabel = new QLabel(QStringLiteral("0"), this);
-    m_logicComputationPointCountLabel = new QLabel(QStringLiteral("0"), this);
-    m_logicControlRuleCountLabel = new QLabel(QStringLiteral("0"), this);
-    m_logicOnlineLinkCountLabel = new QLabel(QStringLiteral("0"), this);
-    m_logicDerivedDeviceCountLabel = new QLabel(QStringLiteral("0"), this);
-    m_logicIssueCountLabel = new QLabel(QStringLiteral("0"), this);
-    m_logicExportPathLabel = new QLabel(QStringLiteral("-"), this);
-    m_logicExportPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("AGC/AVC 组:"), this), 0, 0);
-    logicSummaryLayout->addWidget(m_logicAgcAvcGroupCountLabel, 0, 1);
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("计算点:"), this), 0, 2);
-    logicSummaryLayout->addWidget(m_logicComputationPointCountLabel, 0, 3);
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("控制规则:"), this), 0, 4);
-    logicSummaryLayout->addWidget(m_logicControlRuleCountLabel, 0, 5);
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("在线联动:"), this), 1, 0);
-    logicSummaryLayout->addWidget(m_logicOnlineLinkCountLabel, 1, 1);
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("虚拟派生:"), this), 1, 2);
-    logicSummaryLayout->addWidget(m_logicDerivedDeviceCountLabel, 1, 3);
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("校验问题:"), this), 1, 4);
-    logicSummaryLayout->addWidget(m_logicIssueCountLabel, 1, 5);
-    logicSummaryLayout->addWidget(new QLabel(QStringLiteral("导出文件:"), this), 2, 0);
-    logicSummaryLayout->addWidget(m_logicExportPathLabel, 2, 1, 1, 5);
-    logicLayout->addWidget(logicSummaryFrame);
-
-    auto *logicActionFrame = new QFrame(this);
-    logicActionFrame->setFrameShape(QFrame::StyledPanel);
-    auto *logicActionLayout = new QGridLayout(logicActionFrame);
-    logicActionLayout->setContentsMargins(10, 8, 10, 8);
-    logicActionLayout->setHorizontalSpacing(8);
-    logicActionLayout->setVerticalSpacing(8);
-
-    auto addLogicAction = [this, logicActionLayout](const QString &text, int row, int column) {
-        auto *button = new QPushButton(text, this);
-        logicActionLayout->addWidget(button, row, column);
-        connect(button, &QPushButton::clicked, this, [this, text]() {
-            if (text == QStringLiteral("AGC/AVC") && m_logicAgcAvcPage) {
-                refreshLogicAgcAvcPage();
-                m_mainTabWidget->setCurrentWidget(m_logicAgcAvcPage);
-                return;
-            }
-            if (text.contains(QStringLiteral("算")) && m_logicComputationPointPage) {
-                refreshLogicComputationPointPage();
-                m_mainTabWidget->setCurrentWidget(m_logicComputationPointPage);
-                return;
-            }
-            if (text == QStringLiteral("控制转换") && m_logicControlRulePage) {
-                refreshLogicControlRulePage();
-                m_mainTabWidget->setCurrentWidget(m_logicControlRulePage);
-                return;
-            }
-            if (text == QStringLiteral("在线联动") && m_logicOnlineLinkPage) {
-                refreshLogicOnlineLinkPage();
-                m_mainTabWidget->setCurrentWidget(m_logicOnlineLinkPage);
-                return;
-            }
-            statusBar()->showMessage(QStringLiteral("%1 编辑器将在后续步骤接入").arg(text), 5000);
-        });
-        return button;
-    };
-    addLogicAction(QStringLiteral("快速配置"), 0, 0);
-    addLogicAction(QStringLiteral("AGC/AVC"), 0, 1);
-    addLogicAction(QStringLiteral("虚拟设备派生"), 0, 2);
-    addLogicAction(QStringLiteral("计算点"), 0, 3);
-    addLogicAction(QStringLiteral("控制转换"), 1, 0);
-    addLogicAction(QStringLiteral("在线联动"), 1, 1);
-    addLogicAction(QStringLiteral("高级与调试"), 1, 2);
-    addLogicAction(QStringLiteral("JSON 预览与校验"), 1, 3);
-    logicLayout->addWidget(logicActionFrame);
-
-    auto *issueTitle = new QLabel(QStringLiteral("校验问题"), this);
-    QFont issueTitleFont = issueTitle->font();
-    issueTitleFont.setBold(true);
-    issueTitle->setFont(issueTitleFont);
-    logicLayout->addWidget(issueTitle);
-    m_logicIssueTable = new QTableWidget(0, 4, this);
-    m_logicIssueTable->setHorizontalHeaderLabels({
-        QStringLiteral("级别"),
-        QStringLiteral("模块"),
-        QStringLiteral("对象"),
-        QStringLiteral("说明")
-    });
-    m_logicIssueTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_logicIssueTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_logicIssueTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_logicIssueTable->setAlternatingRowColors(true);
-    m_logicIssueTable->verticalHeader()->setVisible(false);
-    m_logicIssueTable->horizontalHeader()->setStretchLastSection(true);
-    m_logicIssueTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_logicIssueTable->setColumnWidth(0, 80);
-    m_logicIssueTable->setColumnWidth(1, 100);
-    m_logicIssueTable->setColumnWidth(2, 260);
-    logicLayout->addWidget(m_logicIssueTable, 1);
-
     m_logicAgcAvcPage = new QWidget(this);
     auto *agcAvcLayout = new QVBoxLayout(m_logicAgcAvcPage);
     agcAvcLayout->setContentsMargins(0, 0, 0, 0);
@@ -1998,13 +1893,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101CommModeCombo->setCurrentIndex(1);
     onIec101CommModeChanged(1);
 
-    m_mainTabWidget->addTab(m_configPage, "配置概览");
-    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("程序控制"));
     m_mainTabWidget->addTab(debugPage, "调试控制");
-    m_mainTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101配置"));
+    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("程序控制"));
+    m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
-    m_mainTabWidget->addTab(m_logicCenterPage, "逻辑中心");
+    m_mainTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101配置"));
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
     m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");

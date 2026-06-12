@@ -501,7 +501,6 @@ private:
     QLineEdit *m_deviceBindingDescriptionFilterEdit = nullptr;
     QWidget *m_configPage = nullptr;
     QWidget *m_configIssuePage = nullptr;
-    QWidget *m_logicCenterPage = nullptr;
     QWidget *m_logicAgcAvcPage = nullptr;
     QWidget *m_logicComputationPointPage = nullptr;
     QWidget *m_logicControlRulePage = nullptr;
@@ -518,14 +517,6 @@ private:
     QLabel *m_configDeviceCountValueLabel = nullptr;
     QLabel *m_configIssueCountValueLabel = nullptr;
     QTableWidget *m_configIssueTable = nullptr;
-    QLabel *m_logicComputationPointCountLabel = nullptr;
-    QLabel *m_logicControlRuleCountLabel = nullptr;
-    QLabel *m_logicAgcAvcGroupCountLabel = nullptr;
-    QLabel *m_logicOnlineLinkCountLabel = nullptr;
-    QLabel *m_logicDerivedDeviceCountLabel = nullptr;
-    QLabel *m_logicIssueCountLabel = nullptr;
-    QLabel *m_logicExportPathLabel = nullptr;
-    QTableWidget *m_logicIssueTable = nullptr;
     QPushButton *m_addLogicComputationPointBtn = nullptr;
     QPushButton *m_copyLogicComputationPointBtn = nullptr;
     QPushButton *m_deleteLogicComputationPointBtn = nullptr;
