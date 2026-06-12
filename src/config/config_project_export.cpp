@@ -174,7 +174,7 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     const QList<ProtocolDeviceInstance> exportDevices = devicesForProtocol(m_project, ProtocolType::Modbus);
     const QList<ModelTemplate> exportModels = modelsForDeviceSet(m_project, modelIdsUsedByDevices(exportDevices));
     const QHash<QString, QSet<QString>> duplicateRegisterAddressesByChannel =
-        duplicateModbusRegisterAddressesByTcpChannel(exportDevices);
+        duplicateModbusRegisterAddressesByPhysicalChannel(exportDevices);
 
     for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
@@ -193,18 +193,16 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     QSet<QString> reportedDuplicateRegisterAddressChannels;
     for (const ProtocolDeviceInstance &device : exportDevices) {
         const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper();
-        if (type == QStringLiteral("TCP")) {
-            const QString channelKey = modbusTcpChannelKey(device);
-            const QSet<QString> duplicateRegisterAddresses = duplicateRegisterAddressesByChannel.value(channelKey);
-            if (!duplicateRegisterAddresses.isEmpty()
-                && !reportedDuplicateRegisterAddressChannels.contains(channelKey)) {
-                reportedDuplicateRegisterAddressChannels.insert(channelKey);
-                report.addIssue(ImportIssueSeverity::Error,
-                                appDir,
-                                QStringLiteral("同 TCP 通道 Modbus 设备存在重复寄存器地址：%1（%2）")
-                                    .arg(QStringList(duplicateRegisterAddresses.begin(), duplicateRegisterAddresses.end()).join(QStringLiteral("，")),
-                                         modbusTcpChannelDisplayName(device)));
-            }
+        const QString channelKey = modbusPhysicalChannelKey(device);
+        const QSet<QString> duplicateRegisterAddresses = duplicateRegisterAddressesByChannel.value(channelKey);
+        if (!duplicateRegisterAddresses.isEmpty()
+            && !reportedDuplicateRegisterAddressChannels.contains(channelKey)) {
+            reportedDuplicateRegisterAddressChannels.insert(channelKey);
+            report.addIssue(ImportIssueSeverity::Error,
+                            appDir,
+                            QStringLiteral("同物理 Modbus 通道设备存在重复或重叠的寄存器地址：%1（%2）")
+                                .arg(QStringList(duplicateRegisterAddresses.begin(), duplicateRegisterAddresses.end()).join(QStringLiteral("，")),
+                                     modbusPhysicalChannelDisplayName(device)));
         }
 
         if (device.deviceId.trimmed().isEmpty()) {

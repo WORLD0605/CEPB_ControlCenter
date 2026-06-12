@@ -2942,10 +2942,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     const QSet<QString> duplicateAddresses = device.protocol == configtool::ProtocolType::Iec104
         ? duplicateIec104ChannelBindingAddresses(project, device)
         : duplicateBindingAddresses(device);
-    const QSet<QString> duplicateModbusRegisterAddresses =
-        modbusTransportType == QStringLiteral("TCP")
-            ? duplicateModbusRegisterAddressesByTcpChannel(project.devices).value(modbusTcpChannelKey(device))
-            : QSet<QString>();
+    const QSet<QString> duplicateModbusRegisterAddresses = modbusDevice
+        ? duplicateModbusRegisterAddressesByPhysicalChannel(project.devices).value(modbusPhysicalChannelKey(device))
+        : QSet<QString>();
     int emptyAddressCount = 0;
     for (const configtool::PointBinding &binding : device.bindings) {
         if (binding.enabled && binding.address.trimmed().isEmpty()) {
@@ -3207,9 +3206,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         if (!duplicateModbusRegisterAddresses.isEmpty()) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
             m_deviceValidationLabel->setText(
-                QStringLiteral("检测到同 TCP 通道重复 Modbus 寄存器地址：%1。请检查 %2 下所有设备的启用点位寄存器。")
+                QStringLiteral("检测到同物理 Modbus 通道重复或重叠的寄存器地址：%1。请检查 %2 下所有设备的启用点位寄存器。")
                     .arg(QStringList(duplicateModbusRegisterAddresses.begin(), duplicateModbusRegisterAddresses.end()).join(QStringLiteral("，")),
-                         modbusTcpChannelDisplayName(device)));
+                         modbusPhysicalChannelDisplayName(device)));
         } else if (missingRegisterCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
             m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 Modbus 寄存器地址。填写后会自动生成分组、组内序号和 dataIndex。")

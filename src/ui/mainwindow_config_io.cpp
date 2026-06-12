@@ -353,7 +353,7 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
     const QHash<QString, QSet<QString>> duplicateIec104AddressesByChannel =
         duplicateIec104BindingAddressesByChannel(project.devices);
     const QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByChannel =
-        duplicateModbusRegisterAddressesByTcpChannel(project.devices);
+        duplicateModbusRegisterAddressesByPhysicalChannel(project.devices);
     QSet<QString> reportedDuplicateIec104Channels;
     QSet<QString> reportedDuplicateModbusChannels;
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
@@ -404,19 +404,17 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                                      .toString(QStringLiteral("TCP"))
                                      .trimmed()
                                      .toUpper();
-            if (type == QStringLiteral("TCP")) {
-                const QString channelKey = modbusTcpChannelKey(device);
-                const QSet<QString> duplicateRegisterAddresses =
-                    duplicateModbusRegisterAddressesByChannel.value(channelKey);
-                if (!duplicateRegisterAddresses.isEmpty()
-                    && !reportedDuplicateModbusChannels.contains(channelKey)) {
-                    reportedDuplicateModbusChannels.insert(channelKey);
-                    appendIssue(configtool::ImportIssueSeverity::Error,
-                                projectPath,
-                                QStringLiteral("同 TCP 通道 Modbus 设备存在重复寄存器地址：%1（%2）")
-                                    .arg(QStringList(duplicateRegisterAddresses.begin(), duplicateRegisterAddresses.end()).join(QStringLiteral("，")),
-                                         modbusTcpChannelDisplayName(device)));
-                }
+            const QString channelKey = modbusPhysicalChannelKey(device);
+            const QSet<QString> duplicateRegisterAddresses =
+                duplicateModbusRegisterAddressesByChannel.value(channelKey);
+            if (!duplicateRegisterAddresses.isEmpty()
+                && !reportedDuplicateModbusChannels.contains(channelKey)) {
+                reportedDuplicateModbusChannels.insert(channelKey);
+                appendIssue(configtool::ImportIssueSeverity::Error,
+                            projectPath,
+                            QStringLiteral("同物理 Modbus 通道设备存在重复或重叠的寄存器地址：%1（%2）")
+                                .arg(QStringList(duplicateRegisterAddresses.begin(), duplicateRegisterAddresses.end()).join(QStringLiteral("，")),
+                                     modbusPhysicalChannelDisplayName(device)));
             }
             if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
                 appendIssue(configtool::ImportIssueSeverity::Error,

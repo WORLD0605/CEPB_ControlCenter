@@ -1,5 +1,6 @@
 ﻿#include "config/config_project_manager.h"
 #include "config/config_project_manager_p.h"
+#include "config/modbus_mapping_utils.h"
 
 #include <QDir>
 #include <QFile>
@@ -1119,8 +1120,34 @@ QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(const QLi
     return duplicateAddressesByChannel;
 }
 
-QString modbusTcpChannelKey(const ProtocolDeviceInstance &device)
+QString normalizedModbusRtuPortName(const QString &port)
 {
+    QString normalized = port.trimmed().toUpper();
+    if (normalized.startsWith(QStringLiteral("RS485"))) {
+        normalized.remove(QChar('_'));
+    }
+    return normalized;
+}
+
+QString modbusPhysicalChannelKey(const ProtocolDeviceInstance &device)
+{
+    const QString type = device.transport.protocolOptions
+                             .value(QStringLiteral("type"))
+                             .toString(QStringLiteral("TCP"))
+                             .trimmed()
+                             .toUpper();
+    if (type == QStringLiteral("RTU")) {
+        const QJsonObject serial = device.transport.serial;
+        return QStringLiteral("%1|%2|%3|%4|%5|%6|%7")
+            .arg(QStringLiteral("RTU"),
+                 normalizedModbusRtuPortName(jsonValueToString(serial.value(QStringLiteral("serialPort")))),
+                 jsonValueToString(serial.value(QStringLiteral("baud"))).trimmed(),
+                 jsonValueToString(serial.value(QStringLiteral("parity"))).trimmed().toUpper(),
+                 jsonValueToString(serial.value(QStringLiteral("dataBits"))).trimmed(),
+                 jsonValueToString(serial.value(QStringLiteral("stopBits"))).trimmed(),
+                 device.transport.stationAddress.trimmed());
+    }
+
     return QStringLiteral("%1|%2|%3|%4")
         .arg(QStringLiteral("TCP"),
              device.transport.ip.trimmed().toLower(),
@@ -1128,17 +1155,58 @@ QString modbusTcpChannelKey(const ProtocolDeviceInstance &device)
              device.transport.stationAddress.trimmed());
 }
 
-QString modbusTcpChannelDisplayName(const ProtocolDeviceInstance &device)
+QString modbusPhysicalChannelDisplayName(const ProtocolDeviceInstance &device)
 {
+    const QString type = device.transport.protocolOptions
+                             .value(QStringLiteral("type"))
+                             .toString(QStringLiteral("TCP"))
+                             .trimmed()
+                             .toUpper();
+    if (type == QStringLiteral("RTU")) {
+        const QJsonObject serial = device.transport.serial;
+        return QStringLiteral("RTU串口=%1，波特率=%2，校验=%3，数据位=%4，停止位=%5，协议地址=%6")
+            .arg(jsonValueToString(serial.value(QStringLiteral("serialPort"))).trimmed(),
+                 jsonValueToString(serial.value(QStringLiteral("baud"))).trimmed(),
+                 jsonValueToString(serial.value(QStringLiteral("parity"))).trimmed().toUpper(),
+                 jsonValueToString(serial.value(QStringLiteral("dataBits"))).trimmed(),
+                 jsonValueToString(serial.value(QStringLiteral("stopBits"))).trimmed(),
+                 device.transport.stationAddress.trimmed());
+    }
+
     return QStringLiteral("IP=%1，端口=%2，协议地址=%3")
         .arg(device.transport.ip.trimmed(),
              device.transport.port.trimmed(),
              device.transport.stationAddress.trimmed());
 }
 
-QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByTcpChannel(const QList<ProtocolDeviceInstance> &devices)
+QString modbusAddressSpaceKey(int funCode)
 {
-    QHash<QString, QSet<QString>> seenAddressesByChannel;
+    if (funCode == 1 || funCode == 5 || funCode == 15) {
+        return QStringLiteral("coil");
+    }
+    if (funCode == 2) {
+        return QStringLiteral("discrete");
+    }
+    if (funCode == 3 || funCode == 6 || funCode == 16) {
+        return QStringLiteral("holding");
+    }
+    if (funCode == 4) {
+        return QStringLiteral("input");
+    }
+    return QStringLiteral("func%1").arg(funCode);
+}
+
+QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalChannel(const QList<ProtocolDeviceInstance> &devices)
+{
+    struct RegisterRange
+    {
+        QString startAddress;
+        QString addressSpace;
+        int start = 0;
+        int end = 0;
+    };
+
+    QHash<QString, QList<RegisterRange>> seenRangesByChannel;
     QHash<QString, QSet<QString>> duplicateAddressesByChannel;
 
     for (const ProtocolDeviceInstance &device : devices) {
@@ -1147,17 +1215,8 @@ QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByTcpChannel(const
             continue;
         }
 
-        const QString type = device.transport.protocolOptions
-                                 .value(QStringLiteral("type"))
-                                 .toString(QStringLiteral("TCP"))
-                                 .trimmed()
-                                 .toUpper();
-        if (type != QStringLiteral("TCP")) {
-            continue;
-        }
-
-        const QString channelKey = modbusTcpChannelKey(device);
-        QSet<QString> &seenAddresses = seenAddressesByChannel[channelKey];
+        const QString channelKey = modbusPhysicalChannelKey(device);
+        QList<RegisterRange> &seenRanges = seenRangesByChannel[channelKey];
         QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
 
         for (const PointBinding &binding : device.bindings) {
@@ -1174,12 +1233,34 @@ QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByTcpChannel(const
                 continue;
             }
 
-            const QString address = QString::number(registerAddress);
-            if (seenAddresses.contains(address)) {
-                duplicateAddresses.insert(address);
-            } else {
-                seenAddresses.insert(address);
+            const QString kind = modbusBindingKind(binding);
+            const int defaultFunCode = kind == QStringLiteral("yx")
+                ? 2
+                : (kind == QStringLiteral("yc") ? 3 : 6);
+            const int funCode = modbusBindingInt(binding, QStringLiteral("modbusFunctionCode"), defaultFunCode);
+            const QString dataType = modbusBindingString(binding,
+                                                         QStringLiteral("modbusDataType"),
+                                                         kind == QStringLiteral("yx") ? QStringLiteral("BIT") : QStringLiteral("WORD"));
+            const int registerCount = (funCode == 1 || funCode == 2 || funCode == 5 || funCode == 15)
+                ? 1
+                : qMax(1, modbusTypeRegisterCount(dataType));
+
+            RegisterRange current;
+            current.startAddress = QString::number(registerAddress);
+            current.addressSpace = modbusAddressSpaceKey(funCode);
+            current.start = registerAddress;
+            current.end = registerAddress + registerCount;
+
+            for (const RegisterRange &seen : seenRanges) {
+                if (seen.addressSpace != current.addressSpace) {
+                    continue;
+                }
+                if (current.start < seen.end && seen.start < current.end) {
+                    duplicateAddresses.insert(seen.startAddress);
+                    duplicateAddresses.insert(current.startAddress);
+                }
             }
+            seenRanges.append(current);
         }
     }
 
