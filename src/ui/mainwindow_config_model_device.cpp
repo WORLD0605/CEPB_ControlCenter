@@ -3148,8 +3148,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
     const bool modbusDevice = isModbusDevice(device);
     if (m_deviceBindingFilterTabBar) {
-        m_deviceBindingFilterTabBar->setVisible(!modbusDevice);
-        m_deviceBindingFilterTabBar->setEnabled(!modbusDevice);
+        m_deviceBindingFilterTabBar->setVisible(true);
+        m_deviceBindingFilterTabBar->setEnabled(true);
     }
     if (m_modbusParamsGroupBox) {
         m_modbusParamsGroupBox->setVisible(modbusDevice);
@@ -3213,7 +3213,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     const QString descriptionKeyword = m_deviceBindingDescriptionFilterEdit
         ? m_deviceBindingDescriptionFilterEdit->text().trimmed()
         : QString();
-    const int bindingFilterTabIndex = (!modbusDevice && m_deviceBindingFilterTabBar)
+    const int bindingFilterTabIndex = m_deviceBindingFilterTabBar
         ? m_deviceBindingFilterTabBar->currentIndex()
         : 0;
     QHash<QString, int> modelPointTabByPointRef;
@@ -3249,11 +3249,23 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             || binding.descriptionOverride.contains(descriptionKeyword, Qt::CaseInsensitive);
         bool matchesCategory = true;
         if (bindingFilterTabIndex > 0) {
-            const QString pointRef = binding.pointRef.trimmed();
-            const QString dataRef = binding.dataRef.trimmed();
-            const int pointTabIndex = modelPointTabByPointRef.value(
-                pointRef,
-                modelPointTabByDataRef.value(dataRef, 0));
+            int pointTabIndex = 0;
+            if (modbusDevice) {
+                const QString kind = modbusBindingKind(binding);
+                if (kind == QStringLiteral("yc")) {
+                    pointTabIndex = 1;
+                } else if (kind == QStringLiteral("yx")) {
+                    pointTabIndex = 2;
+                } else if (kind == QStringLiteral("yk") || kind == QStringLiteral("yt")) {
+                    pointTabIndex = 3;
+                }
+            } else {
+                const QString pointRef = binding.pointRef.trimmed();
+                const QString dataRef = binding.dataRef.trimmed();
+                pointTabIndex = modelPointTabByPointRef.value(
+                    pointRef,
+                    modelPointTabByDataRef.value(dataRef, 0));
+            }
             matchesCategory = pointTabIndex == bindingFilterTabIndex;
         }
         if (matchesDataRef && matchesDescription && matchesCategory) {
