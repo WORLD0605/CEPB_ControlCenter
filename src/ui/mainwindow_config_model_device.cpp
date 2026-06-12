@@ -215,17 +215,20 @@ void MainWindow::navigateToConfigIssue(int row)
         statusBar()->showMessage(QStringLiteral("已进入控制转换页面，但未找到精确对象"), 5000);
         return;
     } else if (targetType == QStringLiteral("logic-online")) {
-        refreshLogicOnlineLinkPage();
-        m_mainTabWidget->setCurrentWidget(m_logicOnlineLinkPage);
         const QList<configtool::LogicOnlineStatusLink> &links = project.logicCenter.onlineStatusLinks;
-        for (int index = 0; index < links.size(); ++index) {
-            const QString objectId = QStringLiteral("%1 -> %2").arg(links.at(index).deviceId, links.at(index).linkToDeviceId);
+        for (const configtool::LogicOnlineStatusLink &link : links) {
+            const QString objectId = QStringLiteral("%1 -> %2").arg(link.deviceId, link.linkToDeviceId);
             if (objectId == targetKey || targetKey.contains(objectId)) {
-                m_logicOnlineLinkTable->selectRow(index);
-                return;
+                for (int deviceIndex = 0; deviceIndex < project.devices.size(); ++deviceIndex) {
+                    if (project.devices.at(deviceIndex).deviceId == link.deviceId) {
+                        onConfigDeviceActivated(deviceIndex, 0);
+                        statusBar()->showMessage(QStringLiteral("已进入设备编辑器，请检查在线状态联动。"), 5000);
+                        return;
+                    }
+                }
             }
         }
-        statusBar()->showMessage(QStringLiteral("已进入在线联动页面，但未找到精确对象"), 5000);
+        statusBar()->showMessage(QStringLiteral("未找到在线联动对应的设备"), 5000);
         return;
     } else if (targetType == QStringLiteral("logic-agcavc")) {
         refreshLogicAgcAvcPage();
@@ -1406,6 +1409,50 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
     }
 }
 
+void MainWindow::onDeviceOnlineLinkEnabledChanged(bool checked)
+{
+    if (m_updatingDeviceOnlineLinkPanel || m_restoringConfigUndo) {
+        return;
+    }
+
+    if (m_deviceOnlineLinkContent) {
+        m_deviceOnlineLinkContent->setVisible(checked);
+    }
+    if (!checked) {
+        setCurrentDeviceOnlineLinkTarget(QString());
+        return;
+    }
+
+    const QString targetDeviceId = m_deviceOnlineLinkTargetCombo
+        ? m_deviceOnlineLinkTargetCombo->currentData().toString().trimmed()
+        : QString();
+    if (!targetDeviceId.isEmpty()) {
+        setCurrentDeviceOnlineLinkTarget(targetDeviceId);
+    }
+}
+
+void MainWindow::onDeviceOnlineLinkTargetChanged(int index)
+{
+    if (m_updatingDeviceOnlineLinkPanel || m_restoringConfigUndo || index < 0) {
+        return;
+    }
+
+    const QString targetDeviceId = m_deviceOnlineLinkTargetCombo
+        ? m_deviceOnlineLinkTargetCombo->itemData(index).toString().trimmed()
+        : QString();
+    if (m_deviceOnlineLinkGroupBox && !m_deviceOnlineLinkGroupBox->isChecked() && targetDeviceId.isEmpty()) {
+        return;
+    }
+    if (m_deviceOnlineLinkGroupBox && !m_deviceOnlineLinkGroupBox->isChecked()) {
+        QSignalBlocker blocker(m_deviceOnlineLinkGroupBox);
+        m_deviceOnlineLinkGroupBox->setChecked(true);
+        if (m_deviceOnlineLinkContent) {
+            m_deviceOnlineLinkContent->setVisible(true);
+        }
+    }
+    setCurrentDeviceOnlineLinkTarget(targetDeviceId);
+}
+
 void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
 {
     if (!item || m_updatingModelPointsTable || m_restoringConfigUndo) {
@@ -2062,7 +2109,6 @@ void MainWindow::refreshConfigObjectViews()
     refreshLogicAgcAvcPage();
     refreshLogicComputationPointPage();
     refreshLogicControlRulePage();
-    refreshLogicOnlineLinkPage();
 }
 
 
@@ -2838,6 +2884,119 @@ void MainWindow::refreshDeviceDetail(int deviceIndex)
     m_deviceDetailBindingCountLabel->setText(QString::number(device.bindings.size()));
 }
 
+void MainWindow::refreshDeviceOnlineLinkPanel(int deviceIndex)
+{
+    m_updatingDeviceOnlineLinkPanel = true;
+
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const bool hasDevice = deviceIndex >= 0 && deviceIndex < project.devices.size();
+    const QString currentDeviceId = hasDevice ? project.devices.at(deviceIndex).deviceId.trimmed() : QString();
+    QString linkedDeviceId;
+    if (!currentDeviceId.isEmpty()) {
+        for (const configtool::LogicOnlineStatusLink &link : project.logicCenter.onlineStatusLinks) {
+            if (link.deviceId.trimmed() == currentDeviceId) {
+                linkedDeviceId = link.linkToDeviceId.trimmed();
+                break;
+            }
+        }
+    }
+
+    if (m_deviceOnlineLinkTargetCombo) {
+        m_deviceOnlineLinkTargetCombo->clear();
+        m_deviceOnlineLinkTargetCombo->addItem(QStringLiteral("不联动"), QString());
+        if (hasDevice) {
+            for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+                const QString deviceId = device.deviceId.trimmed();
+                if (deviceId.isEmpty() || deviceId == currentDeviceId) {
+                    continue;
+                }
+                m_deviceOnlineLinkTargetCombo->addItem(deviceChoiceText(device), deviceId);
+            }
+            if (!linkedDeviceId.isEmpty() && m_deviceOnlineLinkTargetCombo->findData(linkedDeviceId) < 0) {
+                m_deviceOnlineLinkTargetCombo->addItem(linkedDeviceId, linkedDeviceId);
+            }
+            const int linkedIndex = m_deviceOnlineLinkTargetCombo->findData(linkedDeviceId);
+            m_deviceOnlineLinkTargetCombo->setCurrentIndex(linkedIndex >= 0 ? linkedIndex : 0);
+        } else {
+            m_deviceOnlineLinkTargetCombo->setCurrentIndex(0);
+        }
+        m_deviceOnlineLinkTargetCombo->setEnabled(hasDevice);
+    }
+
+    if (m_deviceOnlineLinkGroupBox) {
+        m_deviceOnlineLinkGroupBox->setEnabled(hasDevice);
+        m_deviceOnlineLinkGroupBox->setChecked(hasDevice && !linkedDeviceId.isEmpty());
+    }
+    if (m_deviceOnlineLinkContent) {
+        m_deviceOnlineLinkContent->setVisible(hasDevice && !linkedDeviceId.isEmpty());
+    }
+    if (m_deviceOnlineLinkHintLabel) {
+        m_deviceOnlineLinkHintLabel->setText(hasDevice
+            ? QStringLiteral("启用后，当前设备的在线状态将跟随所选设备；选择“不联动”或取消勾选时不会导出在线联动规则。")
+            : QStringLiteral("请选择一个设备后配置在线状态联动。"));
+    }
+
+    m_updatingDeviceOnlineLinkPanel = false;
+}
+
+void MainWindow::setCurrentDeviceOnlineLinkTarget(const QString &targetDeviceId)
+{
+    const int deviceIndex = currentConfigDeviceIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        return;
+    }
+
+    const QString sourceDeviceId = project.devices.at(deviceIndex).deviceId.trimmed();
+    const QString normalizedTarget = targetDeviceId.trimmed();
+    if (sourceDeviceId.isEmpty() || sourceDeviceId == normalizedTarget) {
+        return;
+    }
+
+    QList<int> matchingRows;
+    QString currentTarget;
+    QJsonObject rawExtra;
+    for (int index = 0; index < project.logicCenter.onlineStatusLinks.size(); ++index) {
+        const configtool::LogicOnlineStatusLink &link = project.logicCenter.onlineStatusLinks.at(index);
+        if (link.deviceId.trimmed() == sourceDeviceId) {
+            matchingRows.append(index);
+            if (currentTarget.isEmpty()) {
+                currentTarget = link.linkToDeviceId.trimmed();
+                rawExtra = link.rawExtra;
+            }
+        }
+    }
+
+    const bool alreadySame = (matchingRows.isEmpty() && normalizedTarget.isEmpty())
+        || (matchingRows.size() == 1 && currentTarget == normalizedTarget);
+    if (alreadySame) {
+        refreshDeviceOnlineLinkPanel(deviceIndex);
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    for (int i = matchingRows.size() - 1; i >= 0; --i) {
+        project.logicCenter.onlineStatusLinks.removeAt(matchingRows.at(i));
+    }
+    if (!normalizedTarget.isEmpty()) {
+        configtool::LogicOnlineStatusLink link;
+        link.deviceId = sourceDeviceId;
+        link.linkToDeviceId = normalizedTarget;
+        link.rawExtra = rawExtra;
+        project.logicCenter.onlineStatusLinks.append(link);
+    }
+
+    refreshConfigObjectViews();
+    if (deviceIndex < m_configDeviceTable->rowCount()) {
+        m_configDeviceTable->selectRow(deviceIndex);
+    }
+    refreshDeviceEditor(deviceIndex);
+    statusBar()->showMessage(normalizedTarget.isEmpty()
+        ? QStringLiteral("已取消当前设备的在线状态联动")
+        : QStringLiteral("已设置当前设备在线状态跟随 %1").arg(normalizedTarget),
+        3000);
+}
+
 void MainWindow::refreshDeviceEditor(int deviceIndex)
 {
     const configtool::ConfigProject &project = m_configProjectManager.project();
@@ -2879,6 +3038,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #666666; }");
         m_deviceValidationLabel->setText(QStringLiteral("请选择一个 104 设备。"));
+        refreshDeviceOnlineLinkPanel(-1);
         m_deviceBindingsTable->setRowCount(0);
         return;
     }
@@ -2938,6 +3098,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             || debug == QStringLiteral("true")
             || debug == QStringLiteral("yes"));
     }
+
+    refreshDeviceOnlineLinkPanel(deviceIndex);
 
     const QSet<QString> duplicateAddresses = device.protocol == configtool::ProtocolType::Iec104
         ? duplicateIec104ChannelBindingAddresses(project, device)

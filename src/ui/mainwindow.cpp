@@ -1046,7 +1046,32 @@ MainWindow::MainWindow(QWidget *parent)
     deviceFormLayout->addRow("协议地址:", m_deviceStationAddressEdit);
     deviceFormLayout->addRow("IP:", m_deviceIpEdit);
     deviceFormLayout->addRow("端口:", m_devicePortEdit);
-    deviceTopLayout->addWidget(deviceFormFrame, 1);
+    deviceTopLayout->addWidget(deviceFormFrame, 2);
+
+    m_deviceOnlineLinkGroupBox = new QGroupBox(QStringLiteral("在线状态联动"), this);
+    m_deviceOnlineLinkGroupBox->setCheckable(true);
+    m_deviceOnlineLinkGroupBox->setChecked(false);
+    m_deviceOnlineLinkGroupBox->setMaximumHeight(220);
+    auto *deviceOnlineLinkLayout = new QVBoxLayout(m_deviceOnlineLinkGroupBox);
+    deviceOnlineLinkLayout->setContentsMargins(10, 8, 10, 8);
+    deviceOnlineLinkLayout->setSpacing(6);
+    m_deviceOnlineLinkContent = new QWidget(m_deviceOnlineLinkGroupBox);
+    auto *deviceOnlineLinkContentLayout = new QFormLayout(m_deviceOnlineLinkContent);
+    deviceOnlineLinkContentLayout->setContentsMargins(0, 0, 0, 0);
+    deviceOnlineLinkContentLayout->setHorizontalSpacing(8);
+    deviceOnlineLinkContentLayout->setVerticalSpacing(6);
+    m_deviceOnlineLinkTargetCombo = new QComboBox(m_deviceOnlineLinkContent);
+    m_deviceOnlineLinkTargetCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_deviceOnlineLinkTargetCombo->setMinimumWidth(220);
+    deviceOnlineLinkContentLayout->addRow(QStringLiteral("跟随设备:"), m_deviceOnlineLinkTargetCombo);
+    m_deviceOnlineLinkHintLabel = new QLabel(m_deviceOnlineLinkContent);
+    m_deviceOnlineLinkHintLabel->setWordWrap(true);
+    m_deviceOnlineLinkHintLabel->setStyleSheet(QStringLiteral("QLabel { color: #666666; }"));
+    deviceOnlineLinkContentLayout->addRow(QString(), m_deviceOnlineLinkHintLabel);
+    deviceOnlineLinkLayout->addWidget(m_deviceOnlineLinkContent);
+    m_deviceOnlineLinkContent->setVisible(false);
+    deviceTopLayout->addWidget(m_deviceOnlineLinkGroupBox, 1);
+
     m_modbusParamsGroupBox = new QGroupBox(QStringLiteral("Modbus 参数"), this);
     m_modbusParamsGroupBox->setMaximumHeight(220);
     auto *modbusParamsLayout = new QGridLayout(m_modbusParamsGroupBox);
@@ -1104,6 +1129,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceValidationLabel = new QLabel(this);
     m_deviceValidationLabel->setWordWrap(true);
     deviceEditorLayout->addWidget(m_deviceValidationLabel);
+
     auto *bindingToolbar = new QHBoxLayout();
     bindingToolbar->addWidget(new QLabel(QStringLiteral("点位映射:"), this));
     bindingToolbar->addStretch();
@@ -1534,45 +1560,6 @@ MainWindow::MainWindow(QWidget *parent)
     logicControlTargetLayout->addLayout(logicControlPreviewRow);
     logicControlLayout->addWidget(logicControlTargetGroup, 1);
 
-    m_logicOnlineLinkPage = new QWidget(this);
-    auto *logicOnlineLayout = new QVBoxLayout(m_logicOnlineLinkPage);
-    logicOnlineLayout->setContentsMargins(0, 0, 0, 0);
-    logicOnlineLayout->setSpacing(8);
-    auto *logicOnlineHint = new QLabel(
-        QStringLiteral("在线状态联动用于让虚拟设备跟随真实设备的 DevUpdate 状态。双击设备列可从当前工程设备中选择。"),
-        this);
-    logicOnlineHint->setWordWrap(true);
-    logicOnlineLayout->addWidget(logicOnlineHint);
-
-    auto *logicOnlineToolbar = new QHBoxLayout();
-    m_addLogicOnlineLinkBtn = new QPushButton(QStringLiteral("新增联动"), this);
-    m_deleteLogicOnlineLinkBtn = new QPushButton(QStringLiteral("删除联动"), this);
-    m_generateLogicVirtualOnlineLinksBtn = new QPushButton(QStringLiteral("虚拟设备跟随真实设备"), this);
-    logicOnlineToolbar->addWidget(m_addLogicOnlineLinkBtn);
-    logicOnlineToolbar->addWidget(m_deleteLogicOnlineLinkBtn);
-    logicOnlineToolbar->addSpacing(12);
-    logicOnlineToolbar->addWidget(m_generateLogicVirtualOnlineLinksBtn);
-    logicOnlineToolbar->addStretch();
-    logicOnlineLayout->addLayout(logicOnlineToolbar);
-
-    m_logicOnlineLinkTable = new QTableWidget(0, 2, this);
-    m_logicOnlineLinkTable->setHorizontalHeaderLabels({
-        QStringLiteral("被联动设备 DeviceId"),
-        QStringLiteral("跟随设备 LinkToDeviceId")
-    });
-    m_logicOnlineLinkTable->setEditTriggers(QAbstractItemView::DoubleClicked
-                                            | QAbstractItemView::SelectedClicked
-                                            | QAbstractItemView::EditKeyPressed);
-    m_logicOnlineLinkTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_logicOnlineLinkTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_logicOnlineLinkTable->setAlternatingRowColors(true);
-    m_logicOnlineLinkTable->verticalHeader()->setVisible(false);
-    m_logicOnlineLinkTable->horizontalHeader()->setStretchLastSection(true);
-    m_logicOnlineLinkTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_logicOnlineLinkTable->setColumnWidth(0, 220);
-    m_logicOnlineLinkTable->setColumnWidth(1, 220);
-    logicOnlineLayout->addWidget(m_logicOnlineLinkTable, 1);
-
     m_programControlPage = new QWidget(this);
     auto *programControlLayout = new QVBoxLayout(m_programControlPage);
     programControlLayout->setContentsMargins(0, 0, 0, 0);
@@ -1902,7 +1889,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
     m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");
-    m_mainTabWidget->addTab(m_logicOnlineLinkPage, "在线联动");
     m_mainTabWidget->addTab(m_configIssuePage, "问题列表");
 
     setCentralWidget(central);
@@ -2058,16 +2044,6 @@ MainWindow::MainWindow(QWidget *parent)
     }
     connect(m_insertLogicControlRealtimeRefBtn, &QPushButton::clicked,
             this, &MainWindow::onInsertLogicControlRealtimeRefClicked);
-    connect(m_addLogicOnlineLinkBtn, &QPushButton::clicked,
-            this, &MainWindow::onAddLogicOnlineLinkClicked);
-    connect(m_deleteLogicOnlineLinkBtn, &QPushButton::clicked,
-            this, &MainWindow::onDeleteLogicOnlineLinkClicked);
-    connect(m_generateLogicVirtualOnlineLinksBtn, &QPushButton::clicked,
-            this, &MainWindow::onGenerateLogicVirtualOnlineLinksClicked);
-    connect(m_logicOnlineLinkTable, &QTableWidget::itemChanged,
-            this, &MainWindow::onLogicOnlineLinkItemChanged);
-    connect(m_logicOnlineLinkTable, &QTableWidget::cellDoubleClicked,
-            this, &MainWindow::onLogicOnlineLinkCellDoubleClicked);
     connect(m_newModelBtn, &QPushButton::clicked,
             this, &MainWindow::onNewModelClicked);
     connect(m_createDeviceBtn, &QPushButton::clicked,
@@ -2165,6 +2141,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusDebugCheck, &QCheckBox::toggled,
             this, &MainWindow::onDeviceFieldEdited);
+    connect(m_deviceOnlineLinkGroupBox, &QGroupBox::toggled,
+            this, &MainWindow::onDeviceOnlineLinkEnabledChanged);
+    connect(m_deviceOnlineLinkTargetCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceOnlineLinkTargetChanged);
     connect(m_deviceBindingDataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDeviceBindingDataRefFilterTextChanged);
     connect(m_deviceBindingDescriptionFilterEdit, &QLineEdit::textChanged,

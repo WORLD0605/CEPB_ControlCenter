@@ -143,6 +143,8 @@ private slots:
     void onDeviceBindingDataRefFilterTextChanged(const QString &text);
     void onDeviceBindingDescriptionFilterTextChanged(const QString &text);
     void onDeviceBindingItemChanged(QTableWidgetItem *item);
+    void onDeviceOnlineLinkEnabledChanged(bool checked);
+    void onDeviceOnlineLinkTargetChanged(int index);
     void onLogicAgcAvcBasicEdited();
     void onLogicAgcAvcDeviceItemChanged(QTableWidgetItem *item);
     void onLogicAgcAvcDeviceCellDoubleClicked(int row, int column);
@@ -169,11 +171,6 @@ private slots:
     void onLogicControlPreviewEdited();
     void onLogicControlTemplateClicked();
     void onInsertLogicControlRealtimeRefClicked();
-    void onAddLogicOnlineLinkClicked();
-    void onDeleteLogicOnlineLinkClicked();
-    void onGenerateLogicVirtualOnlineLinksClicked();
-    void onLogicOnlineLinkItemChanged(QTableWidgetItem *item);
-    void onLogicOnlineLinkCellDoubleClicked(int row, int column);
     void onRefreshProgramStatusClicked();
     void onConnectProgramControlClicked();
     void onDisconnectProgramControlClicked();
@@ -292,13 +289,14 @@ private:
     void refreshLogicAgcAvcPage();
     void refreshLogicComputationPointPage();
     void refreshLogicControlRulePage();
-    void refreshLogicOnlineLinkPage();
     void refreshSelectionOverview();
     void refreshEditorNavigationCombos();
     void refreshModelDetail(int modelIndex);
     void refreshModelOverview(int modelIndex);
     void refreshDeviceDetail(int deviceIndex);
     void refreshDeviceEditor(int deviceIndex);
+    void refreshDeviceOnlineLinkPanel(int deviceIndex);
+    void setCurrentDeviceOnlineLinkTarget(const QString &targetDeviceId);
     int renameModelReferences(const QString &oldModelId, const QString &newModelId);
     int renameModelPointReferences(const QString &modelId,
                                    const QString &oldDataRef,
@@ -342,7 +340,6 @@ private:
     void selectLogicComputationOperands(int row);
     void selectLogicControlMatchPoint(int row);
     void selectLogicControlTargetPoint(int row);
-    void selectLogicOnlineLinkDevice(int row, int column);
     int currentLogicControlRuleIndex() const;
     void refreshLogicControlTargetTable();
     void refreshLogicControlPreview();
@@ -404,10 +401,10 @@ private:
     bool m_updatingModelPointsTable = false;
     bool m_updatingModelPointCategory = false;
     bool m_updatingDeviceBindingsTable = false;
+    bool m_updatingDeviceOnlineLinkPanel = false;
     bool m_updatingLogicAgcAvcPage = false;
     bool m_updatingLogicComputationPointPage = false;
     bool m_updatingLogicControlRulePage = false;
-    bool m_updatingLogicOnlineLinkPage = false;
     bool m_updatingEditorNavigationCombos = false;
     bool m_restoringConfigUndo = false;
     bool m_restoringNavigation = false;
@@ -499,12 +496,15 @@ private:
     QLineEdit *m_modelPointDescriptionFilterEdit = nullptr;
     QLineEdit *m_deviceBindingDataRefFilterEdit = nullptr;
     QLineEdit *m_deviceBindingDescriptionFilterEdit = nullptr;
+    QGroupBox *m_deviceOnlineLinkGroupBox = nullptr;
+    QWidget *m_deviceOnlineLinkContent = nullptr;
+    QComboBox *m_deviceOnlineLinkTargetCombo = nullptr;
+    QLabel *m_deviceOnlineLinkHintLabel = nullptr;
     QWidget *m_configPage = nullptr;
     QWidget *m_configIssuePage = nullptr;
     QWidget *m_logicAgcAvcPage = nullptr;
     QWidget *m_logicComputationPointPage = nullptr;
     QWidget *m_logicControlRulePage = nullptr;
-    QWidget *m_logicOnlineLinkPage = nullptr;
     QWidget *m_programControlPage = nullptr;
     QWidget *m_iec101ConfigPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
@@ -535,10 +535,6 @@ private:
     QTableWidget *m_logicControlTargetTable = nullptr;
     QLineEdit *m_logicControlPreviewValueEdit = nullptr;
     QLabel *m_logicControlPreviewLabel = nullptr;
-    QPushButton *m_addLogicOnlineLinkBtn = nullptr;
-    QPushButton *m_deleteLogicOnlineLinkBtn = nullptr;
-    QPushButton *m_generateLogicVirtualOnlineLinksBtn = nullptr;
-    QTableWidget *m_logicOnlineLinkTable = nullptr;
     QPushButton *m_refreshProgramStatusBtn = nullptr;
     QPushButton *m_connectProgramControlBtn = nullptr;
     QPushButton *m_disconnectProgramControlBtn = nullptr;
