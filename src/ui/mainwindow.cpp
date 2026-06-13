@@ -537,7 +537,6 @@ QString themeStyleSheet(bool darkMode)
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_client(new DebugConsoleClient(this))
     , m_autoRefreshTimer(new QTimer(this))
     , m_highlightRefreshTimer(new QTimer(this))
     , m_controlResponseTimer(new QTimer(this))
@@ -553,6 +552,13 @@ MainWindow::MainWindow(QWidget *parent)
         {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable},
         {"LogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
     };
+
+    for (int index = 0; index < m_appConfigs.size(); ++index) {
+        auto *session = new DebugAppSession;
+        session->appIndex = index;
+        session->client = new DebugConsoleClient(this);
+        m_debugSessions.insert(m_appConfigs.at(index).name, session);
+    }
 
     setWindowTitle("CEPB Control Center");
     resize(1080, 720);
@@ -583,11 +589,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *topLayout = new QHBoxLayout();
     topLayout->addWidget(new QLabel("APP:"));
-    m_appCombo = new QComboBox();
+    m_appTabBar = new QTabBar();
+    m_appTabBar->setDocumentMode(true);
+    m_appTabBar->setExpanding(false);
     for (int index = 0; index < m_appConfigs.size(); ++index) {
-        m_appCombo->addItem(m_appConfigs.at(index).name, index);
+        const int tabIndex = m_appTabBar->addTab(m_appConfigs.at(index).name);
+        m_appTabBar->setTabData(tabIndex, index);
     }
-    topLayout->addWidget(m_appCombo);
+    topLayout->addWidget(m_appTabBar);
 
     m_connectBtn = new QPushButton("连接");
     m_disconnectBtn = new QPushButton("断开");
@@ -1965,7 +1974,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDisconnectClicked);
     connect(m_themeToggleBtn, &QPushButton::clicked,
             this, &MainWindow::onThemeToggleClicked);
-    connect(m_appCombo, &QComboBox::currentIndexChanged,
+    connect(m_appTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onAppSelectionChanged);
     connect(m_rawFrameLogBtn, &QPushButton::clicked,
             this, &MainWindow::onOpenRawFrameLogClicked);
@@ -1979,7 +1988,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_sendControlBtn, &QPushButton::clicked,
             this, &MainWindow::onSendControlClicked);
     connect(m_dataFreezeBtn, &QPushButton::clicked, this, [this]() {
-        sendServiceChannelDataFreezeCommand(m_serviceChannelDataFrozen
+        DebugAppSession *session = currentDebugSession();
+        sendServiceChannelDataFreezeCommand(session && session->serviceChannelDataFrozen
             ? QStringLiteral("off")
             : QStringLiteral("on"));
     });
@@ -2256,14 +2266,17 @@ MainWindow::MainWindow(QWidget *parent)
                 QAction *copyAction = menu.addAction("复制");
                 copyAction->setEnabled(m_dataTable->selectionModel() &&
                                        !m_dataTable->selectionModel()->selectedIndexes().isEmpty());
+                DebugConsoleClient *debugClient = currentDebugClient();
                 QAction *controlAction = menu.addAction(QStringLiteral("发送控制..."));
                 controlAction->setEnabled(isServiceChannelControlRow(m_dataTable->rowAt(position.y())) &&
-                                          m_client->isConnected() &&
-                                          !m_client->isExecutingCommand());
+                                          debugClient &&
+                                          debugClient->isConnected() &&
+                                          !debugClient->isExecutingCommand());
                 QAction *dataWriteAction = menu.addAction(QStringLiteral("写入数据..."));
                 dataWriteAction->setEnabled(isServiceChannelDataWriteRow(m_dataTable->rowAt(position.y())) &&
-                                            m_client->isConnected() &&
-                                            !m_client->isExecutingCommand());
+                                            debugClient &&
+                                            debugClient->isConnected() &&
+                                            !debugClient->isExecutingCommand());
                 QAction *selectedAction = menu.exec(m_dataTable->viewport()->mapToGlobal(position));
                 if (selectedAction == copyAction) {
                     copySelectedTableCells();
@@ -2274,16 +2287,18 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             });
 
-    connect(m_client, &DebugConsoleClient::connected,
-            this, &MainWindow::onConnected);
-    connect(m_client, &DebugConsoleClient::disconnected,
-            this, &MainWindow::onDisconnected);
-    connect(m_client, &DebugConsoleClient::errorOccurred,
-            this, &MainWindow::onError);
-    connect(m_client, &DebugConsoleClient::logLineReceived,
-            this, &MainWindow::onLogLine);
-    connect(m_client, &DebugConsoleClient::commandReplyReceived,
-            this, &MainWindow::onCommandReply);
+    for (DebugAppSession *session : std::as_const(m_debugSessions)) {
+        connect(session->client, &DebugConsoleClient::connected,
+                this, &MainWindow::onConnected);
+        connect(session->client, &DebugConsoleClient::disconnected,
+                this, &MainWindow::onDisconnected);
+        connect(session->client, &DebugConsoleClient::errorOccurred,
+                this, &MainWindow::onError);
+        connect(session->client, &DebugConsoleClient::logLineReceived,
+                this, &MainWindow::onLogLine);
+        connect(session->client, &DebugConsoleClient::commandReplyReceived,
+                this, &MainWindow::onCommandReply);
+    }
 
     m_themeMode = loadThemeMode();
     applyTheme(m_themeMode);
@@ -2314,6 +2329,8 @@ MainWindow::~MainWindow()
         QApplication::instance()->removeEventFilter(this);
     }
     closeProgramControlShell();
+    qDeleteAll(m_debugSessions);
+    m_debugSessions.clear();
 }
 
 MainWindow::ThemeMode MainWindow::loadThemeMode() const

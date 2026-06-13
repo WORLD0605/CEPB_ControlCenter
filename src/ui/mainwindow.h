@@ -70,6 +70,30 @@ struct LogicAgcAvcStatusItem {
     QString offlineList;
 };
 
+struct DebugAppSession {
+    DebugConsoleClient *client = nullptr;
+    int appIndex = -1;
+    QList<ServiceChannelDataItem> serviceChannelItems;
+    QHash<QString, ServiceChannelDataItem> previousServiceChannelItemMap;
+    QHash<QString, QDateTime> timeHighlightUntilMap;
+    QHash<QString, QDateTime> valueHighlightUntilMap;
+    QHash<QString, QString> controlStatusTextMap;
+    QHash<QString, QColor> controlStatusColorMap;
+    QList<LogicAgcAvcStatusItem> logicAgcAvcItems;
+    QString pendingDataTableCommand;
+    bool waitingControlResponse = false;
+    QString pendingControlDeviceId;
+    QString pendingControlDataRef;
+    QString pendingControlValue;
+    int pendingControlType = -1;
+    QString pendingDataWriteDeviceId;
+    QString pendingDataWriteDataRef;
+    QString pendingDataWriteValue;
+    QString pendingDataWriteQuality;
+    QString pendingDataFreezeMode;
+    bool serviceChannelDataFrozen = false;
+};
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -206,6 +230,13 @@ private:
     void navigateBack();
     void navigateForward();
     AppConfig currentAppConfig() const;
+    AppConfig appConfigForSession(const DebugAppSession *session) const;
+    DebugAppSession *currentDebugSession() const;
+    DebugAppSession *debugSessionForClient(QObject *client) const;
+    DebugAppSession *debugSessionForAppName(const QString &appName) const;
+    DebugConsoleClient *currentDebugClient() const;
+    bool anyDebugClientConnected() const;
+    void updateDebugAppTabText(DebugAppSession *session);
     void requestServiceChannelData(bool logRequest = true);
     QList<LogicAgcAvcStatusItem> parseLogicAgcAvcReply(const QString &reply) const;
     void populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &items);
@@ -222,6 +253,7 @@ private:
     void openControlCommandDialog(int row);
     void openDataWriteDialog(int row);
     bool handleControlResponseLogLine(const QString &line);
+    bool handleControlResponseLogLine(const QString &line, DebugAppSession *session);
     void handleControlResponseTimeout();
     QString controlCommandKey(const QString &deviceId, const QString &dataRef) const;
     void setControlStatus(const QString &deviceId,
@@ -395,18 +427,12 @@ private:
     QColor serviceChannelDefaultTextColor() const;
     QColor serviceChannelChangedTextColor() const;
 
-    DebugConsoleClient *m_client = nullptr;
+    QHash<QString, DebugAppSession *> m_debugSessions;
     configtool::ConfigProjectManager m_configProjectManager;
     QTimer *m_autoRefreshTimer = nullptr;
     QTimer *m_highlightRefreshTimer = nullptr;
     QTimer *m_controlResponseTimer = nullptr;
     QList<AppConfig> m_appConfigs;
-    QList<ServiceChannelDataItem> m_serviceChannelItems;
-    QHash<QString, ServiceChannelDataItem> m_previousServiceChannelItemMap;
-    QHash<QString, QDateTime> m_timeHighlightUntilMap;
-    QHash<QString, QDateTime> m_valueHighlightUntilMap;
-    QHash<QString, QString> m_controlStatusTextMap;
-    QHash<QString, QColor> m_controlStatusColorMap;
     bool m_updatingModelPointsTable = false;
     bool m_updatingModelPointCategory = false;
     bool m_updatingDeviceBindingsTable = false;
@@ -443,22 +469,10 @@ private:
     QString m_programControlCommandTitle;
     QString m_programControlCommandAppName;
     QByteArray m_programControlCommandBuffer;
-    QString m_pendingDataTableCommand;
-    bool m_waitingControlResponse = false;
-    QString m_pendingControlDeviceId;
-    QString m_pendingControlDataRef;
-    QString m_pendingControlValue;
-    int m_pendingControlType = -1;
-    QString m_pendingDataWriteDeviceId;
-    QString m_pendingDataWriteDataRef;
-    QString m_pendingDataWriteValue;
-    QString m_pendingDataWriteQuality;
-    QString m_pendingDataFreezeMode;
-    bool m_serviceChannelDataFrozen = false;
 
     QLineEdit *m_ipEdit = nullptr;
     QLineEdit *m_configImportDirEdit = nullptr;
-    QComboBox *m_appCombo = nullptr;
+    QTabBar *m_appTabBar = nullptr;
     QPushButton *m_connectBtn = nullptr;
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_selectConfigImportDirBtn = nullptr;

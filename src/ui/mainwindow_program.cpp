@@ -645,7 +645,7 @@ void MainWindow::onDisconnectProgramControlClicked()
 void MainWindow::updateProgramControlConnectionUi(bool connected)
 {
     if (m_ipEdit) {
-        const bool debugConnected = m_client && m_client->isConnected();
+        const bool debugConnected = anyDebugClientConnected();
         m_ipEdit->setEnabled(!connected && !debugConnected);
     }
     if (m_connectProgramControlBtn) {

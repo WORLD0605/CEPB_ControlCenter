@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -381,26 +381,107 @@ bool isKnownServiceChannelServiceId(const QString &serviceId)
 
 } // namespace
 
+AppConfig MainWindow::appConfigForSession(const DebugAppSession *session) const
+{
+    if (session && session->appIndex >= 0 && session->appIndex < m_appConfigs.size()) {
+        return m_appConfigs.at(session->appIndex);
+    }
+    return AppConfig{};
+}
+
+DebugAppSession *MainWindow::currentDebugSession() const
+{
+    if (!m_appTabBar) {
+        return nullptr;
+    }
+
+    const int configIndex = m_appTabBar->tabData(m_appTabBar->currentIndex()).toInt();
+    if (configIndex < 0 || configIndex >= m_appConfigs.size()) {
+        return nullptr;
+    }
+
+    return m_debugSessions.value(m_appConfigs.at(configIndex).name, nullptr);
+}
+
+DebugAppSession *MainWindow::debugSessionForClient(QObject *client) const
+{
+    for (DebugAppSession *session : m_debugSessions) {
+        if (session && session->client == client) {
+            return session;
+        }
+    }
+    return nullptr;
+}
+
+DebugAppSession *MainWindow::debugSessionForAppName(const QString &appName) const
+{
+    return m_debugSessions.value(appName, nullptr);
+}
+
+DebugConsoleClient *MainWindow::currentDebugClient() const
+{
+    DebugAppSession *session = currentDebugSession();
+    return session ? session->client : nullptr;
+}
+
+bool MainWindow::anyDebugClientConnected() const
+{
+    for (DebugAppSession *session : m_debugSessions) {
+        if (session && session->client && session->client->isConnected()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::updateDebugAppTabText(DebugAppSession *session)
+{
+    if (!m_appTabBar || !session) {
+        return;
+    }
+
+    const AppConfig appConfig = appConfigForSession(session);
+    if (appConfig.name.isEmpty()) {
+        return;
+    }
+
+    for (int tab = 0; tab < m_appTabBar->count(); ++tab) {
+        if (m_appTabBar->tabData(tab).toInt() == session->appIndex) {
+            const bool connected = session->client && session->client->isConnected();
+            m_appTabBar->setTabText(tab, connected
+                ? QStringLiteral("%1 (on)").arg(appConfig.name)
+                : appConfig.name);
+            return;
+        }
+    }
+}
+
 void MainWindow::onConnectClicked()
 {
     QString host = deviceHost();
     const AppConfig appConfig = currentAppConfig();
+    DebugConsoleClient *client = currentDebugClient();
     quint16 port = appConfig.port;
+    if (!client) {
+        return;
+    }
     if (host.isEmpty()) {
         QMessageBox::warning(this, "警告", "IP地址不能为空");
         return;
     }
 
-    m_client->setPromptPattern(appConfig.prompt);
+    client->setPromptPattern(appConfig.prompt);
 
     appendSystem("正在连接 " + host + ":" + QString::number(port) + " ...");
-    m_client->connectToHost(host, port);
+    client->connectToHost(host, port);
     m_connectBtn->setEnabled(false);
 }
 
 void MainWindow::onDisconnectClicked()
 {
-    m_client->disconnectFromHost();
+    if (DebugConsoleClient *client = currentDebugClient()) {
+        client->disconnectFromHost();
+    }
 }
 
 void MainWindow::onSendClicked()
@@ -408,8 +489,12 @@ void MainWindow::onSendClicked()
     QString cmd = m_cmdEdit->text().trimmed();
     if (cmd.isEmpty())
         return;
+    DebugConsoleClient *client = currentDebugClient();
+    if (!client) {
+        return;
+    }
     appendSystem("=> " + cmd, "#aaaaaa");
-    m_client->sendCommand(cmd);
+    client->sendCommand(cmd);
     m_cmdEdit->clear();
 }
 
@@ -418,9 +503,13 @@ void MainWindow::onQuickCommandClicked()
     auto *btn = qobject_cast<QPushButton*>(sender());
     if (!btn)
         return;
+    DebugConsoleClient *client = currentDebugClient();
+    if (!client) {
+        return;
+    }
     QString cmd = btn->property("command").toString();
     appendSystem("=> " + cmd, "#aaaaaa");
-    m_client->sendCommand(cmd);
+    client->sendCommand(cmd);
 }
 
 void MainWindow::onAppSelectionChanged(int /*index*/)
@@ -430,10 +519,21 @@ void MainWindow::onAppSelectionChanged(int /*index*/)
 
 void MainWindow::onConnected()
 {
-    const AppConfig appConfig = currentAppConfig();
-    updateUIState(true);
-    appendSystem("已连接", "#32cd32");
-    m_statusLabel->setText("已连接 | " + m_ipEdit->text() + ":" + QString::number(appConfig.port));
+    DebugAppSession *session = debugSessionForClient(sender());
+    if (!session) {
+        return;
+    }
+
+    const AppConfig appConfig = appConfigForSession(session);
+    updateDebugAppTabText(session);
+    if (session != currentDebugSession()) {
+        appendSystem(QStringLiteral("%1 connected").arg(appConfig.name), "#32cd32");
+        return;
+    }
+
+    updateUIState(session->client->isConnected());
+    appendSystem(QStringLiteral("已连接"), "#32cd32");
+    m_statusLabel->setText(QStringLiteral("已连接 | %1:%2").arg(m_ipEdit->text()).arg(appConfig.port));
 
     if (isDataViewApp(appConfig)) {
         const bool dataTableApp = appConfig.viewMode == AppViewMode::DataTable;
@@ -450,21 +550,37 @@ void MainWindow::onConnected()
 
 void MainWindow::onDisconnected()
 {
+    DebugAppSession *session = debugSessionForClient(sender());
+    if (!session) {
+        return;
+    }
+
+    const AppConfig appConfig = appConfigForSession(session);
+    updateDebugAppTabText(session);
+    session->waitingControlResponse = false;
+    session->serviceChannelItems.clear();
+    session->previousServiceChannelItemMap.clear();
+    session->timeHighlightUntilMap.clear();
+    session->valueHighlightUntilMap.clear();
+    session->controlStatusTextMap.clear();
+    session->controlStatusColorMap.clear();
+    session->logicAgcAvcItems.clear();
+    session->serviceChannelDataFrozen = false;
+    session->pendingDataFreezeMode.clear();
+
+    if (session != currentDebugSession()) {
+        appendSystem(QStringLiteral("%1 disconnected").arg(appConfig.name), "#ff4500");
+        return;
+    }
+
     m_autoRefreshTimer->stop();
     m_highlightRefreshTimer->stop();
     m_controlResponseTimer->stop();
-    m_waitingControlResponse = false;
     updateUIState(false);
-    appendSystem("已断开", "#ff4500");
-    m_statusLabel->setText("未连接");
+    appendSystem(QStringLiteral("已断开"), "#ff4500");
+    m_statusLabel->setText(QStringLiteral("未连接"));
 
     if (isDataViewApp(currentAppConfig())) {
-        m_serviceChannelItems.clear();
-        m_previousServiceChannelItemMap.clear();
-        m_timeHighlightUntilMap.clear();
-        m_valueHighlightUntilMap.clear();
-        m_controlStatusTextMap.clear();
-        m_controlStatusColorMap.clear();
         refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
         m_deviceFilterCombo->setEnabled(false);
@@ -475,8 +591,6 @@ void MainWindow::onDisconnected()
         m_descriptionFilterEdit->clear();
         m_descriptionFilterEdit->setEnabled(false);
         m_autoRefreshCombo->setEnabled(false);
-        m_serviceChannelDataFrozen = false;
-        m_pendingDataFreezeMode.clear();
         if (m_controlStatusLabel) {
             m_controlStatusLabel->setText(QStringLiteral("状态: -"));
             m_controlStatusLabel->setStyleSheet(QString());
@@ -490,18 +604,26 @@ void MainWindow::onDisconnected()
 
 void MainWindow::onError(const QString &err)
 {
-    m_autoRefreshTimer->stop();
-    m_highlightRefreshTimer->stop();
-    m_controlResponseTimer->stop();
-    m_waitingControlResponse = false;
-    appendSystem("错误: " + err, "#ff4444");
-    updateUIState(false);
-    m_statusLabel->setText("连接错误");
+    DebugAppSession *session = debugSessionForClient(sender());
+    if (session) {
+        updateDebugAppTabText(session);
+        session->waitingControlResponse = false;
+    }
+
+    appendSystem(QStringLiteral("错误: ") + err, "#ff4444");
+    if (session == currentDebugSession()) {
+        m_autoRefreshTimer->stop();
+        m_highlightRefreshTimer->stop();
+        m_controlResponseTimer->stop();
+        updateUIState(false);
+        m_statusLabel->setText(QStringLiteral("连接错误"));
+    }
 }
 
 void MainWindow::onLogLine(const QString &line)
 {
-    if (handleControlResponseLogLine(line)) {
+    DebugAppSession *session = debugSessionForClient(sender());
+    if (handleControlResponseLogLine(line, session)) {
         return;
     }
 
@@ -510,159 +632,203 @@ void MainWindow::onLogLine(const QString &line)
 
 void MainWindow::onCommandReply(const QString &reply)
 {
-    if (isDataViewApp(currentAppConfig())) {
-        const QString appName = currentAppConfig().name;
-        const QString pendingCommand = m_pendingDataTableCommand;
-        m_pendingDataTableCommand.clear();
+    DebugAppSession *session = debugSessionForClient(sender());
+    if (!session) {
+        appendReply(reply);
+        return;
+    }
 
-        if (currentAppConfig().viewMode == AppViewMode::LogicAgcAvcTable) {
-            if (pendingCommand == QStringLiteral("datawrite")) {
-                appendReply(reply);
-                const QString replyText = reply.trimmed();
-                const bool sent = replyText.startsWith(QStringLiteral("datawrite sent:"), Qt::CaseInsensitive);
-                const bool rejected = replyText.startsWith(QStringLiteral("datawrite rejected:"), Qt::CaseInsensitive) ||
-                                      replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
-                                      replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
-                                      replyText.startsWith(QStringLiteral("mqtt client unavailable"), Qt::CaseInsensitive);
-                if (sent) {
-                    appendSystem(QStringLiteral("LogicCenter datawrite 已发送: %1#%2=%3，正在刷新 AGC/AVC 状态...")
-                                     .arg(m_pendingDataWriteDeviceId,
-                                          m_pendingDataWriteDataRef,
-                                          m_pendingDataWriteValue),
-                                 "#32cd32");
-                    requestServiceChannelData(false);
-                } else if (rejected) {
-                    appendSystem(QStringLiteral("LogicCenter datawrite 发送失败: %1").arg(replyText), "#ff4444");
-                }
-                m_pendingDataWriteDeviceId.clear();
-                m_pendingDataWriteDataRef.clear();
-                m_pendingDataWriteValue.clear();
-                m_pendingDataWriteQuality.clear();
-                updateControlCommandUi();
-                return;
-            }
-
-            const QList<LogicAgcAvcStatusItem> items = parseLogicAgcAvcReply(reply);
-            if (items.isEmpty()) {
-                appendReply(reply);
-            } else {
-                populateLogicAgcAvcTable(items);
-                appendSystem(QStringLiteral("%1 AGC/AVC 状态已加载，共 %2 组").arg(appName).arg(items.size()), "#87ceeb");
-            }
-            updateControlCommandUi();
-            return;
-        }
-
-        if (pendingCommand == QStringLiteral("ctrlcmd")) {
+    const AppConfig appConfig = appConfigForSession(session);
+    const bool isCurrentSession = session == currentDebugSession();
+    if (!isDataViewApp(appConfig)) {
+        if (isCurrentSession) {
             appendReply(reply);
-            if (reply.startsWith(QStringLiteral("ctrlcmd sent:"), Qt::CaseInsensitive)) {
-                appendSystem(QStringLiteral("控制命令已发送，等待 CTRLRESP..."), "#ffcc66");
-            }
-            updateControlCommandUi();
-            return;
         }
+        return;
+    }
 
+    const QString appName = appConfig.name;
+    const QString pendingCommand = session->pendingDataTableCommand;
+    session->pendingDataTableCommand.clear();
+
+    if (appConfig.viewMode == AppViewMode::LogicAgcAvcTable) {
         if (pendingCommand == QStringLiteral("datawrite")) {
-            appendReply(reply);
+            if (isCurrentSession) {
+                appendReply(reply);
+            }
             const QString replyText = reply.trimmed();
             const bool sent = replyText.startsWith(QStringLiteral("datawrite sent:"), Qt::CaseInsensitive);
             const bool rejected = replyText.startsWith(QStringLiteral("datawrite rejected:"), Qt::CaseInsensitive) ||
                                   replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
                                   replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
                                   replyText.startsWith(QStringLiteral("mqtt client unavailable"), Qt::CaseInsensitive);
+            if (isCurrentSession) {
+                if (sent) {
+                    appendSystem(QStringLiteral("LogicCenter datawrite 已发送 %1#%2=%3，正在刷新 AGC/AVC 状态...")
+                                     .arg(session->pendingDataWriteDeviceId,
+                                          session->pendingDataWriteDataRef,
+                                          session->pendingDataWriteValue),
+                                 "#32cd32");
+                    requestServiceChannelData(false);
+                } else if (rejected) {
+                    appendSystem(QStringLiteral("LogicCenter datawrite 发送失败: %1").arg(replyText), "#ff4444");
+                }
+            }
+            session->pendingDataWriteDeviceId.clear();
+            session->pendingDataWriteDataRef.clear();
+            session->pendingDataWriteValue.clear();
+            session->pendingDataWriteQuality.clear();
+            if (isCurrentSession) {
+                updateControlCommandUi();
+            }
+            return;
+        }
+
+        const QList<LogicAgcAvcStatusItem> items = parseLogicAgcAvcReply(reply);
+        if (items.isEmpty()) {
+            if (isCurrentSession) {
+                appendReply(reply);
+            }
+        } else {
+            session->logicAgcAvcItems = items;
+            if (isCurrentSession) {
+                populateLogicAgcAvcTable(items);
+                appendSystem(QStringLiteral("%1 AGC/AVC 状态已加载，共 %2 组").arg(appName).arg(items.size()), "#87ceeb");
+            }
+        }
+        if (isCurrentSession) {
+            updateControlCommandUi();
+        }
+        return;
+    }
+
+    if (pendingCommand == QStringLiteral("ctrlcmd")) {
+        if (isCurrentSession) {
+            appendReply(reply);
+            if (reply.startsWith(QStringLiteral("ctrlcmd sent:"), Qt::CaseInsensitive)) {
+                appendSystem(QStringLiteral("控制命令已发送，等待 CTRLRESP..."), "#ffcc66");
+            }
+            updateControlCommandUi();
+        }
+        return;
+    }
+
+    if (pendingCommand == QStringLiteral("datawrite")) {
+        if (isCurrentSession) {
+            appendReply(reply);
+        }
+        const QString replyText = reply.trimmed();
+        const bool sent = replyText.startsWith(QStringLiteral("datawrite sent:"), Qt::CaseInsensitive);
+        const bool rejected = replyText.startsWith(QStringLiteral("datawrite rejected:"), Qt::CaseInsensitive) ||
+                              replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
+                              replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
+                              replyText.startsWith(QStringLiteral("mqtt client unavailable"), Qt::CaseInsensitive);
+        if (isCurrentSession) {
             if (sent) {
-                setControlStatus(m_pendingDataWriteDeviceId,
-                                 m_pendingDataWriteDataRef,
+                setControlStatus(session->pendingDataWriteDeviceId,
+                                 session->pendingDataWriteDataRef,
                                  QStringLiteral("datawrite 成功 Value=%1 Quality=%2")
-                                     .arg(m_pendingDataWriteValue, m_pendingDataWriteQuality),
+                                     .arg(session->pendingDataWriteValue, session->pendingDataWriteQuality),
                                  QColor(QStringLiteral("#32cd32")));
                 appendSystem(QStringLiteral("datawrite 已发送，正在刷新数据..."), "#32cd32");
                 requestServiceChannelData(false);
             } else if (rejected) {
-                setControlStatus(m_pendingDataWriteDeviceId,
-                                 m_pendingDataWriteDataRef,
+                setControlStatus(session->pendingDataWriteDeviceId,
+                                 session->pendingDataWriteDataRef,
                                  QStringLiteral("datawrite 失败: %1").arg(replyText),
                                  QColor(QStringLiteral("#ff4444")));
                 appendSystem(QStringLiteral("datawrite 发送失败: %1").arg(replyText), "#ff4444");
             }
-            m_pendingDataWriteDeviceId.clear();
-            m_pendingDataWriteDataRef.clear();
-            m_pendingDataWriteValue.clear();
-            m_pendingDataWriteQuality.clear();
-            updateControlCommandUi();
-            return;
         }
+        session->pendingDataWriteDeviceId.clear();
+        session->pendingDataWriteDataRef.clear();
+        session->pendingDataWriteValue.clear();
+        session->pendingDataWriteQuality.clear();
+        if (isCurrentSession) {
+            updateControlCommandUi();
+        }
+        return;
+    }
 
-        if (pendingCommand == QStringLiteral("datafreeze")) {
+    if (pendingCommand == QStringLiteral("datafreeze")) {
+        if (isCurrentSession) {
             appendReply(reply);
-            const QString replyText = reply.trimmed();
-            const bool rejected = replyText.startsWith(QStringLiteral("datafreeze rejected:"), Qt::CaseInsensitive) ||
-                                  replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
-                                  replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
-                                  replyText.contains(QStringLiteral("error"), Qt::CaseInsensitive);
-            if (!rejected) {
-                if (m_pendingDataFreezeMode == QStringLiteral("on")) {
-                    m_serviceChannelDataFrozen = true;
+        }
+        const QString replyText = reply.trimmed();
+        const bool rejected = replyText.startsWith(QStringLiteral("datafreeze rejected:"), Qt::CaseInsensitive) ||
+                              replyText.startsWith(QStringLiteral("invalid value:"), Qt::CaseInsensitive) ||
+                              replyText.startsWith(QStringLiteral("usage:"), Qt::CaseInsensitive) ||
+                              replyText.contains(QStringLiteral("error"), Qt::CaseInsensitive);
+        if (!rejected) {
+            if (session->pendingDataFreezeMode == QStringLiteral("on")) {
+                session->serviceChannelDataFrozen = true;
+                if (isCurrentSession) {
                     appendSystem(QStringLiteral("DataSpont 更新已冻结"), "#62a8ee");
-                } else if (m_pendingDataFreezeMode == QStringLiteral("off")) {
-                    m_serviceChannelDataFrozen = false;
+                }
+            } else if (session->pendingDataFreezeMode == QStringLiteral("off")) {
+                session->serviceChannelDataFrozen = false;
+                if (isCurrentSession) {
                     appendSystem(QStringLiteral("DataSpont 更新已恢复"), "#32cd32");
                 }
-            } else {
-                appendSystem(QStringLiteral("datafreeze 执行失败: %1").arg(replyText), "#ff4444");
             }
-            m_pendingDataFreezeMode.clear();
+        } else if (isCurrentSession) {
+            appendSystem(QStringLiteral("datafreeze 执行失败: %1").arg(replyText), "#ff4444");
+        }
+        session->pendingDataFreezeMode.clear();
+        if (isCurrentSession) {
             updateControlCommandUi();
-            return;
         }
+        return;
+    }
 
-        QStringList dataReplyLines;
-        for (const QString &line : reply.split('\n')) {
-            if (!handleControlResponseLogLine(line)) {
-                dataReplyLines.append(line);
-            }
+    QStringList dataReplyLines;
+    for (const QString &line : reply.split('\n')) {
+        if (!handleControlResponseLogLine(line, session)) {
+            dataReplyLines.append(line);
         }
+    }
 
-        const QList<ServiceChannelDataItem> items = parseServiceChannelDataReply(dataReplyLines.join('\n'));
-        if (items.isEmpty()) {
+    const QList<ServiceChannelDataItem> items = parseServiceChannelDataReply(dataReplyLines.join('\n'));
+    if (items.isEmpty()) {
+        if (isCurrentSession) {
             if (pendingCommand == QStringLiteral("dataread") && !dataReplyLines.isEmpty()) {
                 appendSystem(QStringLiteral("未解析到 %1 数据: %2").arg(appName, reply), "#ffcc66");
             } else {
                 appendReply(reply);
             }
             updateControlCommandUi();
-            return;
         }
-
-        const QDateTime now = QDateTime::currentDateTime();
-        const QDateTime highlightUntil = now.addSecs(3);
-        for (const ServiceChannelDataItem &item : items) {
-            const QString itemKey = serviceChannelItemKey(item);
-            const ServiceChannelDataItem previousItem = m_previousServiceChannelItemMap.value(itemKey);
-            const bool hasPreviousItem = !previousItem.deviceId.isEmpty() || !previousItem.dataRef.isEmpty();
-
-            if (hasPreviousItem && previousItem.dataTime != item.dataTime) {
-                m_timeHighlightUntilMap.insert(itemKey, highlightUntil);
-            }
-            if (hasPreviousItem && previousItem.value != item.value) {
-                m_valueHighlightUntilMap.insert(itemKey, highlightUntil);
-            }
-        }
-
-        m_serviceChannelItems = items;
-        refreshDeviceFilterOptions();
-        applyServiceChannelFilter();
-        updateHighlightRefreshTimer();
-        m_previousServiceChannelItemMap.clear();
-        for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
-            m_previousServiceChannelItemMap.insert(serviceChannelItemKey(item), item);
-        }
-        appendSystem(QStringLiteral("%1 数据已加载，共 %2 条").arg(appName).arg(items.size()), "#87ceeb");
-        updateControlCommandUi();
         return;
     }
 
-    appendReply(reply);
+    const QDateTime now = QDateTime::currentDateTime();
+    const QDateTime highlightUntil = now.addSecs(3);
+    for (const ServiceChannelDataItem &item : items) {
+        const QString itemKey = serviceChannelItemKey(item);
+        const ServiceChannelDataItem previousItem = session->previousServiceChannelItemMap.value(itemKey);
+        const bool hasPreviousItem = !previousItem.deviceId.isEmpty() || !previousItem.dataRef.isEmpty();
+
+        if (hasPreviousItem && previousItem.dataTime != item.dataTime) {
+            session->timeHighlightUntilMap.insert(itemKey, highlightUntil);
+        }
+        if (hasPreviousItem && previousItem.value != item.value) {
+            session->valueHighlightUntilMap.insert(itemKey, highlightUntil);
+        }
+    }
+
+    session->serviceChannelItems = items;
+    session->previousServiceChannelItemMap.clear();
+    for (const ServiceChannelDataItem &item : session->serviceChannelItems) {
+        session->previousServiceChannelItemMap.insert(serviceChannelItemKey(item), item);
+    }
+
+    if (isCurrentSession) {
+        refreshDeviceFilterOptions();
+        applyServiceChannelFilter();
+        updateHighlightRefreshTimer();
+        appendSystem(QStringLiteral("%1 数据已加载，共 %2 条").arg(appName).arg(items.size()), "#87ceeb");
+        updateControlCommandUi();
+    }
 }
 
 void MainWindow::appendSystem(const QString &text, const QString &color)
@@ -704,8 +870,7 @@ void MainWindow::updateUIState(bool connected)
     m_connectBtn->setEnabled(!connected);
     m_disconnectBtn->setEnabled(connected);
     m_sendBtn->setEnabled(connected && terminalMode);
-    m_ipEdit->setEnabled(!connected && !m_programControlConnected);
-    m_appCombo->setEnabled(!connected);
+    m_ipEdit->setEnabled(!anyDebugClientConnected() && !m_programControlConnected);
     m_cmdEdit->setEnabled(connected && terminalMode);
     m_refreshDataBtn->setEnabled(connected && dataViewMode);
     m_refreshDataBtn->setVisible(dataViewMode);
@@ -737,6 +902,15 @@ void MainWindow::applyCurrentAppView()
     m_contentStack->setCurrentIndex(terminalMode ? 0 : 1);
     m_cmdEdit->setPlaceholderText(terminalMode ? "输入命令后按回车..." : "当前 APP 使用数据展示视图");
     configureDataTableForCurrentApp();
+    DebugAppSession *session = currentDebugSession();
+    if (session && !terminalMode) {
+        if (appConfig.viewMode == AppViewMode::LogicAgcAvcTable) {
+            populateLogicAgcAvcTable(session->logicAgcAvcItems);
+        } else {
+            refreshDeviceFilterOptions();
+            applyServiceChannelFilter();
+        }
+    }
     if (m_rawFrameLogBtn) {
         m_rawFrameLogBtn->setVisible(rawFrameLogMode);
         m_rawFrameLogBtn->setEnabled(rawFrameLogMode);
@@ -751,11 +925,14 @@ void MainWindow::applyCurrentAppView()
         m_refreshDataBtn->setVisible(!terminalMode);
     }
 
-    if (!m_client->isConnected()) {
+    DebugConsoleClient *client = currentDebugClient();
+    const bool connected = client && client->isConnected();
+    if (!connected) {
         updateUIState(false);
         m_autoRefreshTimer->stop();
         m_highlightRefreshTimer->stop();
     } else {
+        updateUIState(true);
         updateAutoRefreshTimer();
         updateHighlightRefreshTimer();
     }
@@ -764,7 +941,11 @@ void MainWindow::applyCurrentAppView()
 
 AppConfig MainWindow::currentAppConfig() const
 {
-    const int configIndex = m_appCombo->currentData().toInt();
+    if (!m_appTabBar) {
+        return AppConfig{};
+    }
+
+    const int configIndex = m_appTabBar->tabData(m_appTabBar->currentIndex()).toInt();
     if (configIndex >= 0 && configIndex < m_appConfigs.size()) {
         return m_appConfigs.at(configIndex);
     }
@@ -778,12 +959,14 @@ void MainWindow::requestServiceChannelData(bool logRequest)
         return;
     }
 
-    if (!m_client->isConnected()) {
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    if (!client || !client->isConnected()) {
         appendSystem(QStringLiteral("未连接 %1，无法刷新数据").arg(currentAppConfig().name), "#ffcc66");
         return;
     }
 
-    if (m_client->isExecutingCommand()) {
+    if (client->isExecutingCommand()) {
         return;
     }
 
@@ -792,8 +975,8 @@ void MainWindow::requestServiceChannelData(bool logRequest)
     if (logRequest) {
         appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
     }
-    m_pendingDataTableCommand = logicCenterMode ? QStringLiteral("agcavc") : QStringLiteral("dataread");
-    m_client->sendCommand(command);
+    session->pendingDataTableCommand = logicCenterMode ? QStringLiteral("agcavc") : QStringLiteral("dataread");
+    client->sendCommand(command);
     updateControlCommandUi();
 }
 
@@ -1274,10 +1457,10 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
     for (int row = 0; row < items.size(); ++row) {
         const ServiceChannelDataItem &item = items.at(row);
         const QString itemKey = serviceChannelItemKey(item);
-        const bool timeChanged = m_timeHighlightUntilMap.value(itemKey).isValid() &&
-                                 m_timeHighlightUntilMap.value(itemKey) > now;
-        const bool valueChanged = m_valueHighlightUntilMap.value(itemKey).isValid() &&
-                                  m_valueHighlightUntilMap.value(itemKey) > now;
+        const bool timeChanged = currentDebugSession()->timeHighlightUntilMap.value(itemKey).isValid() &&
+                                 currentDebugSession()->timeHighlightUntilMap.value(itemKey) > now;
+        const bool valueChanged = currentDebugSession()->valueHighlightUntilMap.value(itemKey).isValid() &&
+                                  currentDebugSession()->valueHighlightUntilMap.value(itemKey) > now;
 
         auto *deviceIdItem = new QTableWidgetItem(item.deviceId);
         auto *dataRefItem = new QTableWidgetItem(item.dataRef);
@@ -1285,7 +1468,7 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
         auto *descriptionItem = new QTableWidgetItem(item.description);
         auto *dataTimeItem = new QTableWidgetItem(item.dataTime);
         auto *valueItem = new QTableWidgetItem(item.value);
-        auto *controlStatusItem = new QTableWidgetItem(m_controlStatusTextMap.value(itemKey));
+        auto *controlStatusItem = new QTableWidgetItem(currentDebugSession()->controlStatusTextMap.value(itemKey));
 
         deviceIdItem->setForeground(defaultTextColor);
         dataRefItem->setForeground(defaultTextColor);
@@ -1293,7 +1476,7 @@ void MainWindow::populateServiceChannelTable(const QList<ServiceChannelDataItem>
         descriptionItem->setForeground(defaultTextColor);
         dataTimeItem->setForeground(timeChanged ? changedTextColor : defaultTextColor);
         valueItem->setForeground(valueChanged ? changedTextColor : defaultTextColor);
-        controlStatusItem->setForeground(m_controlStatusColorMap.value(itemKey, defaultTextColor));
+        controlStatusItem->setForeground(currentDebugSession()->controlStatusColorMap.value(itemKey, defaultTextColor));
 
         m_dataTable->setItem(row, 0, deviceIdItem);
         m_dataTable->setItem(row, 1, dataRefItem);
@@ -1316,7 +1499,7 @@ void MainWindow::refreshDeviceFilterOptions()
     QSet<QString> seenDeviceIds;
     QStringList deviceIds;
 
-    for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
+    for (const ServiceChannelDataItem &item : currentDebugSession()->serviceChannelItems) {
         if (item.deviceId.isEmpty() || seenDeviceIds.contains(item.deviceId)) {
             continue;
         }
@@ -1367,7 +1550,7 @@ void MainWindow::applyServiceChannelFilter()
     const QString descriptionKeyword = m_descriptionFilterEdit->text().trimmed();
     QList<ServiceChannelDataItem> filteredItems;
 
-    for (const ServiceChannelDataItem &item : m_serviceChannelItems) {
+    for (const ServiceChannelDataItem &item : currentDebugSession()->serviceChannelItems) {
         const bool matchesDeviceId = selectedDeviceId.isEmpty() || item.deviceId == selectedDeviceId;
         const bool matchesServiceId = selectedServiceId.isEmpty() || item.serviceId == selectedServiceId;
         const bool matchesDataRef = dataRefKeyword.isEmpty() ||
@@ -1385,7 +1568,8 @@ void MainWindow::applyServiceChannelFilter()
 
 void MainWindow::updateAutoRefreshTimer()
 {
-    if (!m_client->isConnected() || !isDataViewApp(currentAppConfig())) {
+    DebugConsoleClient *client = currentDebugClient();
+    if (!client || !client->isConnected() || !isDataViewApp(currentAppConfig())) {
         m_autoRefreshTimer->stop();
         return;
     }
@@ -1401,30 +1585,36 @@ void MainWindow::updateAutoRefreshTimer()
 
 void MainWindow::updateHighlightRefreshTimer()
 {
-    const QDateTime now = QDateTime::currentDateTime();
-
-    for (auto it = m_timeHighlightUntilMap.begin(); it != m_timeHighlightUntilMap.end(); ) {
-        if (!it.value().isValid() || it.value() <= now) {
-            it = m_timeHighlightUntilMap.erase(it);
-        } else {
-            ++it;
-        }
-    }
-
-    for (auto it = m_valueHighlightUntilMap.begin(); it != m_valueHighlightUntilMap.end(); ) {
-        if (!it.value().isValid() || it.value() <= now) {
-            it = m_valueHighlightUntilMap.erase(it);
-        } else {
-            ++it;
-        }
-    }
-
-    if (!m_client->isConnected() || currentAppConfig().viewMode != AppViewMode::DataTable) {
+    DebugAppSession *session = currentDebugSession();
+    if (!session) {
         m_highlightRefreshTimer->stop();
         return;
     }
 
-    if (m_timeHighlightUntilMap.isEmpty() && m_valueHighlightUntilMap.isEmpty()) {
+    const QDateTime now = QDateTime::currentDateTime();
+
+    for (auto it = session->timeHighlightUntilMap.begin(); it != session->timeHighlightUntilMap.end(); ) {
+        if (!it.value().isValid() || it.value() <= now) {
+            it = session->timeHighlightUntilMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (auto it = session->valueHighlightUntilMap.begin(); it != session->valueHighlightUntilMap.end(); ) {
+        if (!it.value().isValid() || it.value() <= now) {
+            it = session->valueHighlightUntilMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    if (!session->client || !session->client->isConnected() || currentAppConfig().viewMode != AppViewMode::DataTable) {
+        m_highlightRefreshTimer->stop();
+        return;
+    }
+
+    if (session->timeHighlightUntilMap.isEmpty() && session->valueHighlightUntilMap.isEmpty()) {
         m_highlightRefreshTimer->stop();
         return;
     }
@@ -1484,8 +1674,10 @@ void MainWindow::updateControlCommandUi()
         return;
     }
 
-    const bool canSendDataTableCommand = m_client->isConnected() &&
-                                         !m_client->isExecutingCommand() &&
+    DebugConsoleClient *client = currentDebugClient();
+    const bool canSendDataTableCommand = client &&
+                                         client->isConnected() &&
+                                         !client->isExecutingCommand() &&
                                          isServiceChannelApp(currentAppConfig());
     const bool controlEnabled = canSendDataTableCommand &&
                                 isServiceChannelControlRow(m_dataTable->currentRow());
@@ -1502,15 +1694,17 @@ void MainWindow::updateServiceChannelDataFreezeUi()
         return;
     }
 
-    if (!m_client->isConnected() || !isServiceChannelApp(currentAppConfig())) {
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    if (!client || !client->isConnected() || !isServiceChannelApp(currentAppConfig())) {
         m_dataFreezeBtn->setText(QStringLiteral("冻结数据"));
         m_dataFreezeBtn->setToolTip(QStringLiteral("发送 datafreeze on/off，冻结或恢复 DataSpont 更新内部值"));
         m_dataFreezeBtn->setStyleSheet(QString());
         return;
     }
 
-    if (m_client->isExecutingCommand() && m_pendingDataTableCommand == QStringLiteral("datafreeze")) {
-        m_dataFreezeBtn->setText(m_pendingDataFreezeMode == QStringLiteral("off")
+    if (client->isExecutingCommand() && session->pendingDataTableCommand == QStringLiteral("datafreeze")) {
+        m_dataFreezeBtn->setText(session->pendingDataFreezeMode == QStringLiteral("off")
             ? QStringLiteral("恢复中...")
             : QStringLiteral("冻结中..."));
         m_dataFreezeBtn->setStyleSheet(
@@ -1518,7 +1712,7 @@ void MainWindow::updateServiceChannelDataFreezeUi()
         return;
     }
 
-    if (m_serviceChannelDataFrozen) {
+    if (session->serviceChannelDataFrozen) {
         m_dataFreezeBtn->setText(QStringLiteral("恢复更新"));
         m_dataFreezeBtn->setToolTip(QStringLiteral("当前 DataSpont 更新已冻结，点击发送 datafreeze off 恢复"));
         m_dataFreezeBtn->setStyleSheet(
@@ -1547,11 +1741,21 @@ void MainWindow::updateServiceChannelDataFreezeUi()
 
 bool MainWindow::handleControlResponseLogLine(const QString &line)
 {
+    return handleControlResponseLogLine(line, currentDebugSession());
+}
+
+bool MainWindow::handleControlResponseLogLine(const QString &line, DebugAppSession *session)
+{
     const int eventIndex = line.indexOf(QStringLiteral("CTRLRESP "));
     if (eventIndex < 0) {
         return false;
     }
+    if (!session) {
+        appendLog(line);
+        return true;
+    }
 
+    const bool isCurrentSession = session == currentDebugSession();
     const QString eventText = line.mid(eventIndex).trimmed();
     QHash<QString, QString> fields;
     static const QRegularExpression fieldPattern(R"((\w+)=([^\s]+))");
@@ -1569,11 +1773,15 @@ bool MainWindow::handleControlResponseLogLine(const QString &line)
     const QString errorCode = fields.value(QStringLiteral("ErrorCode")).trimmed();
 
     if (deviceId.isEmpty() || dataRef.isEmpty()) {
-        appendLog(line);
+        if (isCurrentSession) {
+            appendLog(line);
+        }
         return true;
     }
 
-    appendLog(line);
+    if (isCurrentSession) {
+        appendLog(line);
+    }
 
     const QString normalizedResult = result.toLower();
     const bool resultOk = normalizedResult.isEmpty() ||
@@ -1584,34 +1792,44 @@ bool MainWindow::handleControlResponseLogLine(const QString &line)
     const bool errorOk = errorCode.isEmpty() || errorCode == QStringLiteral("0");
     const bool success = resultOk && errorOk;
 
-    const bool matchesPending = m_waitingControlResponse &&
-                                m_pendingControlDeviceId == deviceId &&
-                                m_pendingControlDataRef == dataRef &&
-                                (m_pendingControlType < 0 || QString::number(m_pendingControlType) == ctrlType);
+    const bool matchesPending = session->waitingControlResponse &&
+                                session->pendingControlDeviceId == deviceId &&
+                                session->pendingControlDataRef == dataRef &&
+                                (session->pendingControlType < 0 || QString::number(session->pendingControlType) == ctrlType);
 
     const QString statusText = success
         ? QStringLiteral("成功 CtrlType=%1 Value=%2").arg(ctrlType, ctrlVal)
         : QStringLiteral("失败 Result=%1 Error=%2").arg(result.isEmpty() ? QStringLiteral("-") : result,
                                                        errorCode.isEmpty() ? QStringLiteral("-") : errorCode);
-    setControlStatus(deviceId,
-                     dataRef,
-                     statusText,
-                     success ? QColor(QStringLiteral("#32cd32")) : QColor(QStringLiteral("#ff4444")));
+
+    const QString key = controlCommandKey(deviceId, dataRef);
+    session->controlStatusTextMap.insert(key, statusText);
+    session->controlStatusColorMap.insert(key, success ? QColor(QStringLiteral("#32cd32")) : QColor(QStringLiteral("#ff4444")));
+    if (isCurrentSession) {
+        setControlStatus(deviceId,
+                         dataRef,
+                         statusText,
+                         success ? QColor(QStringLiteral("#32cd32")) : QColor(QStringLiteral("#ff4444")));
+    }
 
     if (matchesPending) {
-        m_controlResponseTimer->stop();
-        m_waitingControlResponse = false;
-        appendSystem(QStringLiteral("控制响应%1：%2#%3，CtrlType=%4，CtrlVal=%5，Result=%6，ErrorCode=%7")
-                         .arg(success ? QStringLiteral("成功") : QStringLiteral("失败"),
-                              deviceId,
-                              dataRef,
-                              ctrlType,
-                              ctrlVal,
-                              result.isEmpty() ? QStringLiteral("-") : result,
-                              errorCode.isEmpty() ? QStringLiteral("-") : errorCode),
-                     success ? "#32cd32" : "#ff4444");
-        requestServiceChannelData(false);
-    } else {
+        if (isCurrentSession) {
+            m_controlResponseTimer->stop();
+        }
+        session->waitingControlResponse = false;
+        if (isCurrentSession) {
+            appendSystem(QStringLiteral("控制响应%1：%2#%3，CtrlType=%4，CtrlVal=%5，Result=%6，ErrorCode=%7")
+                             .arg(success ? QStringLiteral("成功") : QStringLiteral("失败"),
+                                  deviceId,
+                                  dataRef,
+                                  ctrlType,
+                                  ctrlVal,
+                                  result.isEmpty() ? QStringLiteral("-") : result,
+                                  errorCode.isEmpty() ? QStringLiteral("-") : errorCode),
+                         success ? "#32cd32" : "#ff4444");
+            requestServiceChannelData(false);
+        }
+    } else if (isCurrentSession) {
         appendSystem(QStringLiteral("收到控制响应：%1#%2，%3").arg(deviceId, dataRef, statusText),
                      success ? "#32cd32" : "#ff4444");
     }
@@ -1621,20 +1839,31 @@ bool MainWindow::handleControlResponseLogLine(const QString &line)
 
 void MainWindow::handleControlResponseTimeout()
 {
-    if (!m_waitingControlResponse) {
+    const QString appName = m_controlResponseTimer->property("appName").toString();
+    DebugAppSession *session = debugSessionForAppName(appName);
+    if (!session || !session->waitingControlResponse) {
         return;
     }
 
-    const QString deviceId = m_pendingControlDeviceId;
-    const QString dataRef = m_pendingControlDataRef;
-    m_waitingControlResponse = false;
-    setControlStatus(deviceId,
-                     dataRef,
-                     QStringLiteral("响应超时 CtrlType=%1 Value=%2")
-                         .arg(m_pendingControlType)
-                         .arg(m_pendingControlValue),
-                     QColor(QStringLiteral("#ffcc66")));
-    appendSystem(QStringLiteral("控制命令已发送，但 15 秒内未收到 CTRLRESP：%1#%2").arg(deviceId, dataRef), "#ffcc66");
+    const QString deviceId = session->pendingControlDeviceId;
+    const QString dataRef = session->pendingControlDataRef;
+    session->waitingControlResponse = false;
+    if (session == currentDebugSession()) {
+        setControlStatus(deviceId,
+                         dataRef,
+                         QStringLiteral("响应超时 CtrlType=%1 Value=%2")
+                             .arg(session->pendingControlType)
+                             .arg(session->pendingControlValue),
+                         QColor(QStringLiteral("#ffcc66")));
+        appendSystem(QStringLiteral("控制命令已发送，但 15 秒内未收到 CTRLRESP：%1#%2").arg(deviceId, dataRef), "#ffcc66");
+    } else {
+        const QString key = controlCommandKey(deviceId, dataRef);
+        session->controlStatusTextMap.insert(key,
+                                             QStringLiteral("响应超时 CtrlType=%1 Value=%2")
+                                                 .arg(session->pendingControlType)
+                                                 .arg(session->pendingControlValue));
+        session->controlStatusColorMap.insert(key, QColor(QStringLiteral("#ffcc66")));
+    }
 }
 
 QString MainWindow::controlCommandKey(const QString &deviceId, const QString &dataRef) const
@@ -1648,8 +1877,8 @@ void MainWindow::setControlStatus(const QString &deviceId,
                                   const QColor &color)
 {
     const QString key = controlCommandKey(deviceId, dataRef);
-    m_controlStatusTextMap.insert(key, statusText);
-    m_controlStatusColorMap.insert(key, color);
+    currentDebugSession()->controlStatusTextMap.insert(key, statusText);
+    currentDebugSession()->controlStatusColorMap.insert(key, color);
 
     if (m_controlStatusLabel) {
         m_controlStatusLabel->setText(QStringLiteral("状态: %1").arg(statusText));
@@ -1974,12 +2203,14 @@ void MainWindow::sendServiceChannelControlCommand(const ServiceChannelDataItem &
                                                   int ctrlType)
 {
     const QString appName = currentAppConfig().name;
-    if (!m_client->isConnected()) {
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    if (!client || !client->isConnected()) {
         appendSystem(QStringLiteral("未连接 %1，无法发送控制命令").arg(appName), "#ffcc66");
         return;
     }
 
-    if (m_client->isExecutingCommand()) {
+    if (client->isExecutingCommand()) {
         appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送控制命令"), "#ffcc66");
         return;
     }
@@ -1987,18 +2218,19 @@ void MainWindow::sendServiceChannelControlCommand(const ServiceChannelDataItem &
     const QString command = QStringLiteral("ctrlcmd %1 %2 %3 %4")
         .arg(item.deviceId, item.dataRef, ctrlVal, QString::number(ctrlType));
     appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
-    m_waitingControlResponse = true;
-    m_pendingControlDeviceId = item.deviceId;
-    m_pendingControlDataRef = item.dataRef;
-    m_pendingControlValue = ctrlVal;
-    m_pendingControlType = ctrlType;
+    session->waitingControlResponse = true;
+    session->pendingControlDeviceId = item.deviceId;
+    session->pendingControlDataRef = item.dataRef;
+    session->pendingControlValue = ctrlVal;
+    session->pendingControlType = ctrlType;
     setControlStatus(item.deviceId,
                      item.dataRef,
                      QStringLiteral("等待响应 CtrlType=%1 Value=%2").arg(ctrlType).arg(ctrlVal),
                      QColor(QStringLiteral("#ffcc66")));
+    m_controlResponseTimer->setProperty("appName", appName);
     m_controlResponseTimer->start();
-    m_pendingDataTableCommand = QStringLiteral("ctrlcmd");
-    m_client->sendCommand(command);
+    session->pendingDataTableCommand = QStringLiteral("ctrlcmd");
+    client->sendCommand(command);
     updateControlCommandUi();
 }
 
@@ -2007,12 +2239,14 @@ void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem
                                                     const QString &quality)
 {
     const QString appName = currentAppConfig().name;
-    if (!m_client->isConnected()) {
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    if (!client || !client->isConnected()) {
         appendSystem(QStringLiteral("未连接 %1，无法发送 datawrite").arg(appName), "#ffcc66");
         return;
     }
 
-    if (m_client->isExecutingCommand()) {
+    if (client->isExecutingCommand()) {
         appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送 datawrite"), "#ffcc66");
         return;
     }
@@ -2034,16 +2268,16 @@ void MainWindow::sendServiceChannelDataWriteCommand(const ServiceChannelDataItem
     const QString command = QStringLiteral("datawrite %1 %2 %3 %4")
         .arg(item.deviceId, item.dataRef, value, quality);
     appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
-    m_pendingDataWriteDeviceId = item.deviceId;
-    m_pendingDataWriteDataRef = item.dataRef;
-    m_pendingDataWriteValue = value;
-    m_pendingDataWriteQuality = quality;
+    session->pendingDataWriteDeviceId = item.deviceId;
+    session->pendingDataWriteDataRef = item.dataRef;
+    session->pendingDataWriteValue = value;
+    session->pendingDataWriteQuality = quality;
     setControlStatus(item.deviceId,
                      item.dataRef,
                      QStringLiteral("datawrite 发送中 Value=%1 Quality=%2").arg(value, quality),
                      QColor(QStringLiteral("#ffcc66")));
-    m_pendingDataTableCommand = QStringLiteral("datawrite");
-    m_client->sendCommand(command);
+    session->pendingDataTableCommand = QStringLiteral("datawrite");
+    client->sendCommand(command);
     updateControlCommandUi();
 }
 
@@ -2053,12 +2287,14 @@ bool MainWindow::sendLogicCenterDataWriteCommand(const QString &appName,
                                                  const QString &value)
 {
     const QString displayAppName = currentAppConfig().name;
-    if (!m_client->isConnected()) {
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    if (!client || !client->isConnected()) {
         appendSystem(QStringLiteral("未连接 %1，无法发送 datawrite").arg(displayAppName), "#ffcc66");
         return false;
     }
 
-    if (m_client->isExecutingCommand()) {
+    if (client->isExecutingCommand()) {
         appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送 datawrite"), "#ffcc66");
         return false;
     }
@@ -2083,12 +2319,12 @@ bool MainWindow::sendLogicCenterDataWriteCommand(const QString &appName,
     const QString command = QStringLiteral("datawrite %1 %2 %3 %4")
         .arg(trimmedAppName, trimmedDeviceId, trimmedDataRef, value);
     appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
-    m_pendingDataWriteDeviceId = trimmedDeviceId;
-    m_pendingDataWriteDataRef = trimmedDataRef;
-    m_pendingDataWriteValue = value;
-    m_pendingDataWriteQuality.clear();
-    m_pendingDataTableCommand = QStringLiteral("datawrite");
-    m_client->sendCommand(command);
+    session->pendingDataWriteDeviceId = trimmedDeviceId;
+    session->pendingDataWriteDataRef = trimmedDataRef;
+    session->pendingDataWriteValue = value;
+    session->pendingDataWriteQuality.clear();
+    session->pendingDataTableCommand = QStringLiteral("datawrite");
+    client->sendCommand(command);
     updateControlCommandUi();
     return true;
 }
@@ -2096,12 +2332,14 @@ bool MainWindow::sendLogicCenterDataWriteCommand(const QString &appName,
 void MainWindow::sendServiceChannelDataFreezeCommand(const QString &mode)
 {
     const QString appName = currentAppConfig().name;
-    if (!m_client->isConnected()) {
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    if (!client || !client->isConnected()) {
         appendSystem(QStringLiteral("未连接 %1，无法发送 datafreeze").arg(appName), "#ffcc66");
         return;
     }
 
-    if (m_client->isExecutingCommand()) {
+    if (client->isExecutingCommand()) {
         appendSystem(QStringLiteral("上一条命令尚未返回，暂不能发送 datafreeze"), "#ffcc66");
         return;
     }
@@ -2116,9 +2354,9 @@ void MainWindow::sendServiceChannelDataFreezeCommand(const QString &mode)
 
     const QString command = QStringLiteral("datafreeze %1").arg(normalizedMode);
     appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
-    m_pendingDataFreezeMode = normalizedMode;
-    m_pendingDataTableCommand = QStringLiteral("datafreeze");
-    m_client->sendCommand(command);
+    session->pendingDataFreezeMode = normalizedMode;
+    session->pendingDataTableCommand = QStringLiteral("datafreeze");
+    client->sendCommand(command);
     updateControlCommandUi();
 }
 
