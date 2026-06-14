@@ -550,6 +550,7 @@ MainWindow::MainWindow(QWidget *parent)
         {"IEC101ServiceChannel", 3333, "IEC101>", AppViewMode::DataTable},
         {"cepmodbus", 7777, "modbus>", AppViewMode::DataTable},
         {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable},
+        {"cepdlt645", 8888, "dlt645>", AppViewMode::DataTable},
         {"LogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
     };
 

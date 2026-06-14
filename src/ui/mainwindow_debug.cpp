@@ -96,6 +96,11 @@ bool isIec104App(const AppConfig &appConfig)
     return appConfig.name.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
 }
 
+bool isDlt645App(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
+}
+
 bool isIec101App(const AppConfig &appConfig)
 {
     return appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
@@ -103,13 +108,16 @@ bool isIec101App(const AppConfig &appConfig)
 
 bool supportsRawFrameLogWindow(const AppConfig &appConfig)
 {
-    return isModbusApp(appConfig) || isIec104App(appConfig) || isIec101App(appConfig);
+    return isModbusApp(appConfig) || isIec104App(appConfig) || isDlt645App(appConfig) || isIec101App(appConfig);
 }
 
 QString rawFrameDebugCategory(const AppConfig &appConfig)
 {
     if (isIec104App(appConfig)) {
         return QStringLiteral("104");
+    }
+    if (isDlt645App(appConfig)) {
+        return QStringLiteral("dlt645");
     }
     if (isIec101App(appConfig)) {
         return QStringLiteral("101");
@@ -121,6 +129,9 @@ QString rawFrameAppDisplayName(const AppConfig &appConfig)
 {
     if (isIec104App(appConfig)) {
         return QStringLiteral("IEC104");
+    }
+    if (isDlt645App(appConfig)) {
+        return QStringLiteral("DLT645");
     }
     if (isIec101App(appConfig)) {
         return QStringLiteral("IEC101");
