@@ -208,6 +208,25 @@ QString dlt645FfPollDiForPointDi(const QString &pointDi)
     return normalized.left(6) + QStringLiteral("FF");
 }
 
+int dlt645WildcardEntryNo(const QString &pointDi, const QString &pollDi)
+{
+    const QString normalizedPointDi = normalizedDlt645Di(pointDi);
+    const QString normalizedPollDi = normalizedDlt645Di(pollDi);
+    if (!isDlt645EightDigitHexDi(normalizedPointDi)
+        || !isDlt645EightDigitHexDi(normalizedPollDi)
+        || !normalizedPollDi.endsWith(QStringLiteral("FF"))
+        || normalizedPointDi.left(6) != normalizedPollDi.left(6)) {
+        return 0;
+    }
+
+    bool ok = false;
+    const int lowByte = normalizedPointDi.right(2).toInt(&ok, 16);
+    if (!ok) {
+        return 0;
+    }
+    return lowByte <= 0 ? 1 : lowByte;
+}
+
 } // namespace
 
 void MainWindow::onConfigModelSelectionChanged()
@@ -1989,6 +2008,17 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
                 binding.extensions.insert(QStringLiteral("dlt645DataLength"), value.toInt());
             }
             break;
+        case Dlt645ColumnEntryNo:
+            if (value.isEmpty()) {
+                binding.extensions.remove(QStringLiteral("dlt645EntryNo"));
+            } else {
+                bool ok = false;
+                const int entryNo = value.toInt(&ok);
+                if (ok && entryNo > 0) {
+                    binding.extensions.insert(QStringLiteral("dlt645EntryNo"), entryNo);
+                }
+            }
+            break;
         case Dlt645ColumnSelfSignal:
             binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
             break;
@@ -2300,7 +2330,7 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         return groupNo;
     };
 
-    QMap<QString, int> readEntryNos;
+    QHash<QString, QSet<int>> usedReadEntryNos;
     QSet<QString> emittedReadGroups;
     int yxOrder = 1;
     int ycOrder = 1;
@@ -2378,8 +2408,17 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
 
         const QString groupKey = readGroupKey(kind, readDi, funCode, dataType, dataLength);
         const int groupNo = takeReadGroupNo(groupKey);
-        const int entryNo = readEntryNos.value(groupKey, 0) + 1;
-        readEntryNos.insert(groupKey, entryNo);
+        int entryNo = dlt645BindingInt(binding, QStringLiteral("dlt645EntryNo"), 0);
+        if (entryNo <= 0) {
+            entryNo = dlt645WildcardEntryNo(pointDi, readDi);
+        }
+        if (entryNo <= 0 || usedReadEntryNos.value(groupKey).contains(entryNo)) {
+            entryNo = 1;
+            while (usedReadEntryNos.value(groupKey).contains(entryNo)) {
+                ++entryNo;
+            }
+        }
+        usedReadEntryNos[groupKey].insert(entryNo);
 
         if (!emittedReadGroups.contains(groupKey)) {
             configtool::Dlt645PollGroup group;
@@ -4251,6 +4290,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
     if (dlt645Device) {
         int missingDiCount = 0;
+        QHash<QString, QSet<QString>> dlt645PollSignatures;
         m_updatingDeviceBindingsTable = true;
         m_deviceBindingsTable->clear();
         m_deviceBindingsTable->setColumnCount(Dlt645BindingColumnCount);
@@ -4309,6 +4349,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             const QString dataLength = QString::number(dlt645BindingInt(binding,
                                                                          QStringLiteral("dlt645DataLength"),
                                                                          defaultDlt645DataLengthForKind(kind)));
+            if (binding.enabled && !isDlt645SetKind(kind) && !pollDi.isEmpty()) {
+                dlt645PollSignatures[pollDi].insert(QStringLiteral("%1/%2").arg(dataType, dataLength));
+            }
             const QString groupNo = binding.extensions.contains(QStringLiteral("dlt645GroupNo"))
                 ? QString::number(dlt645BindingInt(binding, QStringLiteral("dlt645GroupNo")))
                 : QString();
@@ -4334,7 +4377,6 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
             dataTypeItem->setFlags(dataTypeItem->flags() & ~Qt::ItemIsEditable);
             groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
-            entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsEditable);
             dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
 
             const bool missingDi = binding.enabled
@@ -4434,10 +4476,23 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         fitDlt645DataTypeCombosToCells();
         QTimer::singleShot(0, this, fitDlt645DataTypeCombosToCells);
 
+        QStringList mixedPollDis;
+        for (auto it = dlt645PollSignatures.cbegin(); it != dlt645PollSignatures.cend(); ++it) {
+            if (it.value().size() > 1) {
+                mixedPollDis.append(it.key());
+            }
+        }
+        std::sort(mixedPollDis.begin(), mixedPollDis.end());
+
         if (missingDiCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
             m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 DLT645 DI。填写点位DI后会自动生成采集/控制配置和 dataIndex。")
                 .arg(missingDiCount));
+        } else if (!mixedPollDis.isEmpty()) {
+            m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
+            m_deviceValidationLabel->setText(
+                QStringLiteral("采集DI %1 下存在不同数据类型或字节数；当前 DLT645APP 每个采集帧只能配置一种数据类型和单条字节数，因此会拆成多个采集帧。异长 FF 块请按表计实际返回序号手动填写“序号”，或改为单点读取。")
+                    .arg(mixedPollDis.join(QStringLiteral("，"))));
         } else {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
             m_deviceValidationLabel->setText(QStringLiteral("DLT645 映射已生成：采集帧 %1 个，控制/写值项 %2 个。")
