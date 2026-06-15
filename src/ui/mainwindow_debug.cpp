@@ -600,7 +600,6 @@ void MainWindow::onConnected()
         m_deviceFilterCombo->setEnabled(dataTableApp);
         m_serviceTypeFilterCombo->setEnabled(dataTableApp);
         m_dataRefFilterEdit->setEnabled(dataTableApp);
-        m_descriptionFilterEdit->setEnabled(dataTableApp);
         m_autoRefreshCombo->setEnabled(true);
         updateControlCommandUi();
         requestServiceChannelData(false);
@@ -648,8 +647,6 @@ void MainWindow::onDisconnected()
         m_serviceTypeFilterCombo->setEnabled(false);
         m_dataRefFilterEdit->clear();
         m_dataRefFilterEdit->setEnabled(false);
-        m_descriptionFilterEdit->clear();
-        m_descriptionFilterEdit->setEnabled(false);
         m_autoRefreshCombo->setEnabled(false);
         if (m_controlStatusLabel) {
             m_controlStatusLabel->setText(QStringLiteral("状态: -"));
@@ -942,7 +939,6 @@ void MainWindow::updateUIState(bool connected)
     m_deviceFilterCombo->setEnabled(connected && dataTableMode);
     m_serviceTypeFilterCombo->setEnabled(connected && dataTableMode);
     m_dataRefFilterEdit->setEnabled(connected && dataTableMode);
-    m_descriptionFilterEdit->setEnabled(connected && dataTableMode);
     m_autoRefreshCombo->setEnabled(connected && dataViewMode);
 
     for (auto *btn : findChildren<QPushButton*>()) {
@@ -1051,11 +1047,6 @@ void MainWindow::onServiceTypeFilterChanged(int /*index*/)
 }
 
 void MainWindow::onDataRefFilterTextChanged(const QString & /*text*/)
-{
-    applyServiceChannelFilter();
-}
-
-void MainWindow::onDescriptionFilterTextChanged(const QString & /*text*/)
 {
     applyServiceChannelFilter();
 }
@@ -1633,19 +1624,17 @@ void MainWindow::applyServiceChannelFilter()
 {
     const QString selectedDeviceId = m_deviceFilterCombo->currentData().toString();
     const QString selectedServiceId = m_serviceTypeFilterCombo->currentData().toString();
-    const QString dataRefKeyword = m_dataRefFilterEdit->text().trimmed();
-    const QString descriptionKeyword = m_descriptionFilterEdit->text().trimmed();
+    const QString keyword = m_dataRefFilterEdit->text().trimmed();
     QList<ServiceChannelDataItem> filteredItems;
 
     for (const ServiceChannelDataItem &item : currentDebugSession()->serviceChannelItems) {
         const bool matchesDeviceId = selectedDeviceId.isEmpty() || item.deviceId == selectedDeviceId;
         const bool matchesServiceId = selectedServiceId.isEmpty() || item.serviceId == selectedServiceId;
-        const bool matchesDataRef = dataRefKeyword.isEmpty() ||
-                                    item.dataRef.contains(dataRefKeyword, Qt::CaseInsensitive);
-        const bool matchesDescription = descriptionKeyword.isEmpty() ||
-                                        item.description.contains(descriptionKeyword, Qt::CaseInsensitive);
+        const bool matchesKeyword = keyword.isEmpty() ||
+                                    item.dataRef.contains(keyword, Qt::CaseInsensitive) ||
+                                    item.description.contains(keyword, Qt::CaseInsensitive);
 
-        if (matchesDeviceId && matchesServiceId && matchesDataRef && matchesDescription) {
+        if (matchesDeviceId && matchesServiceId && matchesKeyword) {
             filteredItems.append(item);
         }
     }

@@ -130,7 +130,6 @@ private slots:
     void onDeviceFilterChanged(int index);
     void onServiceTypeFilterChanged(int index);
     void onDataRefFilterTextChanged(const QString &text);
-    void onDescriptionFilterTextChanged(const QString &text);
     void onAutoRefreshIntervalChanged(int index);
     void onSendControlClicked();
     void onDataTableCellDoubleClicked(int row, int column);
@@ -157,7 +156,6 @@ private slots:
     void onModelPointCategoryChanged(int index);
     void onModelPointFilterChanged(int index);
     void onModelPointDataRefFilterTextChanged(const QString &text);
-    void onModelPointDescriptionFilterTextChanged(const QString &text);
     void onCreateDeviceFromModelClicked();
     void openCreateDeviceDialog(int preselectedModelIndex);
     void onCopyDeviceClicked();
@@ -166,7 +164,6 @@ private slots:
     void onDeviceFieldEdited();
     void onDeviceBindingFilterChanged(int index);
     void onDeviceBindingDataRefFilterTextChanged(const QString &text);
-    void onDeviceBindingDescriptionFilterTextChanged(const QString &text);
     void onDeviceBindingItemChanged(QTableWidgetItem *item);
     void onDeviceOnlineLinkEnabledChanged(bool checked);
     void onDeviceOnlineLinkTargetChanged(int index);
@@ -501,7 +498,6 @@ private:
     QComboBox *m_deviceFilterCombo = nullptr;
     QComboBox *m_serviceTypeFilterCombo = nullptr;
     QLineEdit *m_dataRefFilterEdit = nullptr;
-    QLineEdit *m_descriptionFilterEdit = nullptr;
     QComboBox *m_autoRefreshCombo = nullptr;
     QLabel *m_controlStatusLabel = nullptr;
     QPushButton *m_refreshDataBtn = nullptr;
@@ -521,9 +517,7 @@ private:
     QTabBar *m_modelPointFilterTabBar = nullptr;
     QTabBar *m_deviceBindingFilterTabBar = nullptr;
     QLineEdit *m_modelPointDataRefFilterEdit = nullptr;
-    QLineEdit *m_modelPointDescriptionFilterEdit = nullptr;
     QLineEdit *m_deviceBindingDataRefFilterEdit = nullptr;
-    QLineEdit *m_deviceBindingDescriptionFilterEdit = nullptr;
     QGroupBox *m_deviceOnlineLinkGroupBox = nullptr;
     QWidget *m_deviceOnlineLinkContent = nullptr;
     QComboBox *m_deviceOnlineLinkTargetCombo = nullptr;
@@ -664,7 +658,6 @@ private:
     // 点表
     QTabBar *m_iec101PointFilterTabBar = nullptr;
     QLineEdit *m_iec101PointDataRefFilterEdit = nullptr;
-    QLineEdit *m_iec101PointDescriptionFilterEdit = nullptr;
     QTableWidget *m_iec101PointsTable = nullptr;
     QPushButton *m_refreshIec101PointsBtn = nullptr;
     QLabel *m_iec101ValidationLabel = nullptr;

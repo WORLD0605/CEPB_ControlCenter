@@ -690,20 +690,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_serviceTypeFilterCombo->setMinimumWidth(90);
     m_serviceTypeFilterCombo->setEnabled(false);
     serviceDataFilterLayout->addWidget(m_serviceTypeFilterCombo);
-    serviceDataFilterLayout->addWidget(new QLabel("DataRef:"));
+    serviceDataFilterLayout->addWidget(new QLabel(QStringLiteral("搜索:")));
     m_dataRefFilterEdit = new QLineEdit();
-    m_dataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
+    m_dataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
     m_dataRefFilterEdit->setClearButtonEnabled(true);
-    m_dataRefFilterEdit->setMinimumWidth(220);
+    m_dataRefFilterEdit->setMinimumWidth(320);
     m_dataRefFilterEdit->setEnabled(false);
     serviceDataFilterLayout->addWidget(m_dataRefFilterEdit, 1);
-    serviceDataFilterLayout->addWidget(new QLabel("Description:"));
-    m_descriptionFilterEdit = new QLineEdit();
-    m_descriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
-    m_descriptionFilterEdit->setClearButtonEnabled(true);
-    m_descriptionFilterEdit->setMinimumWidth(220);
-    m_descriptionFilterEdit->setEnabled(false);
-    serviceDataFilterLayout->addWidget(m_descriptionFilterEdit, 1);
     dataFilterToolbar->addWidget(m_serviceDataFilterWidget, 1);
     dataFilterToolbar->addStretch();
     dataFilterToolbar->addWidget(new QLabel("自动刷新:"));
@@ -1008,18 +1001,12 @@ MainWindow::MainWindow(QWidget *parent)
     auto *pointFilterToolbar = new QHBoxLayout();
     pointFilterToolbar->setSpacing(8);
     pointFilterToolbar->addSpacing(2);
-    pointFilterToolbar->addWidget(new QLabel("DataRef:"));
+    pointFilterToolbar->addWidget(new QLabel(QStringLiteral("搜索:")));
     m_modelPointDataRefFilterEdit = new QLineEdit(this);
-    m_modelPointDataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
+    m_modelPointDataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
     m_modelPointDataRefFilterEdit->setClearButtonEnabled(true);
     m_modelPointDataRefFilterEdit->setMinimumWidth(320);
     pointFilterToolbar->addWidget(m_modelPointDataRefFilterEdit, 1);
-    pointFilterToolbar->addWidget(new QLabel("Description:"));
-    m_modelPointDescriptionFilterEdit = new QLineEdit(this);
-    m_modelPointDescriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
-    m_modelPointDescriptionFilterEdit->setClearButtonEnabled(true);
-    m_modelPointDescriptionFilterEdit->setMinimumWidth(320);
-    pointFilterToolbar->addWidget(m_modelPointDescriptionFilterEdit, 1);
     modelDetailLayout->addLayout(pointFilterToolbar);
 
     m_modelValidationLabel = new QLabel(this);
@@ -1261,18 +1248,12 @@ MainWindow::MainWindow(QWidget *parent)
     auto *bindingFilterToolbar = new QHBoxLayout();
     bindingFilterToolbar->setSpacing(8);
     bindingFilterToolbar->addSpacing(2);
-    bindingFilterToolbar->addWidget(new QLabel("DataRef:", this));
+    bindingFilterToolbar->addWidget(new QLabel(QStringLiteral("搜索:"), this));
     m_deviceBindingDataRefFilterEdit = new QLineEdit(this);
-    m_deviceBindingDataRefFilterEdit->setPlaceholderText("输入 DataRef 关键字实时筛选...");
+    m_deviceBindingDataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
     m_deviceBindingDataRefFilterEdit->setClearButtonEnabled(true);
     m_deviceBindingDataRefFilterEdit->setMinimumWidth(320);
     bindingFilterToolbar->addWidget(m_deviceBindingDataRefFilterEdit, 1);
-    bindingFilterToolbar->addWidget(new QLabel("Description:", this));
-    m_deviceBindingDescriptionFilterEdit = new QLineEdit(this);
-    m_deviceBindingDescriptionFilterEdit->setPlaceholderText("输入描述关键字实时筛选...");
-    m_deviceBindingDescriptionFilterEdit->setClearButtonEnabled(true);
-    m_deviceBindingDescriptionFilterEdit->setMinimumWidth(320);
-    bindingFilterToolbar->addWidget(m_deviceBindingDescriptionFilterEdit, 1);
     deviceEditorLayout->addLayout(bindingFilterToolbar);
 
     m_deviceBindingsTable = new QTableWidget(0, 6, this);
@@ -1924,16 +1905,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101PointFilterTabBar->setCurrentIndex(0);
     iec101FilterRow->addWidget(m_iec101PointFilterTabBar);
     iec101FilterRow->addStretch();
+    iec101FilterRow->addWidget(new QLabel(QStringLiteral("搜索:"), this));
     m_iec101PointDataRefFilterEdit = new QLineEdit(this);
-    m_iec101PointDataRefFilterEdit->setPlaceholderText(QStringLiteral("筛选 DataRef..."));
+    m_iec101PointDataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
     m_iec101PointDataRefFilterEdit->setClearButtonEnabled(true);
-    m_iec101PointDataRefFilterEdit->setFixedWidth(220);
+    m_iec101PointDataRefFilterEdit->setFixedWidth(300);
     iec101FilterRow->addWidget(m_iec101PointDataRefFilterEdit);
-    m_iec101PointDescriptionFilterEdit = new QLineEdit(this);
-    m_iec101PointDescriptionFilterEdit->setPlaceholderText(QStringLiteral("筛选 Description..."));
-    m_iec101PointDescriptionFilterEdit->setClearButtonEnabled(true);
-    m_iec101PointDescriptionFilterEdit->setFixedWidth(180);
-    iec101FilterRow->addWidget(m_iec101PointDescriptionFilterEdit);
     iec101PointsLayout->addLayout(iec101FilterRow);
 
     m_iec101PointsTable = new QTableWidget(0, 8, this);
@@ -1995,8 +1972,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_iec101PointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onIec101PointFilterChanged);
     connect(m_iec101PointDataRefFilterEdit, &QLineEdit::textChanged,
-            this, &MainWindow::onIec101PointFilterTextChanged);
-    connect(m_iec101PointDescriptionFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onIec101PointFilterTextChanged);
 
     // 初始化连接参数显隐（默认选中 TCP=index 1）
@@ -2063,8 +2038,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onServiceTypeFilterChanged);
     connect(m_dataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDataRefFilterTextChanged);
-    connect(m_descriptionFilterEdit, &QLineEdit::textChanged,
-            this, &MainWindow::onDescriptionFilterTextChanged);
     connect(m_autoRefreshCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onAutoRefreshIntervalChanged);
     connect(m_selectConfigImportDirBtn, &QPushButton::clicked,
@@ -2235,8 +2208,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onModelPointFilterChanged);
     connect(m_modelPointDataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onModelPointDataRefFilterTextChanged);
-    connect(m_modelPointDescriptionFilterEdit, &QLineEdit::textChanged,
-            this, &MainWindow::onModelPointDescriptionFilterTextChanged);
     connect(m_modelPointsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onModelPointItemChanged);
     connect(m_deviceIdEdit, &QLineEdit::textEdited,
@@ -2291,8 +2262,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceBindingFilterChanged);
     connect(m_deviceBindingDataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDeviceBindingDataRefFilterTextChanged);
-    connect(m_deviceBindingDescriptionFilterEdit, &QLineEdit::textChanged,
-            this, &MainWindow::onDeviceBindingDescriptionFilterTextChanged);
     connect(m_autoMergeDlt645FfBtn, &QPushButton::clicked,
             this, &MainWindow::autoMergeDlt645FfPollGroups);
     connect(m_deviceBindingsTable, &QTableWidget::itemChanged,

@@ -207,10 +207,8 @@ void MainWindow::applyIec101PointsFilter()
     }
 
     const int filterTab = m_iec101PointFilterTabBar ? m_iec101PointFilterTabBar->currentIndex() : 0;
-    const QString dataRefKeyword = m_iec101PointDataRefFilterEdit
+    const QString keyword = m_iec101PointDataRefFilterEdit
         ? m_iec101PointDataRefFilterEdit->text().trimmed() : QString();
-    const QString descKeyword = m_iec101PointDescriptionFilterEdit
-        ? m_iec101PointDescriptionFilterEdit->text().trimmed() : QString();
 
     for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
         bool visible = true;
@@ -225,20 +223,14 @@ void MainWindow::applyIec101PointsFilter()
             }
         }
 
-        // DataRef 文本筛选
-        if (visible && !dataRefKeyword.isEmpty()) {
+        // DataRef / Description 文本筛选
+        if (visible && !keyword.isEmpty()) {
             QTableWidgetItem *dataRefItem = m_iec101PointsTable->item(row, Iec101PointColumnDataRef);
             const QString dataRef = dataRefItem ? dataRefItem->text() : QString();
-            if (!dataRef.contains(dataRefKeyword, Qt::CaseInsensitive)) {
-                visible = false;
-            }
-        }
-
-        // Description 文本筛选
-        if (visible && !descKeyword.isEmpty()) {
             QTableWidgetItem *descItem = m_iec101PointsTable->item(row, Iec101PointColumnDescription);
             const QString desc = descItem ? descItem->text() : QString();
-            if (!desc.contains(descKeyword, Qt::CaseInsensitive)) {
+            if (!dataRef.contains(keyword, Qt::CaseInsensitive)
+                && !desc.contains(keyword, Qt::CaseInsensitive)) {
                 visible = false;
             }
         }

@@ -847,11 +847,6 @@ void MainWindow::onModelPointDataRefFilterTextChanged(const QString & /*text*/)
     refreshModelDetail(currentConfigModelIndex());
 }
 
-void MainWindow::onModelPointDescriptionFilterTextChanged(const QString & /*text*/)
-{
-    refreshModelDetail(currentConfigModelIndex());
-}
-
 void MainWindow::onModelPointCategoryChanged(int index)
 {
     if (m_updatingModelPointCategory || index < 0) {
@@ -1642,11 +1637,6 @@ void MainWindow::onDeviceBindingFilterChanged(int /*index*/)
 }
 
 void MainWindow::onDeviceBindingDataRefFilterTextChanged(const QString & /*text*/)
-{
-    refreshDeviceEditor(currentConfigDeviceIndex());
-}
-
-void MainWindow::onDeviceBindingDescriptionFilterTextChanged(const QString & /*text*/)
 {
     refreshDeviceEditor(currentConfigDeviceIndex());
 }
@@ -3260,11 +3250,8 @@ void MainWindow::refreshModelDetail(int modelIndex)
     }
 
     const int filterTabIndex = m_modelPointFilterTabBar ? m_modelPointFilterTabBar->currentIndex() : 0;
-    const QString dataRefKeyword = m_modelPointDataRefFilterEdit
+    const QString keyword = m_modelPointDataRefFilterEdit
         ? m_modelPointDataRefFilterEdit->text().trimmed()
-        : QString();
-    const QString descriptionKeyword = m_modelPointDescriptionFilterEdit
-        ? m_modelPointDescriptionFilterEdit->text().trimmed()
         : QString();
     int totalPointCount = 0;
     for (const configtool::ServiceTemplate &service : model.services) {
@@ -3273,11 +3260,10 @@ void MainWindow::refreshModelDetail(int modelIndex)
         }
 
         for (const configtool::PointTemplate &point : service.points) {
-            const bool matchesDataRef = dataRefKeyword.isEmpty()
-                || point.dataRef().contains(dataRefKeyword, Qt::CaseInsensitive);
-            const bool matchesDescription = descriptionKeyword.isEmpty()
-                || point.description.contains(descriptionKeyword, Qt::CaseInsensitive);
-            if (matchesDataRef && matchesDescription) {
+            const bool matchesKeyword = keyword.isEmpty()
+                || point.dataRef().contains(keyword, Qt::CaseInsensitive)
+                || point.description.contains(keyword, Qt::CaseInsensitive);
+            if (matchesKeyword) {
                 ++totalPointCount;
             }
         }
@@ -3294,11 +3280,10 @@ void MainWindow::refreshModelDetail(int modelIndex)
         }
         for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex) {
             const configtool::PointTemplate &point = service.points.at(pointIndex);
-            const bool matchesDataRef = dataRefKeyword.isEmpty()
-                || point.dataRef().contains(dataRefKeyword, Qt::CaseInsensitive);
-            const bool matchesDescription = descriptionKeyword.isEmpty()
-                || point.description.contains(descriptionKeyword, Qt::CaseInsensitive);
-            if (!matchesDataRef || !matchesDescription) {
+            const bool matchesKeyword = keyword.isEmpty()
+                || point.dataRef().contains(keyword, Qt::CaseInsensitive)
+                || point.description.contains(keyword, Qt::CaseInsensitive);
+            if (!matchesKeyword) {
                 continue;
             }
 
@@ -3840,11 +3825,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
     }
 
-    const QString dataRefKeyword = m_deviceBindingDataRefFilterEdit
+    const QString keyword = m_deviceBindingDataRefFilterEdit
         ? m_deviceBindingDataRefFilterEdit->text().trimmed()
-        : QString();
-    const QString descriptionKeyword = m_deviceBindingDescriptionFilterEdit
-        ? m_deviceBindingDescriptionFilterEdit->text().trimmed()
         : QString();
     const int bindingFilterTabIndex = m_deviceBindingFilterTabBar
         ? m_deviceBindingFilterTabBar->currentIndex()
@@ -3876,10 +3858,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     QList<int> visibleBindingIndexes;
     for (int bindingIndex = 0; bindingIndex < device.bindings.size(); ++bindingIndex) {
         const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
-        const bool matchesDataRef = dataRefKeyword.isEmpty()
-            || binding.dataRef.contains(dataRefKeyword, Qt::CaseInsensitive);
-        const bool matchesDescription = descriptionKeyword.isEmpty()
-            || binding.descriptionOverride.contains(descriptionKeyword, Qt::CaseInsensitive);
+        const bool matchesKeyword = keyword.isEmpty()
+            || binding.dataRef.contains(keyword, Qt::CaseInsensitive)
+            || binding.descriptionOverride.contains(keyword, Qt::CaseInsensitive);
         bool matchesCategory = true;
         if (bindingFilterTabIndex > 0) {
             int pointTabIndex = 0;
@@ -3910,7 +3891,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             }
             matchesCategory = pointTabIndex == bindingFilterTabIndex;
         }
-        if (matchesDataRef && matchesDescription && matchesCategory) {
+        if (matchesKeyword && matchesCategory) {
             visibleBindingIndexes.append(bindingIndex);
         }
     }
