@@ -300,6 +300,9 @@ bool isDeviceForProtocol(const ProtocolDeviceInstance &device,
     if (protocol == ProtocolType::Iec104) {
         return device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
     }
+    if (protocol == ProtocolType::Dlt645) {
+        return device.appType.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
+    }
     if (protocol == ProtocolType::Modbus) {
         return device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
     }
@@ -372,6 +375,28 @@ QString modbusIniSetLine(const ModbusSetPoint &setPoint)
         .arg(setPoint.entryNo)
         .arg(setPoint.funCode)
         .arg(setPoint.regAddr);
+}
+
+QString dlt645IniPollLine(const Dlt645PollGroup &group)
+{
+    return QStringLiteral("poll_%1_%2_%3_%4")
+        .arg(group.groupNo)
+        .arg(group.funCode, 0, 16)
+        .arg(group.pollDi.trimmed().toUpper())
+        .arg(group.dataLength);
+}
+
+QString dlt645IniSetLine(const Dlt645SetPoint &setPoint)
+{
+    QString line = QStringLiteral("set_%1_%2_%3_%4")
+        .arg(setPoint.groupNo)
+        .arg(setPoint.entryNo)
+        .arg(setPoint.funCode, 0, 16)
+        .arg(setPoint.di.trimmed().toUpper());
+    if (setPoint.kind == Dlt645PointKind::Yt) {
+        line += QStringLiteral("_%1").arg(setPoint.dataLength);
+    }
+    return line;
 }
 
 QString modelFileNameForExport(const ModelTemplate &model)
@@ -785,6 +810,47 @@ QJsonObject serializeModbusDevice(const ProtocolDeviceInstance &device,
     return root;
 }
 
+QJsonObject serializeDlt645Device(const ProtocolDeviceInstance &device,
+                                  const ModelTemplate *model)
+{
+    const QHash<QString, QString> descriptionMap = buildDataRefDescriptionMap(model);
+    const QHash<QString, int> orderMap = buildModelPointOrderMap(model);
+    const QList<PointBinding> exportBindings = bindingsForExport(device, orderMap);
+
+    QJsonArray bindingArray;
+    for (const PointBinding &binding : exportBindings) {
+        QJsonObject object = serializeBinding(binding, descriptionMap);
+        if (binding.extensions.contains(QStringLiteral("linkto"))) {
+            object.insert(QStringLiteral("linkto"), binding.extensions.value(QStringLiteral("linkto")));
+        }
+        if (binding.extensions.contains(QStringLiteral("virdot"))) {
+            object.insert(QStringLiteral("virdot"), binding.extensions.value(QStringLiteral("virdot")));
+        }
+        bindingArray.append(object);
+    }
+
+    QJsonObject root;
+    root.insert(QStringLiteral("DeviceId"), device.deviceId);
+    root.insert(QStringLiteral("DeviceDesc"), device.deviceDesc);
+    root.insert(QStringLiteral("Model"), device.modelId);
+    root.insert(QStringLiteral("addr"), device.transport.stationAddress);
+
+    if (!device.transport.serial.isEmpty()) {
+        QJsonObject rtu;
+        rtu.insert(QStringLiteral("serialPort"), jsonValueToString(device.transport.serial.value(QStringLiteral("serialPort"))));
+        for (const QString &key : {QStringLiteral("baud"), QStringLiteral("dataBits"), QStringLiteral("stopBits")}) {
+            bool ok = false;
+            const int value = jsonValueToString(device.transport.serial.value(key)).toInt(&ok);
+            rtu.insert(key, ok ? QJsonValue(value) : device.transport.serial.value(key));
+        }
+        rtu.insert(QStringLiteral("parity"), jsonValueToString(device.transport.serial.value(QStringLiteral("parity"))));
+        root.insert(QStringLiteral("rtu"), rtu);
+    }
+
+    root.insert(QStringLiteral("meas_points"), bindingArray);
+    return root;
+}
+
 bool writeJsonFile(const QString &filePath,
                    const QJsonObject &object,
                    QString &errorMessage)
@@ -1003,6 +1069,154 @@ QString buildModbusIniContent(const ConfigProject &project,
                 continue;
             }
             stream << key << "=" << device.modbus.rawExtra.value(key).toString() << "\n";
+        }
+    }
+
+    return content;
+}
+
+QString buildDlt645IniContent(const ConfigProject &project,
+                              const QList<ProtocolDeviceInstance> &devices)
+{
+    QString content;
+    QTextStream stream(&content);
+
+    stream << "[485_para]\n";
+    stream << "serialPort=" << (project.dlt645.serialPort.trimmed().isEmpty()
+        ? QStringLiteral("/dev/ttyS1")
+        : project.dlt645.serialPort.trimmed()) << "\n";
+    stream << "baud=" << (project.dlt645.baud.trimmed().isEmpty()
+        ? QStringLiteral("9600")
+        : project.dlt645.baud.trimmed()) << "\n";
+    stream << "dataBits=" << (project.dlt645.dataBits.trimmed().isEmpty()
+        ? QStringLiteral("8")
+        : project.dlt645.dataBits.trimmed()) << "\n";
+    stream << "stopBits=" << (project.dlt645.stopBits.trimmed().isEmpty()
+        ? QStringLiteral("1")
+        : project.dlt645.stopBits.trimmed()) << "\n";
+    stream << "parity=" << (project.dlt645.parity.trimmed().isEmpty()
+        ? QStringLiteral("even")
+        : project.dlt645.parity.trimmed()) << "\n";
+    stream << "frameInterval=" << (project.dlt645.frameInterval.trimmed().isEmpty()
+        ? QStringLiteral("100")
+        : project.dlt645.frameInterval.trimmed()) << "\n";
+    if (!project.dlt645.hwVariant.trimmed().isEmpty()) {
+        stream << "hw_variant=" << project.dlt645.hwVariant.trimmed() << "\n";
+    }
+    for (const QString &key : project.dlt645.rawExtra.keys()) {
+        stream << key << "=" << project.dlt645.rawExtra.value(key).toString() << "\n";
+    }
+
+    for (const ProtocolDeviceInstance &device : devices) {
+        QList<Dlt645PollGroup> yxPolls;
+        QList<Dlt645PollGroup> ycPolls;
+        QList<Dlt645SetPoint> ykSets;
+        QList<Dlt645SetPoint> ytSets;
+
+        for (const Dlt645PollGroup &group : device.dlt645.pollGroups) {
+            if (group.kind == Dlt645PointKind::Yx) {
+                yxPolls.append(group);
+            } else {
+                ycPolls.append(group);
+            }
+        }
+        for (const Dlt645SetPoint &setPoint : device.dlt645.setPoints) {
+            if (setPoint.kind == Dlt645PointKind::Yk) {
+                ykSets.append(setPoint);
+            } else {
+                ytSets.append(setPoint);
+            }
+        }
+
+        auto sortByOrder = [](const auto &left, const auto &right) {
+            if (left.order != right.order) {
+                return left.order < right.order;
+            }
+            if (left.groupNo != right.groupNo) {
+                return left.groupNo < right.groupNo;
+            }
+            if constexpr (std::is_same_v<std::decay_t<decltype(left)>, Dlt645SetPoint>) {
+                return left.entryNo < right.entryNo;
+            } else {
+                return left.pollDi < right.pollDi;
+            }
+        };
+        std::sort(yxPolls.begin(), yxPolls.end(), sortByOrder);
+        std::sort(ycPolls.begin(), ycPolls.end(), sortByOrder);
+        std::sort(ykSets.begin(), ykSets.end(), sortByOrder);
+        std::sort(ytSets.begin(), ytSets.end(), sortByOrder);
+
+        stream << "\n[dev_" << device.deviceId << "]\n";
+        stream << "userID=" << (device.dlt645.userId.trimmed().isEmpty() ? QStringLiteral("0") : device.dlt645.userId.trimmed()) << "\n";
+        stream << "password=" << (device.dlt645.password.trimmed().isEmpty() ? QStringLiteral("0") : device.dlt645.password.trimmed()) << "\n";
+        stream << "yx_type=" << (device.dlt645.yxType.trimmed().isEmpty() ? QStringLiteral("BIN") : device.dlt645.yxType.trimmed()) << "\n";
+        stream << "yc_type=" << (device.dlt645.ycType.trimmed().isEmpty() ? QStringLiteral("BCD") : device.dlt645.ycType.trimmed()) << "\n";
+        stream << "yt_type=" << (device.dlt645.ytType.trimmed().isEmpty() ? QStringLiteral("BCD") : device.dlt645.ytType.trimmed()) << "\n";
+        stream << "yx_poll_num=" << yxPolls.size() << "\n";
+        stream << "yc_poll_num=" << ycPolls.size() << "\n";
+        stream << "yk_set_num=" << ykSets.size() << "\n";
+        stream << "yt_set_num=" << ytSets.size() << "\n";
+
+        for (int index = 0; index < yxPolls.size(); ++index) {
+            const Dlt645PollGroup &group = yxPolls.at(index);
+            const int order = index + 1;
+            stream << "yx_poll" << order << "=" << dlt645IniPollLine(group) << "\n";
+            if (!group.dataType.trimmed().isEmpty() && group.dataType != device.dlt645.yxType) {
+                stream << "yx_type" << order << "=" << group.dataType.trimmed() << "\n";
+            }
+        }
+        for (int index = 0; index < ycPolls.size(); ++index) {
+            const Dlt645PollGroup &group = ycPolls.at(index);
+            const int order = index + 1;
+            stream << "yc_poll" << order << "=" << dlt645IniPollLine(group) << "\n";
+            if (!group.dataType.trimmed().isEmpty() && group.dataType != device.dlt645.ycType) {
+                stream << "yc_type" << order << "=" << group.dataType.trimmed() << "\n";
+            }
+        }
+        for (int index = 0; index < ykSets.size(); ++index) {
+            stream << "yk_set" << (index + 1) << "=" << dlt645IniSetLine(ykSets.at(index)) << "\n";
+        }
+        for (int index = 0; index < ytSets.size(); ++index) {
+            const Dlt645SetPoint &setPoint = ytSets.at(index);
+            const int order = index + 1;
+            stream << "yt_set" << order << "=" << dlt645IniSetLine(setPoint) << "\n";
+            if (!setPoint.dataType.trimmed().isEmpty() && setPoint.dataType != device.dlt645.ytType) {
+                stream << "yt_type" << order << "=" << setPoint.dataType.trimmed() << "\n";
+            }
+        }
+
+        QSet<QString> structuredKeys = {
+            QStringLiteral("userID"),
+            QStringLiteral("password"),
+            QStringLiteral("yx_type"),
+            QStringLiteral("yc_type"),
+            QStringLiteral("yt_type"),
+            QStringLiteral("yx_poll_num"),
+            QStringLiteral("yc_poll_num"),
+            QStringLiteral("yk_set_num"),
+            QStringLiteral("yt_set_num")
+        };
+        for (int index = 1; index <= yxPolls.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yx_poll%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yx_type%1").arg(index));
+        }
+        for (int index = 1; index <= ycPolls.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yc_poll%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yc_type%1").arg(index));
+        }
+        for (int index = 1; index <= ykSets.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yk_set%1").arg(index));
+        }
+        for (int index = 1; index <= ytSets.size(); ++index) {
+            structuredKeys.insert(QStringLiteral("yt_set%1").arg(index));
+            structuredKeys.insert(QStringLiteral("yt_type%1").arg(index));
+        }
+
+        for (const QString &key : device.dlt645.rawExtra.keys()) {
+            if (structuredKeys.contains(key)) {
+                continue;
+            }
+            stream << key << "=" << device.dlt645.rawExtra.value(key).toString() << "\n";
         }
     }
 
@@ -1409,6 +1623,16 @@ bool ConfigProjectManager::importModbusAppDirectory(const QString &appDir,
     }
 
     return m_modbusImporter.importAppDirectory(appDir, m_project, report);
+}
+
+bool ConfigProjectManager::importDlt645AppDirectory(const QString &appDir,
+                                                    ImportReport &report)
+{
+    if (m_project.projectId.isEmpty()) {
+        createEmptyProject(QStringLiteral("导入工程"), appDir);
+    }
+
+    return m_dlt645Importer.importAppDirectory(appDir, m_project, report);
 }
 
 bool ConfigProjectManager::importLogicCenterConfigFile(const QString &filePath,

@@ -29,6 +29,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Network Widgets)
 set(SOURCES
     src/main.cpp
     src/config/config_domain.cpp
+    src/config/config_dlt645_importer.cpp
     src/config/config_iec104_importer.cpp
     src/config/config_modbus_importer.cpp
     src/config/config_project_export.cpp

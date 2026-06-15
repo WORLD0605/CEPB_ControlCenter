@@ -643,6 +643,9 @@ inline QStringList configTransferPathList()
         QStringLiteral("cepmodbus/model"),
         QStringLiteral("cepmodbus/dev"),
         QStringLiteral("cepmodbus/etc"),
+        QStringLiteral("cepdlt645/model"),
+        QStringLiteral("cepdlt645/dev"),
+        QStringLiteral("cepdlt645/etc"),
         QStringLiteral("cepLogicCenter/etc"),
         QStringLiteral("IEC101ServiceChannel/config")
     };

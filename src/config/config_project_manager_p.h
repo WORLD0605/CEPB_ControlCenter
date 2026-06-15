@@ -78,6 +78,8 @@ QJsonObject serializeDevice(const ProtocolDeviceInstance &device,
                             const ModelTemplate *model);
 QJsonObject serializeModbusDevice(const ProtocolDeviceInstance &device,
                                   const ModelTemplate *model);
+QJsonObject serializeDlt645Device(const ProtocolDeviceInstance &device,
+                                  const ModelTemplate *model);
 QList<PointBinding> bindingsForExport(const ProtocolDeviceInstance &device,
                                       const QHash<QString, int> &orderMap);
 bool writeJsonFile(const QString &filePath,
@@ -89,6 +91,8 @@ bool writeTextFile(const QString &filePath,
                    const QString &content,
                    QString &errorMessage);
 QString buildModbusIniContent(const ConfigProject &project,
+                              const QList<ProtocolDeviceInstance> &devices);
+QString buildDlt645IniContent(const ConfigProject &project,
                               const QList<ProtocolDeviceInstance> &devices);
 
 } // namespace configtool::detail

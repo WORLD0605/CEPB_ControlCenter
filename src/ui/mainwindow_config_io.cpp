@@ -29,9 +29,10 @@ void MainWindow::onImportIec104ConfigClicked()
 
     const QString iec104AppDir = resolveIec104AppDir(projectRoot);
     const QString modbusAppDir = resolveModbusAppDir(projectRoot);
+    const QString dlt645AppDir = resolveDlt645AppDir(projectRoot);
     const QString logicCenterAppDir = resolveLogicCenterAppDir(projectRoot);
-    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && logicCenterAppDir.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104、cepmodbus 或 cepLogicCenter 子目录"));
+    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty() && logicCenterAppDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 cepiec104、cepmodbus、cepdlt645 或 cepLogicCenter 子目录"));
         return;
     }
 
@@ -50,6 +51,9 @@ void MainWindow::onImportIec104ConfigClicked()
     }
     if (!modbusAppDir.isEmpty()) {
         ok = m_configProjectManager.importModbusAppDirectory(modbusAppDir, report) && ok;
+    }
+    if (!dlt645AppDir.isEmpty()) {
+        ok = m_configProjectManager.importDlt645AppDirectory(dlt645AppDir, report) && ok;
     }
     if (!logicCenterAppDir.isEmpty()) {
         const QString logicConfigPath = QDir(logicCenterAppDir)
@@ -99,14 +103,18 @@ void MainWindow::onExportIec104ConfigClicked()
 
     const QString iec104AppDir = resolveIec104AppDir(projectRoot);
     const QString resolvedModbusDir = resolveModbusAppDir(projectRoot);
+    const QString resolvedDlt645Dir = resolveDlt645AppDir(projectRoot);
     const QString resolvedLogicCenterDir = resolveLogicCenterAppDir(projectRoot);
     const QString modbusAppDir = resolvedModbusDir.isEmpty()
         ? QDir(projectRoot).filePath(QStringLiteral("cepmodbus"))
         : resolvedModbusDir;
+    const QString dlt645AppDir = resolvedDlt645Dir.isEmpty()
+        ? QDir(projectRoot).filePath(QStringLiteral("cepdlt645"))
+        : resolvedDlt645Dir;
     const QString logicCenterAppDir = resolvedLogicCenterDir.isEmpty()
         ? QDir(projectRoot).filePath(QStringLiteral("cepLogicCenter"))
         : resolvedLogicCenterDir;
-    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && logicCenterAppDir.isEmpty()) {
+    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty() && logicCenterAppDir.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到可导出的配置目录"));
         return;
     }
@@ -119,6 +127,7 @@ void MainWindow::onExportIec104ConfigClicked()
         ok = m_configProjectManager.exportIec104AppDirectory(iec104AppDir, report) && ok;
     }
     ok = m_configProjectManager.exportModbusAppDirectory(modbusAppDir, report) && ok;
+    ok = m_configProjectManager.exportDlt645AppDirectory(dlt645AppDir, report) && ok;
     ok = m_configProjectManager.exportLogicCenterConfigFile(
         QDir(logicCenterAppDir).filePath(QStringLiteral("etc/LogicCenter_Config.json")),
         report) && ok;
@@ -913,6 +922,9 @@ QString MainWindow::normalizedConfigProjectRoot(const QString &selectedPath) con
     if (folderName.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0) {
         return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));
     }
+    if (folderName.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0) {
+        return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));
+    }
     if (folderName.compare(QStringLiteral("cepLogicCenter"), Qt::CaseInsensitive) == 0) {
         return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));
     }
@@ -952,6 +964,22 @@ QString MainWindow::resolveModbusAppDir(const QString &projectRoot) const
     }
 
     const QString appDir = QDir(projectRoot).filePath(QStringLiteral("cepmodbus"));
+    return QDir(appDir).exists() ? appDir : QString();
+}
+
+QString MainWindow::resolveDlt645AppDir(const QString &projectRoot) const
+{
+    if (projectRoot.trimmed().isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo rootInfo(projectRoot);
+    if (rootInfo.fileName().compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0
+        && rootInfo.isDir()) {
+        return rootInfo.absoluteFilePath();
+    }
+
+    const QString appDir = QDir(projectRoot).filePath(QStringLiteral("cepdlt645"));
     return QDir(appDir).exists() ? appDir : QString();
 }
 

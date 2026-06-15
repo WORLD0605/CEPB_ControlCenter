@@ -291,6 +291,7 @@ private:
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
     QString resolveIec104AppDir(const QString &projectRoot) const;
     QString resolveModbusAppDir(const QString &projectRoot) const;
+    QString resolveDlt645AppDir(const QString &projectRoot) const;
     QString resolveLogicCenterAppDir(const QString &projectRoot) const;
     QString resolveIec101ServiceChannelAppDir(const QString &projectRoot) const;
     QJsonObject serializeIec101LocalhostConfig() const;

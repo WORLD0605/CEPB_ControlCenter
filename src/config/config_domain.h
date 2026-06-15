@@ -39,6 +39,13 @@ enum class ModbusPointKind {
     Yt
 };
 
+enum class Dlt645PointKind {
+    Yx,
+    Yc,
+    Yk,
+    Yt
+};
+
 enum class ConfigIssueSeverity {
     Info,
     Warning,
@@ -92,6 +99,51 @@ struct ModbusDeviceConfig {
     QString ytScale;
     QList<ModbusPollGroup> pollGroups;
     QList<ModbusSetPoint> setPoints;
+    QJsonObject rawExtra;
+};
+
+struct Dlt645GlobalConfig {
+    QString serialPort;
+    QString baud;
+    QString dataBits;
+    QString stopBits;
+    QString parity;
+    QString frameInterval;
+    QString hwVariant;
+    QJsonObject rawExtra;
+};
+
+struct Dlt645PollGroup {
+    Dlt645PointKind kind = Dlt645PointKind::Yc;
+    int order = 0;
+    int groupNo = 0;
+    int funCode = 0;
+    QString pollDi;
+    int dataLength = 0;
+    QString dataType;
+    QJsonObject rawExtra;
+};
+
+struct Dlt645SetPoint {
+    Dlt645PointKind kind = Dlt645PointKind::Yt;
+    int order = 0;
+    int groupNo = 0;
+    int entryNo = 0;
+    int funCode = 0;
+    QString di;
+    int dataLength = 0;
+    QString dataType;
+    QJsonObject rawExtra;
+};
+
+struct Dlt645DeviceConfig {
+    QString userId;
+    QString password;
+    QString yxType;
+    QString ycType;
+    QString ytType;
+    QList<Dlt645PollGroup> pollGroups;
+    QList<Dlt645SetPoint> setPoints;
     QJsonObject rawExtra;
 };
 
@@ -316,6 +368,7 @@ struct ProtocolDeviceInstance {
     DeviceTransportConfig transport;
     QList<PointBinding> bindings;
     ModbusDeviceConfig modbus;
+    Dlt645DeviceConfig dlt645;
     QJsonObject extensions;
     SourceInfo source;
 
@@ -332,6 +385,7 @@ struct ConfigProject {
     QList<ModelTemplate> models;
     QList<ProtocolDeviceInstance> devices;
     ModbusGlobalConfig modbus;
+    Dlt645GlobalConfig dlt645;
     LogicCenterConfig logicCenter;
     QJsonObject logic;
     QJsonObject metadata;
@@ -348,6 +402,7 @@ QString pointSignalTypeId(PointSignalType type);
 QString controlKindId(ControlKind kind);
 QString protocolTypeId(ProtocolType type);
 QString modbusPointKindId(ModbusPointKind kind);
+QString dlt645PointKindId(Dlt645PointKind kind);
 
 QList<ServiceTemplate> createDefaultModelServices();
 

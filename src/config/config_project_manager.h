@@ -92,6 +92,35 @@ private:
                                              ImportReport &report) const;
 };
 
+class Dlt645ConfigImporter
+{
+public:
+    bool importAppDirectory(const QString &appDir,
+                            ConfigProject &project,
+                            ImportReport &report) const;
+
+private:
+    bool importModelDirectory(const QString &modelDir,
+                              ConfigProject &project,
+                              ImportReport &report) const;
+    bool importDeviceDirectory(const QString &deviceDir,
+                               const QString &iniPath,
+                               ConfigProject &project,
+                               ImportReport &report) const;
+    bool importModelFile(const QString &filePath,
+                         ConfigProject &project,
+                         ImportReport &report) const;
+    bool importDeviceFile(const QString &filePath,
+                          const QString &iniPath,
+                          ConfigProject &project,
+                          ImportReport &report) const;
+    Dlt645GlobalConfig importGlobalIniConfig(const QString &iniPath) const;
+    Dlt645DeviceConfig importDeviceIniConfig(const QString &iniPath,
+                                             const QString &deviceId,
+                                             const QString &address,
+                                             ImportReport &report) const;
+};
+
 class ConfigProjectManager
 {
 public:
@@ -103,11 +132,15 @@ public:
                                   ImportReport &report);
     bool importModbusAppDirectory(const QString &appDir,
                                   ImportReport &report);
+    bool importDlt645AppDirectory(const QString &appDir,
+                                  ImportReport &report);
     bool importLogicCenterConfigFile(const QString &filePath,
                                      ImportReport &report);
     bool exportIec104AppDirectory(const QString &appDir,
                                   ExportReport &report) const;
     bool exportModbusAppDirectory(const QString &appDir,
+                                  ExportReport &report) const;
+    bool exportDlt645AppDirectory(const QString &appDir,
                                   ExportReport &report) const;
     bool exportLogicCenterConfigFile(const QString &filePath,
                                      ExportReport &report) const;
@@ -119,6 +152,7 @@ private:
     ConfigProject m_project;
     Iec104ConfigImporter m_iec104Importer;
     ModbusConfigImporter m_modbusImporter;
+    Dlt645ConfigImporter m_dlt645Importer;
 };
 
 } // namespace configtool

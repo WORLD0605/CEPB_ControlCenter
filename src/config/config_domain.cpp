@@ -946,6 +946,22 @@ QString modbusPointKindId(ModbusPointKind kind)
     return QStringLiteral("yc");
 }
 
+QString dlt645PointKindId(Dlt645PointKind kind)
+{
+    switch (kind) {
+    case Dlt645PointKind::Yx:
+        return QStringLiteral("yx");
+    case Dlt645PointKind::Yc:
+        return QStringLiteral("yc");
+    case Dlt645PointKind::Yk:
+        return QStringLiteral("yk");
+    case Dlt645PointKind::Yt:
+        return QStringLiteral("yt");
+    }
+
+    return QStringLiteral("yc");
+}
+
 QList<ServiceTemplate> createDefaultModelServices()
 {
     QList<ServiceTemplate> services;
