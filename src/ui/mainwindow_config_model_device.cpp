@@ -1946,8 +1946,15 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         case Dlt645ColumnPointDi:
         {
             const QString di = normalizedDlt645Di(value);
+            const QString previousPointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
+            const QString currentPollDi = binding.extensions.contains(QStringLiteral("dlt645PollDI"))
+                ? normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI")))
+                : previousPointDi;
             if (di.isEmpty()) {
                 binding.extensions.remove(QStringLiteral("dlt645PointDI"));
+                if (!previousPointDi.isEmpty() && currentPollDi == previousPointDi) {
+                    binding.extensions.insert(QStringLiteral("dlt645PollDI"), QString());
+                }
             } else {
                 binding.extensions.insert(QStringLiteral("dlt645PointDI"), di);
             }
@@ -1961,11 +1968,7 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         case Dlt645ColumnPollDi:
         {
             const QString di = normalizedDlt645Di(value);
-            if (di.isEmpty()) {
-                binding.extensions.remove(QStringLiteral("dlt645PollDI"));
-            } else {
-                binding.extensions.insert(QStringLiteral("dlt645PollDI"), di);
-            }
+            binding.extensions.insert(QStringLiteral("dlt645PollDI"), di);
             break;
         }
         case Dlt645ColumnFunCode:
@@ -2257,7 +2260,9 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         }
 
         const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
-        const QString pollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+        const QString pollDi = binding.extensions.contains(QStringLiteral("dlt645PollDI"))
+            ? normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI")))
+            : pointDi;
         if (pollDi.isEmpty()) {
             continue;
         }
@@ -2309,7 +2314,9 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
 
         const QString kind = dlt645BindingKind(binding);
         const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
-        const QString pollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+        const QString pollDi = binding.extensions.contains(QStringLiteral("dlt645PollDI"))
+            ? normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI")))
+            : pointDi;
         QString dataType = normalizedDlt645DataType(dlt645BindingString(binding,
                                                                         QStringLiteral("dlt645DataType"),
                                                                         defaultDlt645DataTypeForKind(kind)),
@@ -2329,9 +2336,11 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         binding.extensions.insert(QStringLiteral("dlt645DataLength"), dataLength);
 
         if (isDlt645SetKind(kind)) {
-            const QString setDi = pointDi.isEmpty() ? pollDi : pointDi;
+            const QString setDi = pointDi;
             if (setDi.isEmpty()) {
                 binding.address.clear();
+                binding.extensions.remove(QStringLiteral("dlt645GroupNo"));
+                binding.extensions.remove(QStringLiteral("dlt645EntryNo"));
                 continue;
             }
 
@@ -2359,9 +2368,11 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
             continue;
         }
 
-        const QString readDi = pollDi.isEmpty() ? pointDi : pollDi;
+        const QString readDi = pollDi;
         if (readDi.isEmpty()) {
             binding.address.clear();
+            binding.extensions.remove(QStringLiteral("dlt645GroupNo"));
+            binding.extensions.remove(QStringLiteral("dlt645EntryNo"));
             continue;
         }
 
@@ -2384,9 +2395,6 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         }
 
         binding.extensions.insert(QStringLiteral("dlt645PollDI"), readDi);
-        if (pointDi.isEmpty()) {
-            binding.extensions.insert(QStringLiteral("dlt645PointDI"), readDi);
-        }
         binding.extensions.insert(QStringLiteral("dlt645GroupNo"), groupNo);
         binding.extensions.insert(QStringLiteral("dlt645EntryNo"), entryNo);
         binding.address = QString::number(buildDlt645DataIndex(groupNo, entryNo));
@@ -4286,7 +4294,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
             const QString kind = dlt645BindingKind(binding);
             const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
-            const QString pollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+            const QString pollDi = binding.extensions.contains(QStringLiteral("dlt645PollDI"))
+                ? normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI")))
+                : pointDi;
             const QString dataType = normalizedDlt645DataType(dlt645BindingString(binding,
                                                                                   QStringLiteral("dlt645DataType"),
                                                                                   defaultDlt645DataTypeForKind(kind)),
@@ -4328,7 +4338,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
 
             const bool missingDi = binding.enabled
-                && (isDlt645SetKind(kind) ? pointDi.isEmpty() : (pointDi.isEmpty() && pollDi.isEmpty()));
+                && (isDlt645SetKind(kind) ? pointDi.isEmpty() : (pointDi.isEmpty() || pollDi.isEmpty()));
             if (missingDi) {
                 ++missingDiCount;
                 const QColor warningColor(QStringLiteral("#b9770e"));

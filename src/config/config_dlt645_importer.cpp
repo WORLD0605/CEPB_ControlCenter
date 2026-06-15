@@ -297,6 +297,20 @@ bool Dlt645ConfigImporter::importDeviceFile(const QString &filePath,
         }
 
         annotateDlt645Binding(binding, device.dlt645);
+        for (const QString &key : {
+                 QStringLiteral("dlt645Kind"),
+                 QStringLiteral("dlt645PointDI"),
+                 QStringLiteral("dlt645PollDI"),
+                 QStringLiteral("dlt645FunctionCode"),
+                 QStringLiteral("dlt645DataType"),
+                 QStringLiteral("dlt645DataLength"),
+                 QStringLiteral("dlt645GroupNo"),
+                 QStringLiteral("dlt645EntryNo")
+             }) {
+            if (bindingObject.contains(key)) {
+                binding.extensions.insert(key, bindingObject.value(key));
+            }
+        }
         if (binding.enabled
             && !binding.address.trimmed().isEmpty()
             && !binding.extensions.contains(QStringLiteral("dlt645Kind"))) {

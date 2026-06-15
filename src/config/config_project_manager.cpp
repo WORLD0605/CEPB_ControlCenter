@@ -820,6 +820,20 @@ QJsonObject serializeDlt645Device(const ProtocolDeviceInstance &device,
     QJsonArray bindingArray;
     for (const PointBinding &binding : exportBindings) {
         QJsonObject object = serializeBinding(binding, descriptionMap);
+        for (const QString &key : {
+                 QStringLiteral("dlt645Kind"),
+                 QStringLiteral("dlt645PointDI"),
+                 QStringLiteral("dlt645PollDI"),
+                 QStringLiteral("dlt645FunctionCode"),
+                 QStringLiteral("dlt645DataType"),
+                 QStringLiteral("dlt645DataLength"),
+                 QStringLiteral("dlt645GroupNo"),
+                 QStringLiteral("dlt645EntryNo")
+             }) {
+            if (binding.extensions.contains(key)) {
+                object.insert(key, binding.extensions.value(key));
+            }
+        }
         if (binding.extensions.contains(QStringLiteral("linkto"))) {
             object.insert(QStringLiteral("linkto"), binding.extensions.value(QStringLiteral("linkto")));
         }
