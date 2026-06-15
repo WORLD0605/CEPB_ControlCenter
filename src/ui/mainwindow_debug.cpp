@@ -106,9 +106,18 @@ bool isIec101App(const AppConfig &appConfig)
     return appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
 }
 
+bool isLogicCenterApp(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("LogicCenter"), Qt::CaseInsensitive) == 0;
+}
+
 bool supportsRawFrameLogWindow(const AppConfig &appConfig)
 {
-    return isModbusApp(appConfig) || isIec104App(appConfig) || isDlt645App(appConfig) || isIec101App(appConfig);
+    return isModbusApp(appConfig) ||
+           isIec104App(appConfig) ||
+           isDlt645App(appConfig) ||
+           isIec101App(appConfig) ||
+           isLogicCenterApp(appConfig);
 }
 
 QString rawFrameDebugCategory(const AppConfig &appConfig)
@@ -122,7 +131,31 @@ QString rawFrameDebugCategory(const AppConfig &appConfig)
     if (isIec101App(appConfig)) {
         return QStringLiteral("101");
     }
+    if (isLogicCenterApp(appConfig)) {
+        return QStringLiteral("compute");
+    }
     return QStringLiteral("modbus");
+}
+
+QStringList rawFrameDebugCategories(const AppConfig &appConfig)
+{
+    if (isLogicCenterApp(appConfig)) {
+        return {
+            QStringLiteral("compute"),
+            QStringLiteral("misc"),
+            QStringLiteral("mqtt"),
+            QStringLiteral("agcavc")
+        };
+    }
+    return {rawFrameDebugCategory(appConfig)};
+}
+
+QString rawFrameDebugCategoryDisplayName(const QString &category)
+{
+    if (category == QStringLiteral("agcavc")) {
+        return QStringLiteral("AGC/AVC");
+    }
+    return category;
 }
 
 QString rawFrameAppDisplayName(const AppConfig &appConfig)
@@ -135,6 +168,9 @@ QString rawFrameAppDisplayName(const AppConfig &appConfig)
     }
     if (isIec101App(appConfig)) {
         return QStringLiteral("IEC101");
+    }
+    if (isLogicCenterApp(appConfig)) {
+        return QStringLiteral("LogicCenter");
     }
     return QStringLiteral("Modbus");
 }
@@ -1063,7 +1099,7 @@ void MainWindow::onOpenRawFrameLogClicked()
 
     auto *dialog = new QDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    const QString debugCategory = rawFrameDebugCategory(appConfig);
+    const QStringList debugCategories = rawFrameDebugCategories(appConfig);
     const QString appDisplayName = rawFrameAppDisplayName(appConfig);
 
     dialog->setWindowTitle(QStringLiteral("%1 原始 debugconsole 日志").arg(appDisplayName));
@@ -1087,13 +1123,25 @@ void MainWindow::onOpenRawFrameLogClicked()
     layout->addWidget(logView, 1);
 
     auto *buttonRow = new QHBoxLayout();
-    auto *toggleRawFrameBtn = new QPushButton(QStringLiteral("开启原始帧"), dialog);
-    toggleRawFrameBtn->setToolTip(QStringLiteral("发送 debug %1 on/off，切换 %2 原始报文打印")
-                                      .arg(debugCategory, appDisplayName));
-    toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", false);
+    QList<QPushButton *> toggleRawFrameBtns;
+    for (const QString &debugCategory : debugCategories) {
+        const QString categoryDisplayName = rawFrameDebugCategoryDisplayName(debugCategory);
+        const bool singleCategory = debugCategories.size() == 1;
+        auto *toggleRawFrameBtn = new QPushButton(
+            singleCategory
+                ? QStringLiteral("开启原始帧")
+                : QStringLiteral("开启 %1").arg(categoryDisplayName),
+            dialog);
+        toggleRawFrameBtn->setToolTip(QStringLiteral("发送 debug %1 on/off，切换 %2 %3 日志打印")
+                                          .arg(debugCategory, appDisplayName, categoryDisplayName));
+        toggleRawFrameBtn->setProperty("rawFrameDebugCategory", debugCategory);
+        toggleRawFrameBtn->setProperty("rawFrameDebugCategoryDisplayName", categoryDisplayName);
+        toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", false);
+        toggleRawFrameBtns.append(toggleRawFrameBtn);
+        buttonRow->addWidget(toggleRawFrameBtn);
+    }
     auto *clearBtn = new QPushButton(QStringLiteral("清空"), dialog);
     auto *closeBtn = new QPushButton(QStringLiteral("关闭"), dialog);
-    buttonRow->addWidget(toggleRawFrameBtn);
     buttonRow->addStretch();
     buttonRow->addWidget(clearBtn);
     buttonRow->addWidget(closeBtn);
@@ -1108,23 +1156,29 @@ void MainWindow::onOpenRawFrameLogClicked()
     auto *client = new DebugConsoleClient(dialog);
     client->setPromptPattern(appConfig.prompt);
 
-    connect(toggleRawFrameBtn, &QPushButton::clicked, dialog, [client, toggleRawFrameBtn, debugCategory, appDisplayName, appendRawLog]() {
-        if (!client->isConnected()) {
-            appendRawLog(QStringLiteral("未连接，无法切换 %1 原始报文打印").arg(appDisplayName), QStringLiteral("#ffcc66"));
-            return;
-        }
-        if (client->isExecutingCommand()) {
-            appendRawLog(QStringLiteral("上一条 debug 命令尚未返回"), QStringLiteral("#ffcc66"));
-            return;
-        }
+    for (QPushButton *toggleRawFrameBtn : toggleRawFrameBtns) {
+        connect(toggleRawFrameBtn, &QPushButton::clicked, dialog, [client, toggleRawFrameBtn, appDisplayName, appendRawLog]() {
+            const QString debugCategory = toggleRawFrameBtn->property("rawFrameDebugCategory").toString();
+            const QString categoryDisplayName = toggleRawFrameBtn->property("rawFrameDebugCategoryDisplayName").toString();
+            if (!client->isConnected()) {
+                appendRawLog(QStringLiteral("未连接，无法切换 %1 %2 日志打印")
+                                 .arg(appDisplayName, categoryDisplayName),
+                             QStringLiteral("#ffcc66"));
+                return;
+            }
+            if (client->isExecutingCommand()) {
+                appendRawLog(QStringLiteral("上一条 debug 命令尚未返回"), QStringLiteral("#ffcc66"));
+                return;
+            }
 
-        const bool enabled = toggleRawFrameBtn->property("rawFrameDebugEnabled").toBool();
-        const QString command = QStringLiteral("debug %1 %2")
-                                    .arg(debugCategory, enabled ? QStringLiteral("off") : QStringLiteral("on"));
-        appendRawLog(QStringLiteral("=> %1").arg(command), QStringLiteral("#aaaaaa"));
-        toggleRawFrameBtn->setEnabled(false);
-        client->sendCommand(command);
-    });
+            const bool enabled = toggleRawFrameBtn->property("rawFrameDebugEnabled").toBool();
+            const QString command = QStringLiteral("debug %1 %2")
+                                        .arg(debugCategory, enabled ? QStringLiteral("off") : QStringLiteral("on"));
+            appendRawLog(QStringLiteral("=> %1").arg(command), QStringLiteral("#aaaaaa"));
+            toggleRawFrameBtn->setEnabled(false);
+            client->sendCommand(command);
+        });
+    }
     connect(clearBtn, &QPushButton::clicked, logView, &QTextEdit::clear);
     connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::close);
     connect(dialog, &QDialog::finished, client, &DebugConsoleClient::disconnectFromHost);
@@ -1140,17 +1194,26 @@ void MainWindow::onOpenRawFrameLogClicked()
     connect(client, &DebugConsoleClient::logLineReceived, dialog, [appendRawLog](const QString &line) {
         appendRawLog(line);
     });
-    connect(client, &DebugConsoleClient::commandReplyReceived, dialog, [toggleRawFrameBtn, debugCategory, appendRawLog](const QString &reply) {
+    connect(client, &DebugConsoleClient::commandReplyReceived, dialog, [toggleRawFrameBtns, appendRawLog](const QString &reply) {
         appendRawLog(reply, QStringLiteral("#87ceeb"));
         const QString normalizedReply = reply.trimmed().toLower();
-        if (normalizedReply.contains(QStringLiteral("%1=on").arg(debugCategory))) {
-            toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", true);
-            toggleRawFrameBtn->setText(QStringLiteral("关闭原始帧"));
-        } else if (normalizedReply.contains(QStringLiteral("%1=off").arg(debugCategory))) {
-            toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", false);
-            toggleRawFrameBtn->setText(QStringLiteral("开启原始帧"));
+        for (QPushButton *toggleRawFrameBtn : toggleRawFrameBtns) {
+            const QString debugCategory = toggleRawFrameBtn->property("rawFrameDebugCategory").toString();
+            const QString categoryDisplayName = toggleRawFrameBtn->property("rawFrameDebugCategoryDisplayName").toString();
+            const bool singleCategory = toggleRawFrameBtns.size() == 1;
+            if (normalizedReply.contains(QStringLiteral("%1=on").arg(debugCategory))) {
+                toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", true);
+                toggleRawFrameBtn->setText(singleCategory
+                    ? QStringLiteral("关闭原始帧")
+                    : QStringLiteral("关闭 %1").arg(categoryDisplayName));
+            } else if (normalizedReply.contains(QStringLiteral("%1=off").arg(debugCategory))) {
+                toggleRawFrameBtn->setProperty("rawFrameDebugEnabled", false);
+                toggleRawFrameBtn->setText(singleCategory
+                    ? QStringLiteral("开启原始帧")
+                    : QStringLiteral("开启 %1").arg(categoryDisplayName));
+            }
+            toggleRawFrameBtn->setEnabled(true);
         }
-        toggleRawFrameBtn->setEnabled(true);
     });
 
     appendRawLog(QStringLiteral("正在连接 %1:%2 ...").arg(host).arg(appConfig.port), QStringLiteral("#87ceeb"));
