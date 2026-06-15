@@ -285,6 +285,7 @@ private:
     void applyModelPointCellText(int row, int column, const QString &text);
     void applyDeviceBindingCellText(int row, int column, const QString &text);
     void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
+    void rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &device);
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
@@ -627,6 +628,16 @@ private:
     QComboBox *m_modbusParityCombo = nullptr;
     QCheckBox *m_modbusDebugCheck = nullptr;
     QGroupBox *m_modbusParamsGroupBox = nullptr;
+    QComboBox *m_dlt645SerialPortCombo = nullptr;
+    QComboBox *m_dlt645HwVariantCombo = nullptr;
+    QComboBox *m_dlt645BaudCombo = nullptr;
+    QComboBox *m_dlt645DataBitsCombo = nullptr;
+    QComboBox *m_dlt645StopBitsCombo = nullptr;
+    QComboBox *m_dlt645ParityCombo = nullptr;
+    QLineEdit *m_dlt645FrameIntervalEdit = nullptr;
+    QLineEdit *m_dlt645UserIdEdit = nullptr;
+    QLineEdit *m_dlt645PasswordEdit = nullptr;
+    QGroupBox *m_dlt645ParamsGroupBox = nullptr;
     // IEC101 配置页面控件
     QComboBox *m_iec101CommModeCombo = nullptr;
     QLineEdit *m_iec101ComAddrEdit = nullptr;

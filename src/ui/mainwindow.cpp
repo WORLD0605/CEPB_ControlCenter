@@ -1177,6 +1177,65 @@ MainWindow::MainWindow(QWidget *parent)
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("硬件型号:"), this), 2, 0);
     modbusParamsLayout->addWidget(m_modbusHwVariantCombo, 2, 1, 1, 6);
     deviceTopLayout->addWidget(m_modbusParamsGroupBox, 1);
+
+    m_dlt645ParamsGroupBox = new QGroupBox(QStringLiteral("DLT645 参数"), this);
+    m_dlt645ParamsGroupBox->setMaximumHeight(220);
+    auto *dlt645ParamsLayout = new QGridLayout(m_dlt645ParamsGroupBox);
+    dlt645ParamsLayout->setContentsMargins(10, 8, 10, 8);
+    dlt645ParamsLayout->setHorizontalSpacing(8);
+    dlt645ParamsLayout->setVerticalSpacing(4);
+    m_dlt645SerialPortCombo = new QComboBox(this);
+    for (int i = 1; i <= 8; ++i) {
+        m_dlt645SerialPortCombo->addItem(QStringLiteral("RS485_%1").arg(i));
+    }
+    m_dlt645HwVariantCombo = new QComboBox(this);
+    m_dlt645HwVariantCombo->addItem(QStringLiteral("使用RS485_4时才需要选择，否则不需要选择"), QString());
+    m_dlt645HwVariantCombo->addItem(QStringLiteral("myir"), QStringLiteral("myir"));
+    m_dlt645HwVariantCombo->addItem(QStringLiteral("talowe"), QStringLiteral("talowe"));
+    m_dlt645BaudCombo = new QComboBox(this);
+    for (const QString &baud : {QStringLiteral("1200"), QStringLiteral("2400"), QStringLiteral("4800"),
+                                QStringLiteral("9600"), QStringLiteral("19200"), QStringLiteral("38400"),
+                                QStringLiteral("57600"), QStringLiteral("115200")}) {
+        m_dlt645BaudCombo->addItem(baud);
+    }
+    m_dlt645DataBitsCombo = new QComboBox(this);
+    for (const QString &dataBits : {QStringLiteral("5"), QStringLiteral("6"), QStringLiteral("7"), QStringLiteral("8")}) {
+        m_dlt645DataBitsCombo->addItem(dataBits);
+    }
+    m_dlt645StopBitsCombo = new QComboBox(this);
+    for (const QString &stopBits : {QStringLiteral("1"), QStringLiteral("2")}) {
+        m_dlt645StopBitsCombo->addItem(stopBits);
+    }
+    m_dlt645ParityCombo = new QComboBox(this);
+    for (const QString &parity : {QStringLiteral("even"), QStringLiteral("none"), QStringLiteral("odd"),
+                                  QStringLiteral("mark"), QStringLiteral("space")}) {
+        m_dlt645ParityCombo->addItem(parity);
+    }
+    m_dlt645FrameIntervalEdit = new QLineEdit(this);
+    m_dlt645FrameIntervalEdit->setPlaceholderText(QStringLiteral("100"));
+    m_dlt645UserIdEdit = new QLineEdit(this);
+    m_dlt645UserIdEdit->setPlaceholderText(QStringLiteral("0"));
+    m_dlt645PasswordEdit = new QLineEdit(this);
+    m_dlt645PasswordEdit->setPlaceholderText(QStringLiteral("0"));
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("串口:"), this), 0, 0);
+    dlt645ParamsLayout->addWidget(m_dlt645SerialPortCombo, 0, 1);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("波特率:"), this), 0, 2);
+    dlt645ParamsLayout->addWidget(m_dlt645BaudCombo, 0, 3);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("数据位:"), this), 0, 4);
+    dlt645ParamsLayout->addWidget(m_dlt645DataBitsCombo, 0, 5);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("停止位:"), this), 1, 0);
+    dlt645ParamsLayout->addWidget(m_dlt645StopBitsCombo, 1, 1);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("校验:"), this), 1, 2);
+    dlt645ParamsLayout->addWidget(m_dlt645ParityCombo, 1, 3);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("帧间隔ms:"), this), 1, 4);
+    dlt645ParamsLayout->addWidget(m_dlt645FrameIntervalEdit, 1, 5);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("userID:"), this), 2, 0);
+    dlt645ParamsLayout->addWidget(m_dlt645UserIdEdit, 2, 1);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("password:"), this), 2, 2);
+    dlt645ParamsLayout->addWidget(m_dlt645PasswordEdit, 2, 3);
+    dlt645ParamsLayout->addWidget(new QLabel(QStringLiteral("硬件型号:"), this), 2, 4);
+    dlt645ParamsLayout->addWidget(m_dlt645HwVariantCombo, 2, 5);
+    deviceTopLayout->addWidget(m_dlt645ParamsGroupBox, 1);
     deviceEditorLayout->addWidget(deviceTopPanel);
     m_deviceValidationLabel = new QLabel(this);
     m_deviceValidationLabel->setWordWrap(true);
@@ -2201,6 +2260,24 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_modbusParityCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusDebugCheck, &QCheckBox::toggled,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645SerialPortCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645HwVariantCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645BaudCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645DataBitsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645StopBitsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645ParityCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645FrameIntervalEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645UserIdEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_dlt645PasswordEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_deviceOnlineLinkGroupBox, &QGroupBox::toggled,
             this, &MainWindow::onDeviceOnlineLinkEnabledChanged);
