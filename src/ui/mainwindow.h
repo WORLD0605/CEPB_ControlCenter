@@ -286,6 +286,7 @@ private:
     void applyDeviceBindingCellText(int row, int column, const QString &text);
     void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
     void rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &device);
+    void autoMergeDlt645FfPollGroups();
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
@@ -492,6 +493,7 @@ private:
     QPushButton *m_addPointBtn = nullptr;
     QPushButton *m_copyPointBtn = nullptr;
     QPushButton *m_deletePointBtn = nullptr;
+    QPushButton *m_autoMergeDlt645FfBtn = nullptr;
     QStackedWidget *m_contentStack = nullptr;
     QTextEdit *m_logView = nullptr;
     QLineEdit *m_cmdEdit = nullptr;

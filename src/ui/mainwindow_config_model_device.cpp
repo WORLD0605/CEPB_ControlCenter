@@ -136,6 +136,30 @@ QString defaultDlt645DataTypeForKind(const QString &kind)
         : QStringLiteral("BCD");
 }
 
+QStringList dlt645DataTypeOptions()
+{
+    return {
+        QStringLiteral("BIN"),
+        QStringLiteral("BCD"),
+        QStringLiteral("BCD_X"),
+        QStringLiteral("BCD_XX"),
+        QStringLiteral("BCD_XXX"),
+        QStringLiteral("BCD_XXXX"),
+        QStringLiteral("ASCII")
+    };
+}
+
+QString normalizedDlt645DataType(const QString &dataType, const QString &kind)
+{
+    const QString trimmed = dataType.trimmed();
+    for (const QString &option : dlt645DataTypeOptions()) {
+        if (option.compare(trimmed, Qt::CaseInsensitive) == 0) {
+            return option;
+        }
+    }
+    return defaultDlt645DataTypeForKind(kind);
+}
+
 int defaultDlt645FunctionCodeForKind(const QString &kind)
 {
     const QString normalized = normalizedDlt645Kind(kind);
@@ -157,6 +181,31 @@ int defaultDlt645DataLengthForKind(const QString &kind)
 uint buildDlt645DataIndex(int groupNo, int entryNo)
 {
     return (static_cast<uint>(groupNo) << 16) | static_cast<uint>(entryNo & 0xffff);
+}
+
+QString normalizedDlt645Di(const QString &di)
+{
+    QString normalized = di.trimmed().toUpper();
+    if (normalized.startsWith(QStringLiteral("0X"))) {
+        normalized = normalized.mid(2);
+    }
+    normalized.remove(QRegularExpression(QStringLiteral("\\s+")));
+    return normalized;
+}
+
+bool isDlt645EightDigitHexDi(const QString &di)
+{
+    static const QRegularExpression pattern(QStringLiteral("^[0-9A-F]{8}$"));
+    return pattern.match(normalizedDlt645Di(di)).hasMatch();
+}
+
+QString dlt645FfPollDiForPointDi(const QString &pointDi)
+{
+    const QString normalized = normalizedDlt645Di(pointDi);
+    if (!isDlt645EightDigitHexDi(normalized)) {
+        return QString();
+    }
+    return normalized.left(6) + QStringLiteral("FF");
 }
 
 } // namespace
@@ -1905,23 +1954,30 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             binding.descriptionOverride = value;
             break;
         case Dlt645ColumnPointDi:
-            if (value.isEmpty()) {
+        {
+            const QString di = normalizedDlt645Di(value);
+            if (di.isEmpty()) {
                 binding.extensions.remove(QStringLiteral("dlt645PointDI"));
             } else {
-                binding.extensions.insert(QStringLiteral("dlt645PointDI"), value.toUpper());
+                binding.extensions.insert(QStringLiteral("dlt645PointDI"), di);
             }
-            if (!isDlt645SetKind(dlt645BindingKind(binding))
+            if (!di.isEmpty()
+                && !isDlt645SetKind(dlt645BindingKind(binding))
                 && dlt645BindingString(binding, QStringLiteral("dlt645PollDI")).trimmed().isEmpty()) {
-                binding.extensions.insert(QStringLiteral("dlt645PollDI"), value.toUpper());
+                binding.extensions.insert(QStringLiteral("dlt645PollDI"), di);
             }
             break;
+        }
         case Dlt645ColumnPollDi:
-            if (value.isEmpty()) {
+        {
+            const QString di = normalizedDlt645Di(value);
+            if (di.isEmpty()) {
                 binding.extensions.remove(QStringLiteral("dlt645PollDI"));
             } else {
-                binding.extensions.insert(QStringLiteral("dlt645PollDI"), value.toUpper());
+                binding.extensions.insert(QStringLiteral("dlt645PollDI"), di);
             }
             break;
+        }
         case Dlt645ColumnFunCode:
             if (value.isEmpty()) {
                 binding.extensions.remove(QStringLiteral("dlt645FunctionCode"));
@@ -1930,7 +1986,8 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             }
             break;
         case Dlt645ColumnDataType:
-            binding.extensions.insert(QStringLiteral("dlt645DataType"), value.toUpper());
+            binding.extensions.insert(QStringLiteral("dlt645DataType"),
+                                      normalizedDlt645DataType(value, dlt645BindingKind(binding)));
             break;
         case Dlt645ColumnDataLength:
             if (value.isEmpty()) {
@@ -2174,6 +2231,19 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         device.dlt645.ytType = QStringLiteral("BCD");
     }
 
+    auto readGroupKey = [](const QString &kind,
+                           const QString &pollDi,
+                           int funCode,
+                           const QString &dataType,
+                           int dataLength) {
+        return QStringLiteral("%1|%2|%3|%4|%5")
+            .arg(kind,
+                 pollDi.trimmed().toUpper(),
+                 QString::number(funCode),
+                 dataType.trimmed().toUpper(),
+                 QString::number(dataLength));
+    };
+
     int nextGroupNo = 1;
     for (const configtool::PointBinding &binding : device.bindings) {
         if (!binding.enabled) {
@@ -2185,6 +2255,39 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         }
     }
 
+    QMap<QString, int> readGroupNos;
+    for (const configtool::PointBinding &binding : device.bindings) {
+        if (!binding.enabled) {
+            continue;
+        }
+
+        const QString kind = dlt645BindingKind(binding);
+        if (isDlt645SetKind(kind)) {
+            continue;
+        }
+
+        const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
+        const QString pollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+        if (pollDi.isEmpty()) {
+            continue;
+        }
+
+        const QString dataType = normalizedDlt645DataType(dlt645BindingString(binding,
+                                                                              QStringLiteral("dlt645DataType"),
+                                                                              defaultDlt645DataTypeForKind(kind)),
+                                                          kind);
+        const int funCode = dlt645BindingInt(binding,
+                                             QStringLiteral("dlt645FunctionCode"),
+                                             defaultDlt645FunctionCodeForKind(kind));
+        const int dataLength = qMax(1, dlt645BindingInt(binding,
+                                                        QStringLiteral("dlt645DataLength"),
+                                                        defaultDlt645DataLengthForKind(kind)));
+        const int groupNo = dlt645BindingInt(binding, QStringLiteral("dlt645GroupNo"), 0);
+        if (groupNo > 0) {
+            readGroupNos.insert(readGroupKey(kind, pollDi, funCode, dataType, dataLength), groupNo);
+        }
+    }
+
     auto takeGroupNo = [&nextGroupNo](configtool::PointBinding &binding) {
         int groupNo = dlt645BindingInt(binding, QStringLiteral("dlt645GroupNo"), 0);
         if (groupNo <= 0) {
@@ -2193,6 +2296,17 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         return groupNo;
     };
 
+    auto takeReadGroupNo = [&nextGroupNo, &readGroupNos](const QString &key) {
+        int groupNo = readGroupNos.value(key, 0);
+        if (groupNo <= 0) {
+            groupNo = nextGroupNo++;
+            readGroupNos.insert(key, groupNo);
+        }
+        return groupNo;
+    };
+
+    QMap<QString, int> readEntryNos;
+    QSet<QString> emittedReadGroups;
     int yxOrder = 1;
     int ycOrder = 1;
     int ykOrder = 1;
@@ -2204,11 +2318,12 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         }
 
         const QString kind = dlt645BindingKind(binding);
-        const QString pointDi = dlt645BindingString(binding, QStringLiteral("dlt645PointDI")).trimmed().toUpper();
-        const QString pollDi = dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi).trimmed().toUpper();
-        QString dataType = dlt645BindingString(binding,
-                                               QStringLiteral("dlt645DataType"),
-                                               defaultDlt645DataTypeForKind(kind)).trimmed();
+        const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
+        const QString pollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+        QString dataType = normalizedDlt645DataType(dlt645BindingString(binding,
+                                                                        QStringLiteral("dlt645DataType"),
+                                                                        defaultDlt645DataTypeForKind(kind)),
+                                                    kind);
         if (dataType.isEmpty()) {
             dataType = defaultDlt645DataTypeForKind(kind);
             binding.extensions.insert(QStringLiteral("dlt645DataType"), dataType);
@@ -2219,20 +2334,21 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         const int dataLength = qMax(1, dlt645BindingInt(binding,
                                                         QStringLiteral("dlt645DataLength"),
                                                         defaultDlt645DataLengthForKind(kind)));
+        binding.extensions.insert(QStringLiteral("dlt645DataType"), dataType);
         binding.extensions.insert(QStringLiteral("dlt645FunctionCode"), funCode);
         binding.extensions.insert(QStringLiteral("dlt645DataLength"), dataLength);
-
-        const int groupNo = takeGroupNo(binding);
-        int entryNo = dlt645BindingInt(binding, QStringLiteral("dlt645EntryNo"), 1);
-        if (entryNo <= 0) {
-            entryNo = 1;
-        }
 
         if (isDlt645SetKind(kind)) {
             const QString setDi = pointDi.isEmpty() ? pollDi : pointDi;
             if (setDi.isEmpty()) {
                 binding.address.clear();
                 continue;
+            }
+
+            const int groupNo = takeGroupNo(binding);
+            int entryNo = dlt645BindingInt(binding, QStringLiteral("dlt645EntryNo"), 1);
+            if (entryNo <= 0) {
+                entryNo = 1;
             }
 
             configtool::Dlt645SetPoint setPoint;
@@ -2259,15 +2375,23 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
             continue;
         }
 
-        configtool::Dlt645PollGroup group;
-        group.kind = kind == QStringLiteral("yx") ? configtool::Dlt645PointKind::Yx : configtool::Dlt645PointKind::Yc;
-        group.order = kind == QStringLiteral("yx") ? yxOrder++ : ycOrder++;
-        group.groupNo = groupNo;
-        group.funCode = funCode;
-        group.pollDi = readDi;
-        group.dataLength = dataLength;
-        group.dataType = dataType;
-        device.dlt645.pollGroups.append(group);
+        const QString groupKey = readGroupKey(kind, readDi, funCode, dataType, dataLength);
+        const int groupNo = takeReadGroupNo(groupKey);
+        const int entryNo = readEntryNos.value(groupKey, 0) + 1;
+        readEntryNos.insert(groupKey, entryNo);
+
+        if (!emittedReadGroups.contains(groupKey)) {
+            configtool::Dlt645PollGroup group;
+            group.kind = kind == QStringLiteral("yx") ? configtool::Dlt645PointKind::Yx : configtool::Dlt645PointKind::Yc;
+            group.order = kind == QStringLiteral("yx") ? yxOrder++ : ycOrder++;
+            group.groupNo = groupNo;
+            group.funCode = funCode;
+            group.pollDi = readDi;
+            group.dataLength = dataLength;
+            group.dataType = dataType;
+            device.dlt645.pollGroups.append(group);
+            emittedReadGroups.insert(groupKey);
+        }
 
         binding.extensions.insert(QStringLiteral("dlt645PollDI"), readDi);
         if (pointDi.isEmpty()) {
@@ -2277,6 +2401,72 @@ void MainWindow::rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &d
         binding.extensions.insert(QStringLiteral("dlt645EntryNo"), entryNo);
         binding.address = QString::number(buildDlt645DataIndex(groupNo, entryNo));
     }
+}
+
+void MainWindow::autoMergeDlt645FfPollGroups()
+{
+    const int deviceIndex = currentConfigDeviceIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+        return;
+    }
+
+    configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+    if (!isDlt645Device(device)) {
+        return;
+    }
+
+    QList<int> bindingIndexes;
+    QList<QString> pollDis;
+    QSet<QString> ffPollDis;
+    for (int index = 0; index < device.bindings.size(); ++index) {
+        const configtool::PointBinding &binding = device.bindings.at(index);
+        if (!binding.enabled) {
+            continue;
+        }
+
+        const QString kind = dlt645BindingKind(binding);
+        if (isDlt645SetKind(kind)) {
+            continue;
+        }
+
+        const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
+        const QString ffPollDi = dlt645FfPollDiForPointDi(pointDi);
+        if (ffPollDi.isEmpty()) {
+            continue;
+        }
+
+        const QString currentPollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+        if (currentPollDi == ffPollDi) {
+            ffPollDis.insert(ffPollDi);
+            continue;
+        }
+
+        bindingIndexes.append(index);
+        pollDis.append(ffPollDi);
+        ffPollDis.insert(ffPollDi);
+    }
+
+    if (bindingIndexes.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("没有可自动合并的 DLT645 读点；请确认点位DI为8位十六进制。"), 3000);
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    for (int i = 0; i < bindingIndexes.size(); ++i) {
+        configtool::PointBinding &binding = device.bindings[bindingIndexes.at(i)];
+        binding.extensions.insert(QStringLiteral("dlt645PollDI"), pollDis.at(i));
+        binding.extensions.remove(QStringLiteral("dlt645GroupNo"));
+        binding.extensions.remove(QStringLiteral("dlt645EntryNo"));
+    }
+
+    rebuildDlt645DeviceConfig(device);
+    refreshDeviceDetail(deviceIndex);
+    refreshDeviceEditor(deviceIndex);
+    statusBar()->showMessage(QStringLiteral("已将 %1 个 DLT645 读点合并到 %2 个 FF 采集块。")
+                                 .arg(bindingIndexes.size())
+                                 .arg(ffPollDis.size()),
+                             4000);
 }
 
 void MainWindow::pasteClipboardIntoModelPointsTable()
@@ -3487,6 +3677,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         if (m_dlt645ParamsGroupBox) {
             m_dlt645ParamsGroupBox->setVisible(false);
         }
+        if (m_autoMergeDlt645FfBtn) {
+            m_autoMergeDlt645FfBtn->setVisible(false);
+        }
         if (m_modbusSerialPortCombo) {
             QSignalBlocker blocker(m_modbusSerialPortCombo);
             m_modbusSerialPortCombo->setCurrentIndex(0);
@@ -3561,6 +3754,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     }
     if (m_dlt645ParamsGroupBox) {
         m_dlt645ParamsGroupBox->setVisible(dlt645Device);
+    }
+    if (m_autoMergeDlt645FfBtn) {
+        m_autoMergeDlt645FfBtn->setVisible(dlt645Device);
     }
     const QString modbusTransportType = modbusDevice
         ? device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper()
@@ -4017,9 +4213,12 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             enabledItem->setData(Qt::UserRole, bindingIndex);
 
             const QString kind = dlt645BindingKind(binding);
-            const QString pointDi = dlt645BindingString(binding, QStringLiteral("dlt645PointDI")).trimmed().toUpper();
-            const QString pollDi = dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi).trimmed().toUpper();
-            const QString dataType = dlt645BindingString(binding, QStringLiteral("dlt645DataType"), defaultDlt645DataTypeForKind(kind)).trimmed().toUpper();
+            const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
+            const QString pollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
+            const QString dataType = normalizedDlt645DataType(dlt645BindingString(binding,
+                                                                                  QStringLiteral("dlt645DataType"),
+                                                                                  defaultDlt645DataTypeForKind(kind)),
+                                                              kind);
             const QString funCode = QStringLiteral("0x%1").arg(dlt645BindingInt(binding,
                                                                                  QStringLiteral("dlt645FunctionCode"),
                                                                                  defaultDlt645FunctionCodeForKind(kind)),
@@ -4051,6 +4250,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
 
             dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+            dataTypeItem->setFlags(dataTypeItem->flags() & ~Qt::ItemIsEditable);
             groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
             entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsEditable);
             dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
@@ -4073,6 +4273,54 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, Dlt645ColumnPollDi, pollDiItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnFunCode, funCodeItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnDataType, dataTypeItem);
+            auto *dataTypeCombo = new QComboBox(m_deviceBindingsTable);
+            dataTypeCombo->setObjectName(QStringLiteral("dlt645DataTypeCombo"));
+            configureTableCellCombo(dataTypeCombo, this);
+            dataTypeCombo->addItems(dlt645DataTypeOptions());
+            dataTypeCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+            dataTypeCombo->setMinimumContentsLength(7);
+            dataTypeCombo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+            const int dataTypeIndex = dataTypeCombo->findText(dataType);
+            dataTypeCombo->setCurrentIndex(dataTypeIndex >= 0 ? dataTypeIndex : 0);
+            dataTypeCombo->setProperty("bindingIndex", bindingIndex);
+            connect(dataTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, dataTypeCombo](int) {
+                if (m_updatingDeviceBindingsTable || m_restoringConfigUndo) {
+                    return;
+                }
+
+                const int deviceIndex = currentConfigDeviceIndex();
+                if (deviceIndex < 0) {
+                    return;
+                }
+
+                configtool::ConfigProject &project = m_configProjectManager.project();
+                if (deviceIndex >= project.devices.size()) {
+                    return;
+                }
+
+                configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                const int bindingIndex = dataTypeCombo->property("bindingIndex").toInt();
+                if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                    return;
+                }
+
+                pushConfigUndoSnapshot();
+                configtool::PointBinding &binding = device.bindings[bindingIndex];
+                binding.extensions.insert(QStringLiteral("dlt645DataType"),
+                                          normalizedDlt645DataType(dataTypeCombo->currentText(),
+                                                                   dlt645BindingKind(binding)));
+                rebuildDlt645DeviceConfig(device);
+                refreshDeviceDetail(deviceIndex);
+                refreshDeviceEditor(deviceIndex);
+                for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                    const QTableWidgetItem *item = m_deviceBindingsTable->item(row, Dlt645ColumnEnabled);
+                    if (item && item->data(Qt::UserRole).toInt() == bindingIndex) {
+                        m_deviceBindingsTable->setCurrentCell(row, Dlt645ColumnDataType);
+                        break;
+                    }
+                }
+            });
+            m_deviceBindingsTable->setCellWidget(row, Dlt645ColumnDataType, dataTypeCombo);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnDataLength, dataLengthItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnGroupNo, groupItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnEntryNo, entryItem);
@@ -4080,6 +4328,29 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, Dlt645ColumnSelfSignal, selfSignalItem);
         }
         m_updatingDeviceBindingsTable = false;
+
+        auto fitDlt645DataTypeCombosToCells = [this]() {
+            if (!m_deviceBindingsTable
+                || m_deviceBindingsTable->columnCount() != Dlt645BindingColumnCount) {
+                return;
+            }
+
+            for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                QWidget *widget = m_deviceBindingsTable->cellWidget(row, Dlt645ColumnDataType);
+                if (!widget) {
+                    continue;
+                }
+
+                const QModelIndex index = m_deviceBindingsTable->model()->index(row, Dlt645ColumnDataType);
+                const QRect rect = m_deviceBindingsTable->visualRect(index);
+                if (rect.isValid()) {
+                    widget->setGeometry(rect.adjusted(5, 3, -5, -3));
+                }
+            }
+            m_deviceBindingsTable->viewport()->update();
+        };
+        fitDlt645DataTypeCombosToCells();
+        QTimer::singleShot(0, this, fitDlt645DataTypeCombosToCells);
 
         if (missingDiCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");

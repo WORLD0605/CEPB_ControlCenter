@@ -193,6 +193,19 @@ QHash<QString, QString> parseAgcAvcParams(const QString &params)
     return fields;
 }
 
+QString serviceChannelValueText(QString value)
+{
+    value = value.trimmed();
+    if (value.size() >= 2
+        && value.startsWith(QLatin1Char('"'))
+        && value.endsWith(QLatin1Char('"'))) {
+        value = value.mid(1, value.size() - 2);
+        value.replace(QStringLiteral("\\\""), QStringLiteral("\""));
+        value.replace(QStringLiteral("\\\\"), QStringLiteral("\\"));
+    }
+    return value;
+}
+
 bool isAgcAvcGatePassing(const QString &gateName, const QString &value)
 {
     bool ok = false;
@@ -1224,10 +1237,10 @@ void MainWindow::onOpenRawFrameLogClicked()
 QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QString &reply) const
 {
     static const QRegularExpression newLinePattern(
-        R"(^([^\s]+)\s+([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s+([^\s]+)$)"
+        R"(^([^\s]+)\s+([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)(?:\s+(.*))?$)"
     );
     static const QRegularExpression legacyLinePattern(
-        R"(^([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\s+([^\s]+)$)"
+        R"(^([^\s]+)\s+(.+?)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)(?:\s+(.*))?$)"
     );
 
     QList<ServiceChannelDataItem> items;
@@ -1259,11 +1272,11 @@ QList<ServiceChannelDataItem> MainWindow::parseServiceChannelDataReply(const QSt
             item.serviceId = serviceId;
             item.description = activeMatch.captured(3).trimmed();
             item.dataTime = activeMatch.captured(4).trimmed();
-            item.value = activeMatch.captured(5).trimmed();
+            item.value = serviceChannelValueText(activeMatch.captured(5));
         } else {
             item.description = activeMatch.captured(2).trimmed();
             item.dataTime = activeMatch.captured(3).trimmed();
-            item.value = activeMatch.captured(4).trimmed();
+            item.value = serviceChannelValueText(activeMatch.captured(4));
         }
         items.append(item);
     }

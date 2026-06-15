@@ -38,6 +38,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QMap>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QRadioButton>
@@ -47,6 +48,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QSet>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QTabBar>

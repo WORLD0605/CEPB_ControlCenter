@@ -1251,6 +1251,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingFilterTabBar->setExpanding(false);
     m_deviceBindingFilterTabBar->setCurrentIndex(0);
     bindingToolbar->addWidget(m_deviceBindingFilterTabBar);
+    m_autoMergeDlt645FfBtn = new QPushButton(QStringLiteral("自动合并FF块读取"), this);
+    m_autoMergeDlt645FfBtn->setToolTip(QStringLiteral("按点位DI前3字节生成 xxxxFF 采集DI，并把同一采集DI下的645读点合并到同一采集帧"));
+    m_autoMergeDlt645FfBtn->setVisible(false);
+    bindingToolbar->addWidget(m_autoMergeDlt645FfBtn);
     bindingToolbar->addStretch();
     deviceEditorLayout->addLayout(bindingToolbar);
 
@@ -2289,6 +2293,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceBindingDataRefFilterTextChanged);
     connect(m_deviceBindingDescriptionFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDeviceBindingDescriptionFilterTextChanged);
+    connect(m_autoMergeDlt645FfBtn, &QPushButton::clicked,
+            this, &MainWindow::autoMergeDlt645FfPollGroups);
     connect(m_deviceBindingsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onDeviceBindingItemChanged);
     connect(m_autoRefreshTimer, &QTimer::timeout,
