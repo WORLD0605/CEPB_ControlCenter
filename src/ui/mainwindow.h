@@ -245,6 +245,7 @@ private:
     void updateAutoRefreshTimer();
     void updateHighlightRefreshTimer();
     void copySelectedTableCells(QTableWidget *table = nullptr);
+    void clearSelectedEditableTableCells(QTableWidget *table);
     void updateControlCommandUi();
     void updateServiceChannelDataFreezeUi();
     void openControlCommandDialog(int row);
@@ -277,6 +278,9 @@ private:
     void pasteClipboardIntoModelPointsTable();
     void pasteClipboardIntoDeviceBindingsTable();
     void pasteClipboardIntoIec101PointsTable();
+    void clearSelectedModelPointCells();
+    void clearSelectedDeviceBindingCells();
+    void clearSelectedIec101PointCells();
     void pushIec101PointsUndoSnapshot();
     void undoIec101PointsLastEdit();
     void applyModelPointCellText(int row, int column, const QString &text);

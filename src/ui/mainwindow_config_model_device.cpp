@@ -2604,6 +2604,97 @@ void MainWindow::pasteClipboardIntoDeviceBindingsTable()
     m_deviceBindingsTable->setCurrentCell(startRow, startColumn);
 }
 
+void MainWindow::clearSelectedModelPointCells()
+{
+    QModelIndexList targets = sortedEditableTargetIndexes(m_modelPointsTable);
+    if (targets.isEmpty()) {
+        return;
+    }
+
+    const int startRow = targets.first().row();
+    const int startColumn = targets.first().column();
+    bool hasEditableText = false;
+    for (const QModelIndex &target : targets) {
+        QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
+        if (item && (item->flags() & Qt::ItemIsEditable) && !item->text().isEmpty()) {
+            hasEditableText = true;
+            break;
+        }
+    }
+    if (!hasEditableText) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    m_updatingModelPointsTable = true;
+    for (const QModelIndex &target : targets) {
+        if (QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
+            item && (item->flags() & Qt::ItemIsEditable) && !item->text().isEmpty()) {
+            item->setText(QString());
+            applyModelPointCellText(target.row(), target.column(), QString());
+        }
+    }
+    m_updatingModelPointsTable = false;
+
+    const int modelIndex = currentConfigModelIndex();
+    int syncedBindingCount = 0;
+    if (modelIndex >= 0) {
+        configtool::ConfigProject &project = m_configProjectManager.project();
+        if (modelIndex < project.models.size()) {
+            syncedBindingCount = syncDeviceBindingsForModel(project.models.at(modelIndex).modelId);
+        }
+    }
+    refreshConfigObjectViews();
+    if (modelIndex < m_configModelTable->rowCount()) {
+        m_configModelTable->selectRow(modelIndex);
+    }
+    refreshModelDetail(modelIndex);
+    m_modelPointsTable->setCurrentCell(startRow, startColumn);
+    statusBar()->showMessage(syncedBindingCount > 0
+                                 ? QStringLiteral("已清空选中单元格，并同步 %1 个设备绑定").arg(syncedBindingCount)
+                                 : QStringLiteral("已清空选中单元格"),
+                             3000);
+}
+
+void MainWindow::clearSelectedDeviceBindingCells()
+{
+    QModelIndexList targets = sortedEditableTargetIndexes(m_deviceBindingsTable);
+    if (targets.isEmpty()) {
+        return;
+    }
+
+    const int startRow = targets.first().row();
+    const int startColumn = targets.first().column();
+    bool hasEditableText = false;
+    for (const QModelIndex &target : targets) {
+        QTableWidgetItem *item = m_deviceBindingsTable->item(target.row(), target.column());
+        if (item && (item->flags() & Qt::ItemIsEditable) && !item->text().isEmpty()) {
+            hasEditableText = true;
+            break;
+        }
+    }
+    if (!hasEditableText) {
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    m_updatingDeviceBindingsTable = true;
+    for (const QModelIndex &target : targets) {
+        if (QTableWidgetItem *item = m_deviceBindingsTable->item(target.row(), target.column());
+            item && (item->flags() & Qt::ItemIsEditable) && !item->text().isEmpty()) {
+            item->setText(QString());
+            applyDeviceBindingCellText(target.row(), target.column(), QString());
+        }
+    }
+    m_updatingDeviceBindingsTable = false;
+
+    const int deviceIndex = currentConfigDeviceIndex();
+    refreshDeviceDetail(deviceIndex);
+    refreshDeviceEditor(deviceIndex);
+    m_deviceBindingsTable->setCurrentCell(startRow, startColumn);
+    statusBar()->showMessage(QStringLiteral("已清空选中单元格"), 2000);
+}
+
 void MainWindow::pushConfigUndoSnapshot()
 {
     if (m_restoringConfigUndo) {

@@ -302,6 +302,38 @@ void MainWindow::pasteClipboardIntoIec101PointsTable()
     highlightIec101DuplicateAddresses();
 }
 
+void MainWindow::clearSelectedIec101PointCells()
+{
+    QModelIndexList targets = sortedEditableTargetIndexes(m_iec101PointsTable);
+    if (targets.isEmpty()) {
+        return;
+    }
+
+    bool hasEditableText = false;
+    for (const QModelIndex &target : targets) {
+        QTableWidgetItem *item = m_iec101PointsTable->item(target.row(), target.column());
+        if (item && (item->flags() & Qt::ItemIsEditable) && !item->text().isEmpty()) {
+            hasEditableText = true;
+            break;
+        }
+    }
+    if (!hasEditableText) {
+        return;
+    }
+
+    pushIec101PointsUndoSnapshot();
+    m_iec101PointsTable->blockSignals(true);
+    for (const QModelIndex &target : targets) {
+        if (QTableWidgetItem *item = m_iec101PointsTable->item(target.row(), target.column());
+            item && (item->flags() & Qt::ItemIsEditable) && !item->text().isEmpty()) {
+            item->setText(QString());
+        }
+    }
+    m_iec101PointsTable->blockSignals(false);
+    highlightIec101DuplicateAddresses();
+    statusBar()->showMessage(QStringLiteral("已清空选中单元格"), 2000);
+}
+
 void MainWindow::pushIec101PointsUndoSnapshot()
 {
     if (!m_iec101PointsTable) {

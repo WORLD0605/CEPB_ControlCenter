@@ -23,6 +23,7 @@
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QStatusBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTextEdit>
@@ -1742,6 +1743,34 @@ void MainWindow::copySelectedTableCells(QTableWidget *table)
     }
 
     QApplication::clipboard()->setText(copiedText);
+}
+
+void MainWindow::clearSelectedEditableTableCells(QTableWidget *table)
+{
+    if (!table || !table->selectionModel()) {
+        return;
+    }
+
+    QModelIndexList targets = table->selectionModel()->selectedIndexes();
+    std::sort(targets.begin(), targets.end(), [](const QModelIndex &left, const QModelIndex &right) {
+        if (left.row() != right.row()) {
+            return left.row() < right.row();
+        }
+        return left.column() < right.column();
+    });
+    bool changed = false;
+    for (const QModelIndex &target : targets) {
+        QTableWidgetItem *item = table->item(target.row(), target.column());
+        if (!item || !(item->flags() & Qt::ItemIsEditable) || item->text().isEmpty()) {
+            continue;
+        }
+        item->setText(QString());
+        changed = true;
+    }
+
+    if (changed) {
+        statusBar()->showMessage(QStringLiteral("已清空选中单元格"), 2000);
+    }
 }
 
 void MainWindow::updateControlCommandUi()

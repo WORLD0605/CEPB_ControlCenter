@@ -2275,44 +2275,66 @@ MainWindow::MainWindow(QWidget *parent)
             });
     connect(m_controlResponseTimer, &QTimer::timeout,
             this, &MainWindow::handleControlResponseTimeout);
-    auto connectTableShortcut = [this](QKeySequence::StandardKey key, QTableWidget *table, auto handler) {
-        auto *shortcut = new QShortcut(QKeySequence(key), table);
+    auto connectTableShortcut = [this](const QKeySequence &sequence, QTableWidget *table, auto handler) {
+        auto *shortcut = new QShortcut(sequence, table);
         shortcut->setContext(Qt::WidgetWithChildrenShortcut);
         connect(shortcut, &QShortcut::activated, this, handler);
     };
+    auto connectTableClearShortcut = [this, connectTableShortcut](QTableWidget *table, auto handler) {
+        auto guardedHandler = [this, table, handler]() {
+            QWidget *focus = QApplication::focusWidget();
+            if (focus && focus != table && focus != table->viewport() && table->isAncestorOf(focus)) {
+                return;
+            }
+            handler();
+        };
+        connectTableShortcut(QKeySequence(Qt::Key_Backspace), table, guardedHandler);
+        connectTableShortcut(QKeySequence(Qt::Key_Delete), table, guardedHandler);
+    };
 
-    connectTableShortcut(QKeySequence::Copy, m_dataTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_dataTable,
                          [this]() { copySelectedTableCells(); });
     connect(m_dataTable, &QTableWidget::cellDoubleClicked,
             this, &MainWindow::onDataTableCellDoubleClicked);
     connect(m_dataTable, &QTableWidget::itemSelectionChanged,
             this, &MainWindow::onDataTableSelectionChanged);
-    connectTableShortcut(QKeySequence::Paste, m_modelPointsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Paste), m_modelPointsTable,
                          [this]() { pasteClipboardIntoModelPointsTable(); });
-    connectTableShortcut(QKeySequence::Paste, m_deviceBindingsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Paste), m_deviceBindingsTable,
                          [this]() { pasteClipboardIntoDeviceBindingsTable(); });
-    connectTableShortcut(QKeySequence::Paste, m_iec101PointsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Paste), m_iec101PointsTable,
                          [this]() { pasteClipboardIntoIec101PointsTable(); });
-    connectTableShortcut(QKeySequence::Copy, m_modelPointsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_modelPointsTable,
                          [this]() { copySelectedTableCells(m_modelPointsTable); });
-    connectTableShortcut(QKeySequence::Copy, m_deviceBindingsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_deviceBindingsTable,
                          [this]() { copySelectedTableCells(m_deviceBindingsTable); });
-    connectTableShortcut(QKeySequence::Copy, m_iec101PointsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_iec101PointsTable,
                          [this]() { copySelectedTableCells(m_iec101PointsTable); });
-    connectTableShortcut(QKeySequence::Copy, m_logicAgcAvcDeviceTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_logicAgcAvcDeviceTable,
                          [this]() { copySelectedTableCells(m_logicAgcAvcDeviceTable); });
-    connectTableShortcut(QKeySequence::Copy, m_logicComputationPointTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_logicComputationPointTable,
                          [this]() { copySelectedTableCells(m_logicComputationPointTable); });
-    connectTableShortcut(QKeySequence::Copy, m_logicControlRuleTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_logicControlRuleTable,
                          [this]() { copySelectedTableCells(m_logicControlRuleTable); });
-    connectTableShortcut(QKeySequence::Copy, m_logicControlTargetTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_logicControlTargetTable,
                          [this]() { copySelectedTableCells(m_logicControlTargetTable); });
-    connectTableShortcut(QKeySequence::Undo, m_modelPointsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Undo), m_modelPointsTable,
                          [this]() { undoLastConfigEdit(); });
-    connectTableShortcut(QKeySequence::Undo, m_deviceBindingsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Undo), m_deviceBindingsTable,
                          [this]() { undoLastConfigEdit(); });
-    connectTableShortcut(QKeySequence::Undo, m_iec101PointsTable,
+    connectTableShortcut(QKeySequence(QKeySequence::Undo), m_iec101PointsTable,
                          [this]() { undoIec101PointsLastEdit(); });
+    connectTableClearShortcut(m_modelPointsTable, [this]() { clearSelectedModelPointCells(); });
+    connectTableClearShortcut(m_deviceBindingsTable, [this]() { clearSelectedDeviceBindingCells(); });
+    connectTableClearShortcut(m_iec101PointsTable, [this]() { clearSelectedIec101PointCells(); });
+    connectTableClearShortcut(m_logicAgcAvcDeviceTable,
+                              [this]() { clearSelectedEditableTableCells(m_logicAgcAvcDeviceTable); });
+    connectTableClearShortcut(m_logicComputationPointTable,
+                              [this]() { clearSelectedEditableTableCells(m_logicComputationPointTable); });
+    connectTableClearShortcut(m_logicControlRuleTable,
+                              [this]() { clearSelectedEditableTableCells(m_logicControlRuleTable); });
+    connectTableClearShortcut(m_logicControlTargetTable,
+                              [this]() { clearSelectedEditableTableCells(m_logicControlTargetTable); });
     connect(m_dataTable, &QWidget::customContextMenuRequested, this,
             [this](const QPoint &position) {
                 QMenu menu(this);
