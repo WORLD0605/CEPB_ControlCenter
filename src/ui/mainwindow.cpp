@@ -1535,13 +1535,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_deleteLogicAgcAvcDeviceBtn = new QPushButton(QStringLiteral("删除设备"), this);
     agcAvcDeviceToolbar->addWidget(m_addLogicAgcAvcDeviceBtn);
     agcAvcDeviceToolbar->addWidget(m_deleteLogicAgcAvcDeviceBtn);
-    m_generateLogicTotalPBtn = new QPushButton(QStringLiteral("生成 TotalP"), this);
-    m_generateLogicTotalQBtn = new QPushButton(QStringLiteral("生成 TotalQ"), this);
-    m_generateLogicCosBtn = new QPushButton(QStringLiteral("生成 Cos"), this);
-    agcAvcDeviceToolbar->addSpacing(12);
-    agcAvcDeviceToolbar->addWidget(m_generateLogicTotalPBtn);
-    agcAvcDeviceToolbar->addWidget(m_generateLogicTotalQBtn);
-    agcAvcDeviceToolbar->addWidget(m_generateLogicCosBtn);
     agcAvcDeviceToolbar->addStretch();
     agcAvcLayout->addLayout(agcAvcDeviceToolbar);
 
@@ -1649,7 +1642,7 @@ MainWindow::MainWindow(QWidget *parent)
     logicComputationLayout->setContentsMargins(0, 0, 0, 0);
     logicComputationLayout->setSpacing(8);
     auto *logicComputationHint = new QLabel(
-        QStringLiteral("计算点模板生成结果会出现在这里。AGC/AVC 页可快速创建 TotalP、TotalQ 和 Cos。"),
+        QStringLiteral("计算点模板生成结果会出现在这里。"),
         this);
     logicComputationHint->setWordWrap(true);
     logicComputationLayout->addWidget(logicComputationHint);
@@ -1662,7 +1655,9 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("单点映射/改名"),
         QStringLiteral("原点缩放"),
         QStringLiteral("遥信 OR"),
-        QStringLiteral("遥信 AND")
+        QStringLiteral("遥信 AND"),
+        QStringLiteral("多点求和"),
+        QStringLiteral("总功率因数计算")
     };
     for (int index = 0; index < logicTemplateButtons.size(); ++index) {
         auto *button = new QPushButton(logicTemplateButtons.at(index), this);
@@ -2254,12 +2249,6 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAddLogicAgcAvcDeviceClicked);
     connect(m_deleteLogicAgcAvcDeviceBtn, &QPushButton::clicked,
             this, &MainWindow::onDeleteLogicAgcAvcDeviceClicked);
-    connect(m_generateLogicTotalPBtn, &QPushButton::clicked,
-            this, &MainWindow::onGenerateLogicAgcAvcTotalPClicked);
-    connect(m_generateLogicTotalQBtn, &QPushButton::clicked,
-            this, &MainWindow::onGenerateLogicAgcAvcTotalQClicked);
-    connect(m_generateLogicCosBtn, &QPushButton::clicked,
-            this, &MainWindow::onGenerateLogicAgcAvcCosClicked);
     connect(m_addLogicComputationPointBtn, &QPushButton::clicked,
             this, &MainWindow::onAddLogicComputationPointClicked);
     connect(m_copyLogicComputationPointBtn, &QPushButton::clicked,

@@ -207,7 +207,9 @@ void MainWindow::generateLogicComputationTemplate(int templateIndex)
         QStringLiteral("单点映射/改名"),
         QStringLiteral("原点缩放"),
         QStringLiteral("遥信 OR"),
-        QStringLiteral("遥信 AND")
+        QStringLiteral("遥信 AND"),
+        QStringLiteral("多点求和"),
+        QStringLiteral("总功率因数计算")
     };
 
     if (templateIndex < 0 || templateIndex >= templateNames.size()) {
@@ -227,6 +229,14 @@ void MainWindow::generateLogicComputationTemplate(int templateIndex)
     }
     if (templateIndex == 3) {
         generateLogicStatusAndTemplateVisual();
+        return;
+    }
+    if (templateIndex == 4) {
+        generateLogicMultiPointSumTemplateVisual();
+        return;
+    }
+    if (templateIndex == 5) {
+        generateLogicPowerFactorTemplateVisual();
         return;
     }
 }
@@ -517,6 +527,439 @@ void MainWindow::generateLogicStatusAndTemplateVisual()
                                       QStringLiteral("StatusAnd"));
 }
 
+void MainWindow::generateLogicMultiPointSumTemplateVisual()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("多点求和 模板"));
+    dialog.resize(1080, 420);
+
+    QList<configtool::LogicOperand> inputPoints;
+    for (int i = 0; i < 3; ++i) {
+        inputPoints.append(configtool::LogicOperand());
+    }
+    configtool::LogicOperand outputPoint;
+
+    auto pointText = [](const QString &title, const configtool::LogicOperand &point) {
+        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
+            return QStringLiteral("%1\n点击选择").arg(title);
+        }
+        return QStringLiteral("%1\n%2\n%3").arg(title, point.deviceId, point.dataRef);
+    };
+
+    auto selectMeasurementPoint = [this](const QString &title, configtool::LogicOperand &point) {
+        PointSelectorDialog selector(this);
+        selector.setProject(&m_configProjectManager.project());
+        selector.setServiceTypeFilter(configtool::ModelServiceType::Measurement);
+        selector.setWindowTitle(title);
+        if (selector.exec() != QDialog::Accepted) {
+            return false;
+        }
+
+        const PointSelectorDialog::SelectedPoint selected = selector.selectedPoint();
+        if (!selected.valid) {
+            return false;
+        }
+
+        point.deviceId = selected.deviceId;
+        point.dataRef = selected.dataRef;
+        return true;
+    };
+
+    auto *mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(12);
+
+    auto *titleLabel = new QLabel(QStringLiteral("多个遥测输入点相加后，写入输出点"), &dialog);
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    mainLayout->addWidget(titleLabel);
+
+    auto *topLayout = new QHBoxLayout();
+    auto *addInputBtn = new QPushButton(QStringLiteral("+"), &dialog);
+    auto *removeInputBtn = new QPushButton(QStringLiteral("-"), &dialog);
+    addInputBtn->setFixedSize(52, 40);
+    removeInputBtn->setFixedSize(52, 40);
+    topLayout->addWidget(addInputBtn);
+    topLayout->addWidget(removeInputBtn);
+    topLayout->addStretch();
+    mainLayout->addLayout(topLayout);
+
+    auto *sceneLayout = new QHBoxLayout();
+    sceneLayout->setSpacing(10);
+
+    auto *inputHost = new QWidget(&dialog);
+    auto *inputLayout = new QGridLayout(inputHost);
+    inputLayout->setContentsMargins(0, 0, 0, 0);
+    inputLayout->setSpacing(6);
+
+    auto *inputScroll = new QScrollArea(&dialog);
+    inputScroll->setWidgetResizable(true);
+    inputScroll->setMinimumHeight(120);
+    inputScroll->setWidget(inputHost);
+    sceneLayout->addWidget(inputScroll, 1);
+
+    auto *arrowLabel = new QLabel(QStringLiteral("=>"), &dialog);
+    arrowLabel->setAlignment(Qt::AlignCenter);
+    QFont arrowFont = arrowLabel->font();
+    arrowFont.setBold(true);
+    arrowFont.setPointSize(14);
+    arrowLabel->setFont(arrowFont);
+    sceneLayout->addWidget(arrowLabel);
+
+    auto *outputBtn = new QPushButton(&dialog);
+    outputBtn->setMinimumSize(190, 96);
+    outputBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    sceneLayout->addWidget(outputBtn);
+    mainLayout->addLayout(sceneLayout, 1);
+
+    std::function<void()> rebuildInputs;
+    auto updateOutput = [&]() {
+        outputBtn->setText(pointText(QStringLiteral("输出点"), outputPoint));
+    };
+
+    rebuildInputs = [&]() {
+        while (QLayoutItem *child = inputLayout->takeAt(0)) {
+            if (QWidget *widget = child->widget()) {
+                widget->deleteLater();
+            }
+            delete child;
+        }
+
+        constexpr int maxColumnsPerRow = 4;
+        for (int index = 0; index < inputPoints.size(); ++index) {
+            const int row = index / maxColumnsPerRow;
+            const int columnInRow = index % maxColumnsPerRow;
+            if (columnInRow > 0) {
+                auto *plusLabel = new QLabel(QStringLiteral("+"), &dialog);
+                plusLabel->setAlignment(Qt::AlignCenter);
+                QFont plusFont = plusLabel->font();
+                plusFont.setBold(true);
+                plusFont.setPointSize(16);
+                plusLabel->setFont(plusFont);
+                plusLabel->setMinimumWidth(28);
+                inputLayout->addWidget(plusLabel, row, columnInRow * 2 - 1);
+            }
+            auto *button = new QPushButton(pointText(QStringLiteral("输入点 %1").arg(index + 1), inputPoints.at(index)), &dialog);
+            button->setMinimumSize(150, 90);
+            button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+            inputLayout->addWidget(button, row, columnInRow * 2);
+            connect(button, &QPushButton::clicked, &dialog, [&, index]() {
+                if (selectMeasurementPoint(QStringLiteral("选择输入点 %1").arg(index + 1), inputPoints[index])) {
+                    rebuildInputs();
+                }
+            });
+        }
+        inputLayout->setColumnStretch(maxColumnsPerRow * 2, 1);
+        removeInputBtn->setEnabled(inputPoints.size() > 1);
+    };
+
+    connect(addInputBtn, &QPushButton::clicked, &dialog, [&]() {
+        inputPoints.append(configtool::LogicOperand());
+        rebuildInputs();
+    });
+    connect(removeInputBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (inputPoints.size() <= 1) {
+            return;
+        }
+        inputPoints.removeLast();
+        rebuildInputs();
+    });
+    connect(outputBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (selectMeasurementPoint(QStringLiteral("选择输出点"), outputPoint)) {
+            updateOutput();
+        }
+    });
+
+    updateOutput();
+    rebuildInputs();
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("生成"));
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    mainLayout->addWidget(buttonBox);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (outputPoint.deviceId.trimmed().isEmpty() || outputPoint.dataRef.trimmed().isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("多点求和"), QStringLiteral("请先选择输出点。"));
+            return;
+        }
+        for (int index = 0; index < inputPoints.size(); ++index) {
+            const configtool::LogicOperand &point = inputPoints.at(index);
+            if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
+                QMessageBox::information(&dialog,
+                                         QStringLiteral("多点求和"),
+                                         QStringLiteral("请先选择输入点 %1。").arg(index + 1));
+                return;
+            }
+        }
+        dialog.accept();
+    });
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    configtool::LogicComputationTemplateRequest request;
+    request.type = configtool::LogicComputationTemplateType::Sum;
+    request.outputDeviceId = outputPoint.deviceId;
+    request.outputDataRef = outputPoint.dataRef;
+    request.operands = inputPoints;
+    request.dropOperands = true;
+    request.description = QStringLiteral("可视化模板生成: 多点求和");
+    upsertLogicTemplatePoint(request);
+}
+
+void MainWindow::generateLogicPowerFactorTemplateVisual()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("总功率因数计算 模板"));
+    dialog.resize(1160, 620);
+
+    QList<configtool::LogicOperand> pPoints;
+    QList<configtool::LogicOperand> qPoints;
+    for (int i = 0; i < 3; ++i) {
+        pPoints.append(configtool::LogicOperand());
+        qPoints.append(configtool::LogicOperand());
+    }
+    configtool::LogicOperand outputPoint;
+
+    auto pointText = [](const QString &title, const configtool::LogicOperand &point) {
+        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
+            return QStringLiteral("%1\n点击选择").arg(title);
+        }
+        return QStringLiteral("%1\n%2\n%3").arg(title, point.deviceId, point.dataRef);
+    };
+
+    auto selectMeasurementPoint = [this](const QString &title, configtool::LogicOperand &point) {
+        PointSelectorDialog selector(this);
+        selector.setProject(&m_configProjectManager.project());
+        selector.setServiceTypeFilter(configtool::ModelServiceType::Measurement);
+        selector.setWindowTitle(title);
+        if (selector.exec() != QDialog::Accepted) {
+            return false;
+        }
+
+        const PointSelectorDialog::SelectedPoint selected = selector.selectedPoint();
+        if (!selected.valid) {
+            return false;
+        }
+
+        point.deviceId = selected.deviceId;
+        point.dataRef = selected.dataRef;
+        return true;
+    };
+
+    auto *mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(12);
+
+    auto *formulaLabel = new QLabel(
+        QStringLiteral("<div style='font-size:18pt; font-weight:600;'>"
+                       "P = P<sub>1</sub> + P<sub>2</sub> + ...，"
+                       "Q = Q<sub>1</sub> + Q<sub>2</sub> + ...</div>"
+                       "<table align='center' cellspacing='0' cellpadding='2' style='font-size:22pt; margin-top:8px;'>"
+                       "<tr>"
+                       "<td rowspan='2'>cos &phi; = </td>"
+                       "<td align='center' style='border-bottom:1px solid;'>P</td>"
+                       "</tr>"
+                       "<tr>"
+                       "<td align='center'>&radic;(P<sup>2</sup> + Q<sup>2</sup>)</td>"
+                       "</tr>"
+                       "</table>"),
+        &dialog);
+    formulaLabel->setTextFormat(Qt::RichText);
+    formulaLabel->setAlignment(Qt::AlignCenter);
+    formulaLabel->setMinimumHeight(94);
+    mainLayout->addWidget(formulaLabel);
+
+    auto *selectionLayout = new QHBoxLayout();
+    selectionLayout->setSpacing(10);
+
+    auto createPointGroup = [&](const QString &title,
+                                const QString &pointPrefix,
+                                QList<configtool::LogicOperand> &points) {
+        auto *pointsRef = &points;
+        auto *group = new QGroupBox(title, &dialog);
+        auto *groupLayout = new QVBoxLayout(group);
+        groupLayout->setContentsMargins(10, 8, 10, 10);
+        groupLayout->setSpacing(8);
+
+        auto *toolbar = new QHBoxLayout();
+        auto *addBtn = new QPushButton(QStringLiteral("+"), group);
+        auto *removeBtn = new QPushButton(QStringLiteral("-"), group);
+        addBtn->setFixedSize(46, 34);
+        removeBtn->setFixedSize(46, 34);
+        toolbar->addWidget(addBtn);
+        toolbar->addWidget(removeBtn);
+        toolbar->addStretch();
+        groupLayout->addLayout(toolbar);
+
+        auto *host = new QWidget(group);
+        auto *rowLayout = new QGridLayout(host);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(6);
+
+        auto *scroll = new QScrollArea(group);
+        scroll->setWidgetResizable(true);
+        scroll->setMinimumHeight(130);
+        scroll->setWidget(host);
+        groupLayout->addWidget(scroll);
+
+        auto rebuild = std::make_shared<std::function<void()>>();
+        *rebuild = [&, rowLayout, removeBtn, pointPrefix, title, pointsRef, rebuild]() {
+            while (QLayoutItem *child = rowLayout->takeAt(0)) {
+                if (QWidget *widget = child->widget()) {
+                    widget->deleteLater();
+                }
+                delete child;
+            }
+
+            constexpr int maxColumnsPerRow = 2;
+            for (int index = 0; index < pointsRef->size(); ++index) {
+                const int row = index / maxColumnsPerRow;
+                const int columnInRow = index % maxColumnsPerRow;
+                if (columnInRow > 0) {
+                    auto *plusLabel = new QLabel(QStringLiteral("+"), &dialog);
+                    plusLabel->setAlignment(Qt::AlignCenter);
+                    QFont plusFont = plusLabel->font();
+                    plusFont.setBold(true);
+                    plusFont.setPointSize(16);
+                    plusLabel->setFont(plusFont);
+                    plusLabel->setMinimumWidth(28);
+                    rowLayout->addWidget(plusLabel, row, columnInRow * 2 - 1);
+                }
+                auto *button = new QPushButton(pointText(QStringLiteral("%1%2").arg(pointPrefix).arg(index + 1),
+                                                         pointsRef->at(index)),
+                                               &dialog);
+                button->setMinimumSize(150, 90);
+                button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+                rowLayout->addWidget(button, row, columnInRow * 2);
+                connect(button, &QPushButton::clicked, &dialog, [&, index, title, pointPrefix, rebuild, pointsRef]() {
+                    if (selectMeasurementPoint(QStringLiteral("%1 - 选择 %2%3")
+                                                   .arg(title, pointPrefix)
+                                                   .arg(index + 1),
+                                               (*pointsRef)[index])) {
+                        (*rebuild)();
+                    }
+                });
+            }
+            rowLayout->setColumnStretch(maxColumnsPerRow * 2, 1);
+            removeBtn->setEnabled(pointsRef->size() > 1);
+        };
+
+        connect(addBtn, &QPushButton::clicked, &dialog, [&, rebuild, pointsRef]() {
+            pointsRef->append(configtool::LogicOperand());
+            (*rebuild)();
+        });
+        connect(removeBtn, &QPushButton::clicked, &dialog, [&, rebuild, pointsRef]() {
+            if (pointsRef->size() <= 1) {
+                return;
+            }
+            pointsRef->removeLast();
+            (*rebuild)();
+        });
+        (*rebuild)();
+        return group;
+    };
+
+    selectionLayout->addWidget(createPointGroup(QStringLiteral("P 点位求和"), QStringLiteral("P"), pPoints), 1);
+    selectionLayout->addWidget(createPointGroup(QStringLiteral("Q 点位求和"), QStringLiteral("Q"), qPoints), 1);
+
+    auto *outputPanel = new QWidget(&dialog);
+    auto *outputLayout = new QVBoxLayout(outputPanel);
+    outputLayout->setContentsMargins(0, 0, 0, 0);
+    outputLayout->setSpacing(8);
+    auto *outputTitle = new QLabel(QStringLiteral("输出"), &dialog);
+    outputTitle->setAlignment(Qt::AlignCenter);
+    QFont outputTitleFont = outputTitle->font();
+    outputTitleFont.setBold(true);
+    outputTitle->setFont(outputTitleFont);
+    auto *outputBtn = new QPushButton(&dialog);
+    outputBtn->setMinimumSize(190, 96);
+    outputBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    outputLayout->addWidget(outputTitle);
+    outputLayout->addWidget(outputBtn);
+    outputLayout->addStretch();
+    selectionLayout->addWidget(outputPanel);
+    mainLayout->addLayout(selectionLayout, 1);
+
+    auto updateOutput = [&]() {
+        outputBtn->setText(pointText(QStringLiteral("功率因数输出点"), outputPoint));
+    };
+    connect(outputBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (selectMeasurementPoint(QStringLiteral("选择功率因数输出点"), outputPoint)) {
+            updateOutput();
+        }
+    });
+    updateOutput();
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("生成"));
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    mainLayout->addWidget(buttonBox);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (outputPoint.deviceId.trimmed().isEmpty() || outputPoint.dataRef.trimmed().isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("总功率因数计算"), QStringLiteral("请先选择输出点。"));
+            return;
+        }
+
+        auto validatePoints = [&](const QList<configtool::LogicOperand> &points, const QString &name) {
+            for (int index = 0; index < points.size(); ++index) {
+                const configtool::LogicOperand &point = points.at(index);
+                if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
+                    QMessageBox::information(&dialog,
+                                             QStringLiteral("总功率因数计算"),
+                                             QStringLiteral("请先选择 %1%2。").arg(name).arg(index + 1));
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        if (!validatePoints(pPoints, QStringLiteral("P")) || !validatePoints(qPoints, QStringLiteral("Q"))) {
+            return;
+        }
+        dialog.accept();
+    });
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    auto sumFormula = [](int startIndex, int count) {
+        QStringList parts;
+        for (int i = 0; i < count; ++i) {
+            parts.append(QStringLiteral("{%1}").arg(startIndex + i + 1));
+        }
+        return parts.size() == 1
+            ? parts.first()
+            : QStringLiteral("(%1)").arg(parts.join(QStringLiteral("+")));
+    };
+
+    configtool::LogicComputationPoint point;
+    point.deviceId = outputPoint.deviceId;
+    point.dataRef = outputPoint.dataRef;
+    point.dropOperands = true;
+    point.description = QStringLiteral("可视化模板生成: 总功率因数计算");
+    point.operands = pPoints;
+    point.operands.append(qPoints);
+    const QString pFormula = sumFormula(0, pPoints.size());
+    const QString qFormula = sumFormula(pPoints.size(), qPoints.size());
+    point.formula = QStringLiteral("%1/sqrt(sqr(%1)+sqr(%2))").arg(pFormula, qFormula);
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    pushConfigUndoSnapshot();
+    const bool inserted = configtool::upsertLogicComputationPoint(logic, point);
+    refreshLogicCenterOverview();
+    refreshLogicComputationPointPage();
+    statusBar()->showMessage(inserted
+        ? QStringLiteral("已生成计算点 %1#%2").arg(point.deviceId, point.dataRef)
+        : QStringLiteral("已更新计算点 %1#%2").arg(point.deviceId, point.dataRef),
+        5000);
+}
+
 void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationTemplateType type,
                                                    const QString &templateName,
                                                    const QString &operatorText,
@@ -583,7 +1026,7 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
     sceneLayout->setSpacing(10);
 
     auto *inputHost = new QWidget(&dialog);
-    auto *inputLayout = new QHBoxLayout(inputHost);
+    auto *inputLayout = new QGridLayout(inputHost);
     inputLayout->setContentsMargins(0, 0, 0, 0);
     inputLayout->setSpacing(6);
 
@@ -620,8 +1063,11 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
             delete child;
         }
 
+        constexpr int maxColumnsPerRow = 4;
         for (int index = 0; index < inputPoints.size(); ++index) {
-            if (index > 0) {
+            const int row = index / maxColumnsPerRow;
+            const int columnInRow = index % maxColumnsPerRow;
+            if (columnInRow > 0) {
                 auto *orLabel = new QLabel(operatorText, &dialog);
                 orLabel->setAlignment(Qt::AlignCenter);
                 QFont orFont = orLabel->font();
@@ -629,19 +1075,19 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
                 orFont.setPointSize(12);
                 orLabel->setFont(orFont);
                 orLabel->setMinimumWidth(28);
-                inputLayout->addWidget(orLabel);
+                inputLayout->addWidget(orLabel, row, columnInRow * 2 - 1);
             }
             auto *button = new QPushButton(pointText(QStringLiteral("输入点 %1").arg(index + 1), inputPoints.at(index)), &dialog);
             button->setMinimumSize(150, 90);
             button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-            inputLayout->addWidget(button);
+            inputLayout->addWidget(button, row, columnInRow * 2);
             connect(button, &QPushButton::clicked, &dialog, [&, index]() {
                 if (selectStatusPoint(QStringLiteral("选择输入点 %1").arg(index + 1), inputPoints[index])) {
                     rebuildInputs();
                 }
             });
         }
-        inputLayout->addStretch();
+        inputLayout->setColumnStretch(maxColumnsPerRow * 2, 1);
         removeInputBtn->setEnabled(inputPoints.size() > 1);
     };
 
@@ -1596,139 +2042,6 @@ void MainWindow::onInsertLogicControlRealtimeRefClicked()
     refreshLogicControlRulePage();
     m_logicControlRuleTable->selectRow(ruleIndex);
     m_logicControlTargetTable->selectRow(targetRow);
-}
-
-void MainWindow::onGenerateLogicAgcAvcTotalPClicked()
-{
-    configtool::AgcAvcGroup *group = ensureLogicAgcAvcGroup();
-    const QString outputDeviceId = group->virtualDeviceId.trimmed();
-    if (outputDeviceId.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("生成 TotalP"), QStringLiteral("请先填写虚拟设备 ID。"));
-        return;
-    }
-
-    const QList<configtool::LogicOperand> operands =
-        collectLogicTemplateOperands(configtool::ModelServiceType::Measurement,
-                                     QStringLiteral("生成 TotalP"),
-                                     1);
-    if (operands.isEmpty()) {
-        return;
-    }
-
-    bool ok = false;
-    const QString outputDataRef = QInputDialog::getText(this,
-                                                        QStringLiteral("生成 TotalP"),
-                                                        QStringLiteral("输出点号:"),
-                                                        QLineEdit::Normal,
-                                                        QStringLiteral("TotalP"),
-                                                        &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-
-    configtool::LogicComputationTemplateRequest request;
-    request.type = configtool::LogicComputationTemplateType::Sum;
-    request.outputDeviceId = outputDeviceId;
-    request.outputDataRef = outputDataRef;
-    request.operands = operands;
-    request.dropOperands = true;
-    request.description = QStringLiteral("AGC/AVC 模板生成: TotalP");
-    upsertLogicTemplatePoint(request);
-}
-
-void MainWindow::onGenerateLogicAgcAvcTotalQClicked()
-{
-    configtool::AgcAvcGroup *group = ensureLogicAgcAvcGroup();
-    const QString outputDeviceId = group->virtualDeviceId.trimmed();
-    if (outputDeviceId.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("生成 TotalQ"), QStringLiteral("请先填写虚拟设备 ID。"));
-        return;
-    }
-
-    const QList<configtool::LogicOperand> operands =
-        collectLogicTemplateOperands(configtool::ModelServiceType::Measurement,
-                                     QStringLiteral("生成 TotalQ"),
-                                     1);
-    if (operands.isEmpty()) {
-        return;
-    }
-
-    bool ok = false;
-    const QString outputDataRef = QInputDialog::getText(this,
-                                                        QStringLiteral("生成 TotalQ"),
-                                                        QStringLiteral("输出点号:"),
-                                                        QLineEdit::Normal,
-                                                        QStringLiteral("TotalQ"),
-                                                        &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-
-    configtool::LogicComputationTemplateRequest request;
-    request.type = configtool::LogicComputationTemplateType::Sum;
-    request.outputDeviceId = outputDeviceId;
-    request.outputDataRef = outputDataRef;
-    request.operands = operands;
-    request.dropOperands = true;
-    request.description = QStringLiteral("AGC/AVC 模板生成: TotalQ");
-    upsertLogicTemplatePoint(request);
-}
-
-void MainWindow::onGenerateLogicAgcAvcCosClicked()
-{
-    configtool::AgcAvcGroup *group = ensureLogicAgcAvcGroup();
-    const QString outputDeviceId = group->virtualDeviceId.trimmed();
-    if (outputDeviceId.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("生成 Cos"), QStringLiteral("请先填写虚拟设备 ID。"));
-        return;
-    }
-
-    bool ok = false;
-    const QString outputDataRef = QInputDialog::getText(this,
-                                                        QStringLiteral("生成 Cos"),
-                                                        QStringLiteral("输出点号:"),
-                                                        QLineEdit::Normal,
-                                                        QStringLiteral("Cos"),
-                                                        &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-
-    const QString totalPDataRef = QInputDialog::getText(this,
-                                                        QStringLiteral("生成 Cos"),
-                                                        QStringLiteral("有功源点号:"),
-                                                        QLineEdit::Normal,
-                                                        QStringLiteral("TotalP"),
-                                                        &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-
-    const QString totalQDataRef = QInputDialog::getText(this,
-                                                        QStringLiteral("生成 Cos"),
-                                                        QStringLiteral("无功源点号:"),
-                                                        QLineEdit::Normal,
-                                                        QStringLiteral("TotalQ"),
-                                                        &ok).trimmed();
-    if (!ok) {
-        return;
-    }
-
-    configtool::LogicOperand totalP;
-    totalP.deviceId = outputDeviceId;
-    totalP.dataRef = totalPDataRef;
-    configtool::LogicOperand totalQ;
-    totalQ.deviceId = outputDeviceId;
-    totalQ.dataRef = totalQDataRef;
-
-    configtool::LogicComputationTemplateRequest request;
-    request.type = configtool::LogicComputationTemplateType::PowerFactor;
-    request.outputDeviceId = outputDeviceId;
-    request.outputDataRef = outputDataRef;
-    request.operands = {totalP, totalQ};
-    request.dropOperands = true;
-    request.description = QStringLiteral("AGC/AVC 模板生成: Cos");
-    upsertLogicTemplatePoint(request);
 }
 
 void MainWindow::onLogicAgcAvcBasicEdited()

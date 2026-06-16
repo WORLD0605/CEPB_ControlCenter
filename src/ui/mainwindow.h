@@ -173,9 +173,6 @@ private slots:
     void onLogicAgcAvcDeviceCellDoubleClicked(int row, int column);
     void onAddLogicAgcAvcDeviceClicked();
     void onDeleteLogicAgcAvcDeviceClicked();
-    void onGenerateLogicAgcAvcTotalPClicked();
-    void onGenerateLogicAgcAvcTotalQClicked();
-    void onGenerateLogicAgcAvcCosClicked();
     void onAddLogicComputationPointClicked();
     void onCopyLogicComputationPointClicked();
     void onDeleteLogicComputationPointClicked();
@@ -374,6 +371,8 @@ private:
     void generateLogicSourcePointScaleTemplateVisual();
     void generateLogicStatusOrTemplateVisual();
     void generateLogicStatusAndTemplateVisual();
+    void generateLogicMultiPointSumTemplateVisual();
+    void generateLogicPowerFactorTemplateVisual();
     void generateLogicStatusTemplateVisual(configtool::LogicComputationTemplateType type,
                                            const QString &templateName,
                                            const QString &operatorText,
@@ -588,9 +587,6 @@ private:
     QTableWidget *m_logicAgcAvcDeviceTable = nullptr;
     QPushButton *m_addLogicAgcAvcDeviceBtn = nullptr;
     QPushButton *m_deleteLogicAgcAvcDeviceBtn = nullptr;
-    QPushButton *m_generateLogicTotalPBtn = nullptr;
-    QPushButton *m_generateLogicTotalQBtn = nullptr;
-    QPushButton *m_generateLogicCosBtn = nullptr;
     QLabel *m_modelOverviewIdLabel = nullptr;
     QLabel *m_modelOverviewDisplayNameLabel = nullptr;
     QLabel *m_modelOverviewDeviceTypeLabel = nullptr;
