@@ -17,6 +17,7 @@ namespace {
 
 constexpr int TypeRole = Qt::UserRole;
 constexpr int HasTypeRole = Qt::UserRole + 1;
+constexpr int ModelIdRole = Qt::UserRole + 2;
 
 struct PointSelectorFilterState {
     QString deviceId;
@@ -60,18 +61,17 @@ PointSelectorDialog::PointSelectorDialog(QWidget *parent)
     filterLayout->addWidget(new QLabel(QStringLiteral("搜索:"), this));
     m_searchEdit = new QLineEdit(this);
     m_searchEdit->setClearButtonEnabled(true);
-    m_searchEdit->setPlaceholderText(QStringLiteral("DeviceId / DataRef / 描述 / 模型"));
+    m_searchEdit->setPlaceholderText(QStringLiteral("DeviceId / DataRef / 描述"));
     filterLayout->addWidget(m_searchEdit, 1);
     mainLayout->addLayout(filterLayout);
 
-    m_table = new QTableWidget(0, 6, this);
+    m_table = new QTableWidget(0, 5, this);
     m_table->setHorizontalHeaderLabels({
         QStringLiteral("设备"),
         QStringLiteral("设备描述"),
-        QStringLiteral("模型"),
-        QStringLiteral("类型"),
         QStringLiteral("DataRef"),
-        QStringLiteral("描述")
+        QStringLiteral("点位描述"),
+        QStringLiteral("类型")
     });
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -82,9 +82,9 @@ PointSelectorDialog::PointSelectorDialog(QWidget *parent)
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->setColumnWidth(0, 140);
     m_table->setColumnWidth(1, 160);
-    m_table->setColumnWidth(2, 140);
-    m_table->setColumnWidth(3, 70);
-    m_table->setColumnWidth(4, 300);
+    m_table->setColumnWidth(2, 300);
+    m_table->setColumnWidth(3, 260);
+    m_table->setColumnWidth(4, 70);
     mainLayout->addWidget(m_table, 1);
 
     auto *bottomLayout = new QHBoxLayout();
@@ -278,7 +278,6 @@ bool PointSelectorDialog::rowMatchesSearch(const PointRow &row, const QString &k
     const QString needle = keyword.trimmed();
     return row.deviceId.contains(needle, Qt::CaseInsensitive)
         || row.deviceDesc.contains(needle, Qt::CaseInsensitive)
-        || row.modelId.contains(needle, Qt::CaseInsensitive)
         || row.dataRef.contains(needle, Qt::CaseInsensitive)
         || row.description.contains(needle, Qt::CaseInsensitive);
 }
@@ -310,12 +309,12 @@ void PointSelectorDialog::refreshPointTable()
         auto *deviceItem = new QTableWidgetItem(row.deviceId);
         deviceItem->setData(TypeRole, static_cast<int>(row.serviceType));
         deviceItem->setData(HasTypeRole, row.hasServiceType);
+        deviceItem->setData(ModelIdRole, row.modelId);
         m_table->setItem(visibleRow, 0, deviceItem);
         m_table->setItem(visibleRow, 1, new QTableWidgetItem(row.deviceDesc));
-        m_table->setItem(visibleRow, 2, new QTableWidgetItem(row.modelId));
-        m_table->setItem(visibleRow, 3, new QTableWidgetItem(serviceTypeDisplayName(row.serviceType, row.hasServiceType)));
-        m_table->setItem(visibleRow, 4, new QTableWidgetItem(row.dataRef));
-        m_table->setItem(visibleRow, 5, new QTableWidgetItem(row.description));
+        m_table->setItem(visibleRow, 2, new QTableWidgetItem(row.dataRef));
+        m_table->setItem(visibleRow, 3, new QTableWidgetItem(row.description));
+        m_table->setItem(visibleRow, 4, new QTableWidgetItem(serviceTypeDisplayName(row.serviceType, row.hasServiceType)));
         ++visibleRow;
     }
 
@@ -341,12 +340,11 @@ void PointSelectorDialog::updateSelectionState()
     const int row = m_table->currentRow();
     if (row >= 0) {
         QTableWidgetItem *deviceItem = m_table->item(row, 0);
-        QTableWidgetItem *modelItem = m_table->item(row, 2);
-        QTableWidgetItem *dataRefItem = m_table->item(row, 4);
-        QTableWidgetItem *descriptionItem = m_table->item(row, 5);
+        QTableWidgetItem *dataRefItem = m_table->item(row, 2);
+        QTableWidgetItem *descriptionItem = m_table->item(row, 3);
         if (deviceItem && dataRefItem) {
             m_selectedPoint.deviceId = deviceItem->text();
-            m_selectedPoint.modelId = modelItem ? modelItem->text() : QString();
+            m_selectedPoint.modelId = deviceItem->data(ModelIdRole).toString();
             m_selectedPoint.dataRef = dataRefItem->text();
             m_selectedPoint.description = descriptionItem ? descriptionItem->text() : QString();
             m_selectedPoint.serviceType = static_cast<configtool::ModelServiceType>(
