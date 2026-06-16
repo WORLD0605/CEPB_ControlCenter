@@ -62,6 +62,21 @@ bool isDlt645Device(const configtool::ProtocolDeviceInstance &device)
         || device.appType.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
 }
 
+QString southProtocolDisplayName(const configtool::ProtocolDeviceInstance &device)
+{
+    if (device.protocol == configtool::ProtocolType::Iec104
+        || device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("IEC104");
+    }
+    if (isModbusDevice(device)) {
+        return QStringLiteral("Modbus");
+    }
+    if (isDlt645Device(device)) {
+        return QStringLiteral("DLT645");
+    }
+    return QStringLiteral("未知");
+}
+
 QString normalizedDlt645Kind(const QString &value)
 {
     const QString kind = value.trimmed().toLower();
@@ -2839,8 +2854,9 @@ void MainWindow::refreshConfigObjectViews()
         m_configDeviceTable->setItem(row, 0, new QTableWidgetItem(device.deviceId));
         m_configDeviceTable->setItem(row, 1, new QTableWidgetItem(device.deviceDesc));
         m_configDeviceTable->setItem(row, 2, new QTableWidgetItem(device.modelId));
-        m_configDeviceTable->setItem(row, 3, new QTableWidgetItem(device.transport.stationAddress));
-        m_configDeviceTable->setItem(row, 4, new QTableWidgetItem(QString::number(device.bindings.size())));
+        m_configDeviceTable->setItem(row, 3, new QTableWidgetItem(southProtocolDisplayName(device)));
+        m_configDeviceTable->setItem(row, 4, new QTableWidgetItem(device.transport.stationAddress));
+        m_configDeviceTable->setItem(row, 5, new QTableWidgetItem(QString::number(device.bindings.size())));
     }
 
     if (previousModelIndex >= 0 && previousModelIndex < project.models.size()) {

@@ -374,6 +374,21 @@ QString themeStyleSheet(bool darkMode)
             "  min-height: 0;"
             "  padding: 2px 10px;"
             "}"
+            "QCheckBox::indicator:unchecked {"
+            "  width: 15px;"
+            "  height: 15px;"
+            "  background-color: #151a20;"
+            "  border: 1px solid #718095;"
+            "  border-radius: 3px;"
+            "}"
+            "QCheckBox::indicator:unchecked:hover {"
+            "  border-color: #62a8ee;"
+            "  background-color: #1b2633;"
+            "}"
+            "QCheckBox::indicator:unchecked:disabled {"
+            "  background-color: #252b33;"
+            "  border-color: #46515f;"
+            "}"
             "QTableWidget, QTableView {"
             "  background-color: #171c22;"
             "  alternate-background-color: #202630;"
@@ -590,6 +605,21 @@ QString themeStyleSheet(bool darkMode)
         "QPushButton#programControlCellButton {"
         "  min-height: 0;"
         "  padding: 2px 10px;"
+        "}"
+        "QCheckBox::indicator:unchecked {"
+        "  width: 15px;"
+        "  height: 15px;"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #6f8297;"
+        "  border-radius: 3px;"
+        "}"
+        "QCheckBox::indicator:unchecked:hover {"
+        "  border-color: #1f6fb8;"
+        "  background-color: #eef6ff;"
+        "}"
+        "QCheckBox::indicator:unchecked:disabled {"
+        "  background-color: #edf1f5;"
+        "  border-color: #b0bdca;"
         "}"
         "QTableWidget, QTableView {"
         "  background-color: #ffffff;"
@@ -990,8 +1020,8 @@ MainWindow::MainWindow(QWidget *parent)
     deviceToolbar->addWidget(m_deleteDeviceBtn);
     deviceToolbar->addStretch();
     deviceContentLayout->addLayout(deviceToolbar);
-    m_configDeviceTable = new QTableWidget(0, 5, this);
-    m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "协议地址", "点位数"});
+    m_configDeviceTable = new QTableWidget(0, 6, this);
+    m_configDeviceTable->setHorizontalHeaderLabels({"DeviceId", "描述", "模型", "南向协议", "协议地址", "点位数"});
     m_configDeviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_configDeviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_configDeviceTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1001,8 +1031,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_configDeviceTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_configDeviceTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     m_configDeviceTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    m_configDeviceTable->setColumnWidth(4, 80);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    m_configDeviceTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed);
+    m_configDeviceTable->setColumnWidth(5, 80);
     m_configDeviceTable->setStyleSheet(
         "QTableWidget::item:selected {"
         "  background-color: #7d4f50;"
