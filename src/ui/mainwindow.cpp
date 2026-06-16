@@ -15,6 +15,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -26,6 +27,7 @@
 #include <QSplitter>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include <QStyledItemDelegate>
 #include <QStatusBar>
 #include <QStringList>
 #include <QTabBar>
@@ -37,6 +39,117 @@
 #include <QWidget>
 
 namespace {
+
+class EnterToNextRowTableWidget;
+
+class EnterToNextRowDelegate : public QStyledItemDelegate
+{
+public:
+    explicit EnterToNextRowDelegate(EnterToNextRowTableWidget *table);
+
+protected:
+    bool eventFilter(QObject *editor, QEvent *event) override;
+
+private:
+    EnterToNextRowTableWidget *m_table = nullptr;
+};
+
+class EnterToNextRowTableWidget : public QTableWidget
+{
+public:
+    using QTableWidget::QTableWidget;
+
+    void enableEnterToNextRowEdit()
+    {
+        setItemDelegate(new EnterToNextRowDelegate(this));
+    }
+
+    bool moveToNextRowAndEdit()
+    {
+        const QModelIndex index = currentIndex();
+        if (!index.isValid()) {
+            return false;
+        }
+
+        int targetRow = index.row() + 1;
+        while (targetRow < rowCount() && isRowHidden(targetRow)) {
+            ++targetRow;
+        }
+        if (targetRow >= rowCount()) {
+            return false;
+        }
+
+        setCurrentCell(targetRow, index.column());
+        scrollTo(currentIndex(), QAbstractItemView::EnsureVisible);
+
+        QTableWidgetItem *targetItem = item(targetRow, index.column());
+        if (!isEditableItem(targetItem)) {
+            return false;
+        }
+
+        editItem(targetItem);
+        return true;
+    }
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override
+    {
+        if (isPlainEnter(event)) {
+            QTableWidgetItem *item = currentItem();
+            if (isEditableItem(item)) {
+                editItem(item);
+                return;
+            }
+        }
+
+        QTableWidget::keyPressEvent(event);
+    }
+
+private:
+    static bool isPlainEnter(const QKeyEvent *event)
+    {
+        if (!event || (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)) {
+            return false;
+        }
+
+        const Qt::KeyboardModifiers modifiers = event->modifiers() & ~Qt::KeypadModifier;
+        return modifiers == Qt::NoModifier;
+    }
+
+    static bool isEditableItem(const QTableWidgetItem *item)
+    {
+        return item
+            && (item->flags() & Qt::ItemIsEnabled)
+            && (item->flags() & Qt::ItemIsEditable);
+    }
+
+    friend class EnterToNextRowDelegate;
+};
+
+EnterToNextRowDelegate::EnterToNextRowDelegate(EnterToNextRowTableWidget *table)
+    : QStyledItemDelegate(table)
+    , m_table(table)
+{
+}
+
+bool EnterToNextRowDelegate::eventFilter(QObject *editor, QEvent *event)
+{
+    if (event && event->type() == QEvent::KeyPress) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const Qt::KeyboardModifiers modifiers = keyEvent->modifiers() & ~Qt::KeypadModifier;
+        if ((keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter)
+            && modifiers == Qt::NoModifier) {
+            emit commitData(qobject_cast<QWidget *>(editor));
+            emit closeEditor(qobject_cast<QWidget *>(editor), QAbstractItemDelegate::NoHint);
+            if (m_table) {
+                m_table->moveToNextRowAndEdit();
+            }
+            return true;
+        }
+    }
+
+    return QStyledItemDelegate::eventFilter(editor, event);
+}
 
 QPalette lightThemePalette()
 {
@@ -1014,7 +1127,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelValidationLabel = new QLabel(this);
     m_modelValidationLabel->setWordWrap(false);
     m_modelValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
-    m_modelPointsTable = new QTableWidget(0, 11, this);
+    auto *modelPointsTable = new EnterToNextRowTableWidget(0, 11, this);
+    modelPointsTable->enableEnterToNextRowEdit();
+    m_modelPointsTable = modelPointsTable;
     m_modelPointsTable->setColumnCount(11);
     m_modelPointsTable->setHorizontalHeaderLabels({"", "北向可见", "类别", "DOname", "描述", "LDname", "LNtype", "LNinst", "DataRef", "数据类型", "单位"});
     m_modelPointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
@@ -1258,7 +1373,9 @@ MainWindow::MainWindow(QWidget *parent)
     bindingFilterToolbar->addWidget(m_deviceBindingDataRefFilterEdit, 1);
     deviceEditorLayout->addLayout(bindingFilterToolbar);
 
-    m_deviceBindingsTable = new QTableWidget(0, 6, this);
+    auto *deviceBindingsTable = new EnterToNextRowTableWidget(0, 6, this);
+    deviceBindingsTable->enableEnterToNextRowEdit();
+    m_deviceBindingsTable = deviceBindingsTable;
     m_deviceBindingsTable->setHorizontalHeaderLabels({
         QStringLiteral("启用"),
         QStringLiteral("DataRef"),
@@ -1397,7 +1514,9 @@ MainWindow::MainWindow(QWidget *parent)
     agcAvcDeviceToolbar->addStretch();
     agcAvcLayout->addLayout(agcAvcDeviceToolbar);
 
-    m_logicAgcAvcDeviceTable = new QTableWidget(0, 12, this);
+    auto *logicAgcAvcDeviceTable = new EnterToNextRowTableWidget(0, 12, this);
+    logicAgcAvcDeviceTable->enableEnterToNextRowEdit();
+    m_logicAgcAvcDeviceTable = logicAgcAvcDeviceTable;
     m_logicAgcAvcDeviceTable->setHorizontalHeaderLabels({
         QStringLiteral("DeviceId"),
         QStringLiteral("P 控制点"),
@@ -1533,7 +1652,9 @@ MainWindow::MainWindow(QWidget *parent)
     logicComputationToolbar->addWidget(m_deleteLogicComputationPointBtn);
     logicComputationToolbar->addStretch();
     logicComputationLayout->addLayout(logicComputationToolbar);
-    m_logicComputationPointTable = new QTableWidget(0, 7, this);
+    auto *logicComputationPointTable = new EnterToNextRowTableWidget(0, 7, this);
+    logicComputationPointTable->enableEnterToNextRowEdit();
+    m_logicComputationPointTable = logicComputationPointTable;
     m_logicComputationPointTable->setHorizontalHeaderLabels({
         QString(),
         QStringLiteral("输出设备"),
@@ -1590,7 +1711,9 @@ MainWindow::MainWindow(QWidget *parent)
     logicControlRuleToolbar->addStretch();
     logicControlLayout->addLayout(logicControlRuleToolbar);
 
-    m_logicControlRuleTable = new QTableWidget(0, 4, this);
+    auto *logicControlRuleTable = new EnterToNextRowTableWidget(0, 4, this);
+    logicControlRuleTable->enableEnterToNextRowEdit();
+    m_logicControlRuleTable = logicControlRuleTable;
     m_logicControlRuleTable->setHorizontalHeaderLabels({
         QStringLiteral("源设备"),
         QStringLiteral("源控制点"),
@@ -1632,7 +1755,9 @@ MainWindow::MainWindow(QWidget *parent)
     logicControlTargetToolbar->addStretch();
     logicControlTargetLayout->addLayout(logicControlTargetToolbar);
 
-    m_logicControlTargetTable = new QTableWidget(0, 5, this);
+    auto *logicControlTargetTable = new EnterToNextRowTableWidget(0, 5, this);
+    logicControlTargetTable->enableEnterToNextRowEdit();
+    m_logicControlTargetTable = logicControlTargetTable;
     m_logicControlTargetTable->setHorizontalHeaderLabels({
         QStringLiteral("类型"),
         QStringLiteral("目标设备"),
@@ -1915,7 +2040,9 @@ MainWindow::MainWindow(QWidget *parent)
     iec101FilterRow->addWidget(m_iec101PointDataRefFilterEdit);
     iec101PointsLayout->addLayout(iec101FilterRow);
 
-    m_iec101PointsTable = new QTableWidget(0, 8, this);
+    auto *iec101PointsTable = new EnterToNextRowTableWidget(0, 8, this);
+    iec101PointsTable->enableEnterToNextRowEdit();
+    m_iec101PointsTable = iec101PointsTable;
     m_iec101PointsTable->setHorizontalHeaderLabels({
         QString(),
         QStringLiteral("启用"),
