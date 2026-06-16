@@ -135,6 +135,7 @@ private slots:
     void onDataTableCellDoubleClicked(int row, int column);
     void onDataTableSelectionChanged();
     void onBrowseConfigImportDirClicked();
+    void onOpenConfigDirClicked();
     void onImportIec104ConfigClicked();
     void onExportIec104ConfigClicked();
     void onCheckConfigIssuesClicked();
@@ -481,6 +482,7 @@ private:
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_selectConfigImportDirBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
+    QPushButton *m_openConfigDirBtn = nullptr;
     QPushButton *m_exportIec104ConfigBtn = nullptr;
     QPushButton *m_checkConfigIssuesBtn = nullptr;
     QPushButton *m_uploadConfigBtn = nullptr;

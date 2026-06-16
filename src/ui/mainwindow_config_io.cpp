@@ -1,6 +1,9 @@
 #include "mainwindow_config_p.h"
 #include "network/ssh_client.h"
 
+#include <QDesktopServices>
+#include <QUrl>
+
 using namespace cepb_config_helpers;
 
 void MainWindow::onBrowseConfigImportDirClicked()
@@ -16,6 +19,29 @@ void MainWindow::onBrowseConfigImportDirClicked()
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         settings.setValue(QStringLiteral("config/lastBrowseDir"), projectRoot);
         statusBar()->showMessage(QStringLiteral("已选择配置工程目录"), 5000);
+    }
+}
+
+void MainWindow::onOpenConfigDirClicked()
+{
+    const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
+    if (projectRoot.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("打开工程目录"), QStringLiteral("请先选择配置工程目录"));
+        return;
+    }
+
+    const QFileInfo projectInfo(projectRoot);
+    if (!projectInfo.exists() || !projectInfo.isDir()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("打开工程目录"),
+                             QStringLiteral("工程目录不存在：\n%1").arg(projectRoot));
+        return;
+    }
+
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(projectInfo.absoluteFilePath()))) {
+        QMessageBox::warning(this,
+                             QStringLiteral("打开工程目录"),
+                             QStringLiteral("无法打开工程目录：\n%1").arg(projectInfo.absoluteFilePath()));
     }
 }
 
@@ -101,10 +127,13 @@ void MainWindow::onExportIec104ConfigClicked()
         return;
     }
 
-    const QString iec104AppDir = resolveIec104AppDir(projectRoot);
+    const QString resolvedIec104Dir = resolveIec104AppDir(projectRoot);
     const QString resolvedModbusDir = resolveModbusAppDir(projectRoot);
     const QString resolvedDlt645Dir = resolveDlt645AppDir(projectRoot);
     const QString resolvedLogicCenterDir = resolveLogicCenterAppDir(projectRoot);
+    const QString iec104AppDir = resolvedIec104Dir.isEmpty()
+        ? QDir(projectRoot).filePath(QStringLiteral("cepiec104"))
+        : resolvedIec104Dir;
     const QString modbusAppDir = resolvedModbusDir.isEmpty()
         ? QDir(projectRoot).filePath(QStringLiteral("cepmodbus"))
         : resolvedModbusDir;
@@ -123,9 +152,7 @@ void MainWindow::onExportIec104ConfigClicked()
 
     configtool::ExportReport report;
     bool ok = true;
-    if (!iec104AppDir.isEmpty()) {
-        ok = m_configProjectManager.exportIec104AppDirectory(iec104AppDir, report) && ok;
-    }
+    ok = m_configProjectManager.exportIec104AppDirectory(iec104AppDir, report) && ok;
     ok = m_configProjectManager.exportModbusAppDirectory(modbusAppDir, report) && ok;
     ok = m_configProjectManager.exportDlt645AppDirectory(dlt645AppDir, report) && ok;
     ok = m_configProjectManager.exportLogicCenterConfigFile(

@@ -784,6 +784,8 @@ MainWindow::MainWindow(QWidget *parent)
     importRow->addWidget(m_selectConfigImportDirBtn);
     m_browseConfigImportDirBtn = new QPushButton("打开配置");
     importRow->addWidget(m_browseConfigImportDirBtn);
+    m_openConfigDirBtn = new QPushButton("在文件资源管理器中打开");
+    importRow->addWidget(m_openConfigDirBtn);
     m_exportIec104ConfigBtn = new QPushButton("保存配置");
     importRow->addWidget(m_exportIec104ConfigBtn);
     configLayout->addLayout(importRow);
@@ -2044,6 +2046,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onBrowseConfigImportDirClicked);
     connect(m_browseConfigImportDirBtn, &QPushButton::clicked,
             this, &MainWindow::onImportIec104ConfigClicked);
+    connect(m_openConfigDirBtn, &QPushButton::clicked,
+            this, &MainWindow::onOpenConfigDirClicked);
     connect(m_exportIec104ConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onExportIec104ConfigClicked);
     connect(m_uploadConfigBtn, &QPushButton::clicked,

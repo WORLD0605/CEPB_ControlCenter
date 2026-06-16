@@ -67,8 +67,8 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         duplicateIec104BindingAddressesByChannel(exportDevices);
 
     const QDir appDirInfo(appDir);
-    if (!appDirInfo.exists()) {
-        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("104 APP 目录不存在"));
+    if (!appDirInfo.exists() && !QDir().mkpath(appDir)) {
+        report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("无法创建 104 APP 目录"));
         return false;
     }
 

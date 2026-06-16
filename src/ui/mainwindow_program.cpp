@@ -918,8 +918,9 @@ bool MainWindow::upgradeProgramBinary(const QString &appName,
     const QString command = QStringLiteral(
         "set -e; "
         "target=%1; tmp=%2; service=%3; "
-        "mkdir -p \"$(dirname \"$target\")\"; "
-        "systemctl stop \"$service\"; "
+        "target_dir=$(dirname \"$target\"); "
+        "mkdir -p \"$target_dir\"; "
+        "systemctl stop \"$service\" 2>/dev/null || true; "
         "install -m 0755 \"$tmp\" \"$target\"; "
         "rm -f \"$tmp\"; "
         "systemctl start \"$service\"; "
@@ -1136,8 +1137,9 @@ void MainWindow::onUpgradeProgramClicked()
     const QString command = QStringLiteral(
         "set -e; "
         "target=%1; tmp=%2; service=%3; "
-        "mkdir -p \"$(dirname \"$target\")\"; "
-        "systemctl stop \"$service\"; "
+        "target_dir=$(dirname \"$target\"); "
+        "mkdir -p \"$target_dir\"; "
+        "systemctl stop \"$service\" 2>/dev/null || true; "
         "install -m 0755 \"$tmp\" \"$target\"; "
         "rm -f \"$tmp\"; "
         "echo upgraded \"$target\"")
