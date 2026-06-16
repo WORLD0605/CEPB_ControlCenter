@@ -1,4 +1,5 @@
 #include "mainwindow_config_p.h"
+#include "config/config_project_manager_p.h"
 
 using namespace cepb_config_helpers;
 
@@ -1128,7 +1129,7 @@ void MainWindow::openCreateDeviceDialog(int preselectedModelIndex)
     auto *modelTable = new QTableWidget(project.models.size(), 4, &dialog);
     modelTable->setHorizontalHeaderLabels({
         QStringLiteral("模型"),
-        QStringLiteral("展示名"),
+        QStringLiteral("模型描述"),
         QStringLiteral("设备类型"),
         QStringLiteral("点位数")
     });
@@ -2826,7 +2827,7 @@ void MainWindow::refreshConfigObjectViews()
             pointCount += service.points.size();
         }
 
-        m_configModelTable->setItem(row, 0, new QTableWidgetItem(model.modelId));
+        m_configModelTable->setItem(row, 0, new QTableWidgetItem(configtool::detail::modelFileNameForExport(model)));
         m_configModelTable->setItem(row, 1, new QTableWidgetItem(model.displayName));
         m_configModelTable->setItem(row, 2, new QTableWidgetItem(model.deviceType));
         m_configModelTable->setItem(row, 3, new QTableWidgetItem(QString::number(pointCount)));

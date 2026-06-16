@@ -837,7 +837,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelToolbar->addStretch();
     modelContentLayout->addLayout(modelToolbar);
     m_configModelTable = new QTableWidget(0, 4, this);
-    m_configModelTable->setHorizontalHeaderLabels({"模型", "展示名", "设备类型", "点位数"});
+    m_configModelTable->setHorizontalHeaderLabels({"模型", "模型描述", "设备类型", "点位数"});
     m_configModelTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_configModelTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_configModelTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -921,7 +921,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelOverviewTitle->setFont(modelTitleFont);
     detailPanelLayout->addWidget(modelOverviewTitle);
     modelOverviewLayout->addRow("模型:", m_modelOverviewIdLabel);
-    modelOverviewLayout->addRow("展示名:", m_modelOverviewDisplayNameLabel);
+    modelOverviewLayout->addRow("模型描述:", m_modelOverviewDisplayNameLabel);
     modelOverviewLayout->addRow("设备类型:", m_modelOverviewDeviceTypeLabel);
     modelOverviewLayout->addRow("版本:", m_modelOverviewVersionLabel);
     modelOverviewLayout->addRow("点位数:", m_modelOverviewPointCountLabel);
@@ -964,7 +964,7 @@ MainWindow::MainWindow(QWidget *parent)
         edit->setMinimumHeight(28);
     }
     modelFormLayout->addRow("模型ID:", m_modelIdEdit);
-    modelFormLayout->addRow("设备描述:", m_modelDisplayNameEdit);
+    modelFormLayout->addRow("模型描述:", m_modelDisplayNameEdit);
     modelFormLayout->addRow("设备类型:", m_modelDeviceTypeEdit);
     modelFormLayout->addRow("版本:", m_modelVersionEdit);
     modelFormLayout->addRow("厂家ID:", m_modelManufacturerIdEdit);

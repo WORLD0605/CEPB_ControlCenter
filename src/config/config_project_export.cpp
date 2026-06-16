@@ -8,6 +8,51 @@
 namespace configtool {
 
 using namespace detail;
+
+namespace {
+
+QString exportModelIdFromFileName(const QString &fileName)
+{
+    const QFileInfo info(fileName);
+    if (info.suffix().compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0) {
+        return info.completeBaseName();
+    }
+    return fileName;
+}
+
+QHash<QString, QString> buildExportModelIdMap(const QList<ModelTemplate> &models,
+                                              const QList<QString> &fileNames)
+{
+    QHash<QString, QString> modelIds;
+    const int count = qMin(models.size(), fileNames.size());
+    for (int index = 0; index < count; ++index) {
+        modelIds.insert(models.at(index).modelId, exportModelIdFromFileName(fileNames.at(index)));
+    }
+    return modelIds;
+}
+
+ModelTemplate modelWithExportModelId(const ModelTemplate &model,
+                                     const QString &exportModelId)
+{
+    ModelTemplate exportModel = model;
+    exportModel.modelId = exportModelId;
+    exportModel.name = exportModelId;
+    return exportModel;
+}
+
+ProtocolDeviceInstance deviceWithExportModelId(const ProtocolDeviceInstance &device,
+                                               const QHash<QString, QString> &exportModelIds)
+{
+    ProtocolDeviceInstance exportDevice = device;
+    const QString exportModelId = exportModelIds.value(device.modelId);
+    if (!exportModelId.isEmpty()) {
+        exportDevice.modelId = exportModelId;
+    }
+    return exportDevice;
+}
+
+} // namespace
+
 bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
                                                     ExportReport &report) const
 {
@@ -95,6 +140,13 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return false;
     }
 
+    QList<QString> exportModelFileNames;
+    exportModelFileNames.reserve(exportModels.size());
+    for (const ModelTemplate &model : exportModels) {
+        exportModelFileNames.append(modelFileNameForExport(model));
+    }
+    const QHash<QString, QString> exportModelIds = buildExportModelIdMap(exportModels, exportModelFileNames);
+
     QDir mutableAppDir(appDir);
     const QString modelDirPath = mutableAppDir.filePath(QStringLiteral("model"));
     const QString northModelDirPath = QDir(modelDirPath).filePath(QStringLiteral("northmodel"));
@@ -133,16 +185,19 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         return true;
     }
 
-    for (const ModelTemplate &model : exportModels) {
-        const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
+    for (int modelIndex = 0; modelIndex < exportModels.size(); ++modelIndex) {
+        const ModelTemplate &model = exportModels.at(modelIndex);
+        const QString modelFileName = exportModelFileNames.at(modelIndex);
+        const ModelTemplate exportModel = modelWithExportModelId(model, exportModelIds.value(model.modelId, model.modelId));
+        const QString filePath = QDir(modelDirPath).filePath(modelFileName);
         QString errorMessage;
-        if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
+        if (!writeJsonFile(filePath, serializeModel(exportModel), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
         }
         if (model.northVisible) {
-            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileNameForExport(model));
-            if (!writeJsonFile(northFilePath, serializeNorthModel(model), errorMessage)) {
+            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileName);
+            if (!writeJsonFile(northFilePath, serializeNorthModel(exportModel), errorMessage)) {
                 report.addIssue(ImportIssueSeverity::Error, northFilePath, errorMessage);
                 return false;
             }
@@ -152,8 +207,9 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
 
     for (const ProtocolDeviceInstance &device : exportDevices) {
         const QString filePath = QDir(deviceDirPath).filePath(deviceFileNameForExport(device));
+        const ProtocolDeviceInstance exportDevice = deviceWithExportModelId(device, exportModelIds);
         QString errorMessage;
-        if (!writeJsonFile(filePath, serializeDevice(device, findModelById(m_project, device.modelId)), errorMessage)) {
+        if (!writeJsonFile(filePath, serializeDevice(exportDevice, findModelById(m_project, device.modelId)), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
         }
@@ -274,6 +330,13 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         return false;
     }
 
+    QList<QString> exportModelFileNames;
+    exportModelFileNames.reserve(exportModels.size());
+    for (const ModelTemplate &model : exportModels) {
+        exportModelFileNames.append(modelFileNameForExport(model));
+    }
+    const QHash<QString, QString> exportModelIds = buildExportModelIdMap(exportModels, exportModelFileNames);
+
     QDir mutableAppDir(appDir);
     if (!mutableAppDir.exists() && !QDir().mkpath(appDir)) {
         report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("无法创建 Modbus APP 目录"));
@@ -315,16 +378,19 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         return false;
     }
 
-    for (const ModelTemplate &model : exportModels) {
-        const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
+    for (int modelIndex = 0; modelIndex < exportModels.size(); ++modelIndex) {
+        const ModelTemplate &model = exportModels.at(modelIndex);
+        const QString modelFileName = exportModelFileNames.at(modelIndex);
+        const ModelTemplate exportModel = modelWithExportModelId(model, exportModelIds.value(model.modelId, model.modelId));
+        const QString filePath = QDir(modelDirPath).filePath(modelFileName);
         QString errorMessage;
-        if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
+        if (!writeJsonFile(filePath, serializeModel(exportModel), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
         }
         if (model.northVisible) {
-            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileNameForExport(model));
-            if (!writeJsonFile(northFilePath, serializeNorthModel(model), errorMessage)) {
+            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileName);
+            if (!writeJsonFile(northFilePath, serializeNorthModel(exportModel), errorMessage)) {
                 report.addIssue(ImportIssueSeverity::Error, northFilePath, errorMessage);
                 return false;
             }
@@ -334,8 +400,9 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
 
     for (const ProtocolDeviceInstance &device : exportDevices) {
         const QString filePath = QDir(deviceDirPath).filePath(deviceFileNameForExport(device));
+        const ProtocolDeviceInstance exportDevice = deviceWithExportModelId(device, exportModelIds);
         QString errorMessage;
-        if (!writeJsonFile(filePath, serializeModbusDevice(device, findModelById(m_project, device.modelId)), errorMessage)) {
+        if (!writeJsonFile(filePath, serializeModbusDevice(exportDevice, findModelById(m_project, device.modelId)), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
         }
@@ -428,6 +495,13 @@ bool ConfigProjectManager::exportDlt645AppDirectory(const QString &appDir,
         return false;
     }
 
+    QList<QString> exportModelFileNames;
+    exportModelFileNames.reserve(exportModels.size());
+    for (const ModelTemplate &model : exportModels) {
+        exportModelFileNames.append(modelFileNameForExport(model));
+    }
+    const QHash<QString, QString> exportModelIds = buildExportModelIdMap(exportModels, exportModelFileNames);
+
     QDir mutableAppDir(appDir);
     if (!mutableAppDir.exists() && !QDir().mkpath(appDir)) {
         report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("无法创建 DLT645 APP 目录"));
@@ -469,16 +543,19 @@ bool ConfigProjectManager::exportDlt645AppDirectory(const QString &appDir,
         return false;
     }
 
-    for (const ModelTemplate &model : exportModels) {
-        const QString filePath = QDir(modelDirPath).filePath(modelFileNameForExport(model));
+    for (int modelIndex = 0; modelIndex < exportModels.size(); ++modelIndex) {
+        const ModelTemplate &model = exportModels.at(modelIndex);
+        const QString modelFileName = exportModelFileNames.at(modelIndex);
+        const ModelTemplate exportModel = modelWithExportModelId(model, exportModelIds.value(model.modelId, model.modelId));
+        const QString filePath = QDir(modelDirPath).filePath(modelFileName);
         QString errorMessage;
-        if (!writeJsonFile(filePath, serializeModel(model), errorMessage)) {
+        if (!writeJsonFile(filePath, serializeModel(exportModel), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
         }
         if (model.northVisible) {
-            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileNameForExport(model));
-            if (!writeJsonFile(northFilePath, serializeNorthModel(model), errorMessage)) {
+            const QString northFilePath = QDir(northModelDirPath).filePath(modelFileName);
+            if (!writeJsonFile(northFilePath, serializeNorthModel(exportModel), errorMessage)) {
                 report.addIssue(ImportIssueSeverity::Error, northFilePath, errorMessage);
                 return false;
             }
@@ -488,8 +565,9 @@ bool ConfigProjectManager::exportDlt645AppDirectory(const QString &appDir,
 
     for (const ProtocolDeviceInstance &device : exportDevices) {
         const QString filePath = QDir(deviceDirPath).filePath(deviceFileNameForExport(device));
+        const ProtocolDeviceInstance exportDevice = deviceWithExportModelId(device, exportModelIds);
         QString errorMessage;
-        if (!writeJsonFile(filePath, serializeDlt645Device(device, findModelById(m_project, device.modelId)), errorMessage)) {
+        if (!writeJsonFile(filePath, serializeDlt645Device(exportDevice, findModelById(m_project, device.modelId)), errorMessage)) {
             report.addIssue(ImportIssueSeverity::Error, filePath, errorMessage);
             return false;
         }
