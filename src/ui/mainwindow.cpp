@@ -48,11 +48,19 @@ public:
     explicit EnterToNextRowDelegate(EnterToNextRowTableWidget *table);
 
 protected:
+    QWidget *createEditor(QWidget *parent,
+                          const QStyleOptionViewItem &option,
+                          const QModelIndex &index) const override;
+    void updateEditorGeometry(QWidget *editor,
+                              const QStyleOptionViewItem &option,
+                              const QModelIndex &index) const override;
     bool eventFilter(QObject *editor, QEvent *event) override;
 
 private:
     EnterToNextRowTableWidget *m_table = nullptr;
 };
+
+constexpr int kTableTextEditorMinHeight = 28;
 
 class EnterToNextRowTableWidget : public QTableWidget
 {
@@ -130,6 +138,33 @@ EnterToNextRowDelegate::EnterToNextRowDelegate(EnterToNextRowTableWidget *table)
     : QStyledItemDelegate(table)
     , m_table(table)
 {
+}
+
+QWidget *EnterToNextRowDelegate::createEditor(QWidget *parent,
+                                             const QStyleOptionViewItem &option,
+                                             const QModelIndex &index) const
+{
+    QWidget *editor = QStyledItemDelegate::createEditor(parent, option, index);
+    if (auto *lineEdit = qobject_cast<QLineEdit *>(editor)) {
+        lineEdit->setMinimumHeight(kTableTextEditorMinHeight);
+    }
+    return editor;
+}
+
+void EnterToNextRowDelegate::updateEditorGeometry(QWidget *editor,
+                                                  const QStyleOptionViewItem &option,
+                                                  const QModelIndex &index) const
+{
+    if (qobject_cast<QLineEdit *>(editor)) {
+        QRect editorRect = option.rect;
+        const int editorHeight = qMax(editorRect.height(), kTableTextEditorMinHeight);
+        editorRect.setY(editorRect.y() + (editorRect.height() - editorHeight) / 2);
+        editorRect.setHeight(editorHeight);
+        editor->setGeometry(editorRect);
+        return;
+    }
+
+    QStyledItemDelegate::updateEditorGeometry(editor, option, index);
 }
 
 bool EnterToNextRowDelegate::eventFilter(QObject *editor, QEvent *event)
@@ -1178,6 +1213,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointDropLine->setStyleSheet(QStringLiteral("background-color: #ff8c00; border-radius: 1px;"));
     m_modelPointDropLine->hide();
     m_modelPointsTable->verticalHeader()->setVisible(false);
+    m_modelPointsTable->verticalHeader()->setDefaultSectionSize(32);
     m_modelPointsTable->horizontalHeader()->setStretchLastSection(true);
     m_modelPointsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_modelPointsTable->setColumnWidth(0, 26);
