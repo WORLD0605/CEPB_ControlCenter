@@ -409,6 +409,22 @@ QString themeStyleSheet(bool darkMode)
             "  min-height: 0;"
             "  padding: 2px 10px;"
             "}"
+            "QPushButton#programControlCellButton[autostartState=\"enabled\"] {"
+            "  background-color: #245640;"
+            "  color: #f2fff7;"
+            "  border-color: #59b982;"
+            "  font-weight: 600;"
+            "}"
+            "QPushButton#programControlCellButton[autostartState=\"enabled\"]:hover { background-color: #2f6a4f; border-color: #7bd69e; }"
+            "QPushButton#programControlCellButton[autostartState=\"enabled\"]:pressed { background-color: #1f4836; border-color: #4aa872; }"
+            "QPushButton#programControlCellButton[autostartState=\"disabled\"] {"
+            "  background-color: #653035;"
+            "  color: #fff4f4;"
+            "  border-color: #d0646b;"
+            "  font-weight: 600;"
+            "}"
+            "QPushButton#programControlCellButton[autostartState=\"disabled\"]:hover { background-color: #793a40; border-color: #ef8188; }"
+            "QPushButton#programControlCellButton[autostartState=\"disabled\"]:pressed { background-color: #53282d; border-color: #b9555c; }"
             "QCheckBox::indicator:unchecked {"
             "  width: 15px;"
             "  height: 15px;"
@@ -641,6 +657,22 @@ QString themeStyleSheet(bool darkMode)
         "  min-height: 0;"
         "  padding: 2px 10px;"
         "}"
+        "QPushButton#programControlCellButton[autostartState=\"enabled\"] {"
+        "  background-color: #dff3e7;"
+        "  color: #17633a;"
+        "  border-color: #45a66a;"
+        "  font-weight: 600;"
+        "}"
+        "QPushButton#programControlCellButton[autostartState=\"enabled\"]:hover { background-color: #cfeddc; border-color: #2f9256; }"
+        "QPushButton#programControlCellButton[autostartState=\"enabled\"]:pressed { background-color: #bee3ce; border-color: #247847; }"
+        "QPushButton#programControlCellButton[autostartState=\"disabled\"] {"
+        "  background-color: #fde4e5;"
+        "  color: #a4262c;"
+        "  border-color: #d5535c;"
+        "  font-weight: 600;"
+        "}"
+        "QPushButton#programControlCellButton[autostartState=\"disabled\"]:hover { background-color: #fbd2d5; border-color: #be3f47; }"
+        "QPushButton#programControlCellButton[autostartState=\"disabled\"]:pressed { background-color: #f5bec3; border-color: #9f343b; }"
         "QCheckBox::indicator:unchecked {"
         "  width: 15px;"
         "  height: 15px;"
@@ -1886,8 +1918,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
     m_programControlTable->setHorizontalHeaderItem(7, new QTableWidgetItem(QStringLiteral("升级")));
     m_programControlTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_programControlTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_programControlTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_programControlTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_programControlTable->setFocusPolicy(Qt::NoFocus);
     m_programControlTable->setAlternatingRowColors(true);
     m_programControlTable->verticalHeader()->setVisible(false);
     m_programControlTable->horizontalHeader()->setStretchLastSection(true);

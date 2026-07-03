@@ -818,12 +818,19 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         connect(restartButton, &QPushButton::clicked, this, &MainWindow::onRestartProgramClicked);
         m_programControlTable->setCellWidget(row, ProgramColumnRestart, wrapCellButton(restartButton));
 
-        auto *autostartButton = makeCellButton(enabled ? QStringLiteral("禁用自启") : QStringLiteral("启用自启"), this);
+        auto *autostartButton = makeCellButton(
+            status.autostart == QStringLiteral("enabled") ? QStringLiteral("已启用")
+            : status.autostart == QStringLiteral("disabled") ? QStringLiteral("未启用")
+            : QStringLiteral("未知"),
+            this);
         autostartButton->setProperty("appName", appName);
         autostartButton->setProperty("autostartEnabled", enabled);
-        autostartButton->setToolTip(enabled
+        autostartButton->setProperty("autostartState", status.autostart);
+        autostartButton->setToolTip(status.autostart == QStringLiteral("enabled")
             ? QStringLiteral("当前已启用开机自启，点击后禁用")
-            : QStringLiteral("当前未启用开机自启，点击后启用"));
+            : status.autostart == QStringLiteral("disabled")
+                ? QStringLiteral("当前未启用开机自启，点击后启用")
+                : QStringLiteral("未获取到开机自启状态，请刷新状态"));
         autostartButton->setEnabled(status.autostart == QStringLiteral("enabled")
                                     || status.autostart == QStringLiteral("disabled"));
         connect(autostartButton, &QPushButton::clicked, this, &MainWindow::onToggleProgramAutostartClicked);
