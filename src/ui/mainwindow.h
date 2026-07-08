@@ -283,6 +283,8 @@ private:
     void undoIec101PointsLastEdit();
     void applyModelPointCellText(int row, int column, const QString &text);
     void applyDeviceBindingCellText(int row, int column, const QString &text);
+    int syncModelPointCategoryToDeviceBindings(const QString &modelId,
+                                               const configtool::PointTemplate &point);
     void rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &device);
     void rebuildDlt645DeviceConfig(configtool::ProtocolDeviceInstance &device);
     void autoMergeDlt645FfPollGroups();

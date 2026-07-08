@@ -112,6 +112,11 @@ inline constexpr int ModelPointColumnDataRef = 8;
 inline constexpr int ModelPointColumnDataType = 9;
 inline constexpr int ModelPointColumnUnit = 10;
 
+inline constexpr int ModelPointUiTypeMeasurement = 0;
+inline constexpr int ModelPointUiTypeStatus = 1;
+inline constexpr int ModelPointUiTypeRemoteControl = 2;
+inline constexpr int ModelPointUiTypeRemoteAdjust = 3;
+
 inline void configureTableCellCombo(QComboBox *combo, QObject *eventFilterOwner)
 {
     if (!combo) {
@@ -421,16 +426,103 @@ inline int modelPointFilterTabIndex(configtool::ModelServiceType type)
     return 0;
 }
 
+inline int modelPointFilterTabIndex(const configtool::PointTemplate &point)
+{
+    switch (point.category) {
+    case configtool::ModelServiceType::Measurement:
+        return 1;
+    case configtool::ModelServiceType::Status:
+        return 2;
+    case configtool::ModelServiceType::Control:
+        return point.controlKind == configtool::ControlKind::RemoteAdjust ? 4 : 3;
+    }
+
+    return 0;
+}
+
 inline configtool::ModelServiceType modelServiceTypeFromTabIndex(int index)
 {
     switch (index) {
     case 2:
         return configtool::ModelServiceType::Status;
+    case 4:
     case 3:
         return configtool::ModelServiceType::Control;
     case 1:
     default:
         return configtool::ModelServiceType::Measurement;
+    }
+}
+
+inline int modelPointUiTypeFromTabIndex(int index)
+{
+    switch (index) {
+    case 2:
+        return ModelPointUiTypeStatus;
+    case 3:
+        return ModelPointUiTypeRemoteControl;
+    case 4:
+        return ModelPointUiTypeRemoteAdjust;
+    case 1:
+    default:
+        return ModelPointUiTypeMeasurement;
+    }
+}
+
+inline configtool::ModelServiceType modelServiceTypeFromUiType(int uiType)
+{
+    switch (uiType) {
+    case ModelPointUiTypeStatus:
+        return configtool::ModelServiceType::Status;
+    case ModelPointUiTypeRemoteControl:
+    case ModelPointUiTypeRemoteAdjust:
+        return configtool::ModelServiceType::Control;
+    case ModelPointUiTypeMeasurement:
+    default:
+        return configtool::ModelServiceType::Measurement;
+    }
+}
+
+inline configtool::ControlKind controlKindFromModelPointUiType(int uiType)
+{
+    switch (uiType) {
+    case ModelPointUiTypeRemoteControl:
+        return configtool::ControlKind::RemoteControl;
+    case ModelPointUiTypeRemoteAdjust:
+        return configtool::ControlKind::RemoteAdjust;
+    default:
+        return configtool::ControlKind::None;
+    }
+}
+
+inline int modelPointUiTypeForPoint(const configtool::PointTemplate &point)
+{
+    switch (point.category) {
+    case configtool::ModelServiceType::Measurement:
+        return ModelPointUiTypeMeasurement;
+    case configtool::ModelServiceType::Status:
+        return ModelPointUiTypeStatus;
+    case configtool::ModelServiceType::Control:
+        return point.controlKind == configtool::ControlKind::RemoteAdjust
+            ? ModelPointUiTypeRemoteAdjust
+            : ModelPointUiTypeRemoteControl;
+    }
+
+    return ModelPointUiTypeMeasurement;
+}
+
+inline QString modelPointUiTypeDisplayName(int uiType)
+{
+    switch (uiType) {
+    case ModelPointUiTypeStatus:
+        return QStringLiteral("遥信");
+    case ModelPointUiTypeRemoteControl:
+        return QStringLiteral("遥控");
+    case ModelPointUiTypeRemoteAdjust:
+        return QStringLiteral("遥调");
+    case ModelPointUiTypeMeasurement:
+    default:
+        return QStringLiteral("遥测");
     }
 }
 
@@ -492,6 +584,33 @@ inline QString defaultModelDataTypeForService(configtool::ModelServiceType type)
     return QStringLiteral("Float");
 }
 
+inline QString defaultModelDataTypeForUiType(int uiType)
+{
+    switch (uiType) {
+    case ModelPointUiTypeStatus:
+    case ModelPointUiTypeRemoteControl:
+        return QStringLiteral("Boolean");
+    case ModelPointUiTypeRemoteAdjust:
+    case ModelPointUiTypeMeasurement:
+    default:
+        return QStringLiteral("Float");
+    }
+}
+
+inline QString defaultModelDoTypeForUiType(int uiType)
+{
+    switch (uiType) {
+    case ModelPointUiTypeStatus:
+        return QStringLiteral("SPS");
+    case ModelPointUiTypeRemoteAdjust:
+        return QStringLiteral("CMV");
+    case ModelPointUiTypeRemoteControl:
+    case ModelPointUiTypeMeasurement:
+    default:
+        return QStringLiteral("MV");
+    }
+}
+
 inline QString normalizedModelDataType(configtool::ModelServiceType type, const QString &dataType)
 {
     const QString trimmed = dataType.trimmed();
@@ -520,6 +639,7 @@ inline void updateModelPointControlKind(configtool::PointTemplate &point)
         || dataType == QStringLiteral("dbool")
         ? configtool::ControlKind::RemoteControl
         : configtool::ControlKind::RemoteAdjust;
+    point.doType = defaultModelDoTypeForUiType(modelPointUiTypeForPoint(point));
 }
 
 inline QStringList modbusDataTypeOptionsForKind(const QString &kind)

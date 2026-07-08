@@ -698,6 +698,75 @@ int MainWindow::syncModelPointDescriptionToDeviceBindings(const QString &modelId
     return updateCount;
 }
 
+int MainWindow::syncModelPointCategoryToDeviceBindings(const QString &modelId,
+                                                       const configtool::PointTemplate &point)
+{
+    const QString targetModelId = modelId.trimmed();
+    if (targetModelId.isEmpty()) {
+        return 0;
+    }
+
+    const QString targetPointRef = point.pointRef(targetModelId).trimmed();
+    const QString targetDataRef = point.dataRef().trimmed();
+    if (targetPointRef.isEmpty() && targetDataRef.isEmpty()) {
+        return 0;
+    }
+
+    QString modbusKind = QStringLiteral("yc");
+    QString dlt645Kind = QStringLiteral("yc");
+    if (point.category == configtool::ModelServiceType::Status) {
+        modbusKind = QStringLiteral("yx");
+        dlt645Kind = QStringLiteral("yx");
+    } else if (point.category == configtool::ModelServiceType::Control) {
+        const bool remoteControl = point.controlKind == configtool::ControlKind::RemoteControl;
+        modbusKind = remoteControl ? QStringLiteral("yk") : QStringLiteral("yt");
+        dlt645Kind = remoteControl ? QStringLiteral("yk") : QStringLiteral("yt");
+    }
+
+    int updateCount = 0;
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    for (configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.modelId.trimmed() != targetModelId) {
+            continue;
+        }
+
+        bool deviceChanged = false;
+        for (configtool::PointBinding &binding : device.bindings) {
+            const bool samePointRef = !targetPointRef.isEmpty()
+                && binding.pointRef.trimmed() == targetPointRef;
+            const bool sameDataRef = !targetDataRef.isEmpty()
+                && binding.dataRef.trimmed() == targetDataRef;
+            if (!samePointRef && !sameDataRef) {
+                continue;
+            }
+
+            if (isModbusDevice(device)) {
+                binding.extensions.insert(QStringLiteral("modbusKind"), modbusKind);
+                binding.extensions.insert(QStringLiteral("modbusDataType"), defaultModbusDataTypeForKind(modbusKind));
+                binding.extensions.insert(QStringLiteral("modbusFunctionCode"),
+                                          modbusKind == QStringLiteral("yx") ? 2 : (modbusKind == QStringLiteral("yc") ? 3 : 6));
+                deviceChanged = true;
+                ++updateCount;
+            } else if (isDlt645Device(device)) {
+                binding.extensions.insert(QStringLiteral("dlt645Kind"), dlt645Kind);
+                binding.extensions.insert(QStringLiteral("dlt645DataType"), defaultDlt645DataTypeForKind(dlt645Kind));
+                binding.extensions.insert(QStringLiteral("dlt645FunctionCode"), defaultDlt645FunctionCodeForKind(dlt645Kind));
+                binding.extensions.insert(QStringLiteral("dlt645DataLength"), defaultDlt645DataLengthForKind(dlt645Kind));
+                deviceChanged = true;
+                ++updateCount;
+            }
+        }
+
+        if (deviceChanged && isModbusDevice(device)) {
+            rebuildModbusDeviceConfig(device);
+        } else if (deviceChanged && isDlt645Device(device)) {
+            rebuildDlt645DeviceConfig(device);
+        }
+    }
+
+    return updateCount;
+}
+
 int MainWindow::syncDeviceBindingsForModel(const QString &modelId)
 {
     const QString targetModelId = modelId.trimmed();
@@ -819,11 +888,11 @@ void MainWindow::onAddPointClicked()
 
     configtool::ModelTemplate &model = project.models[modelIndex];
     model.ensureDefaultServices();
-    configtool::ModelServiceType newPointType = static_cast<configtool::ModelServiceType>(
-        m_newPointCategoryCombo->currentData().toInt());
+    int newPointUiType = m_newPointCategoryCombo->currentData().toInt();
     if (m_modelPointFilterTabBar->currentIndex() > 0) {
-        newPointType = modelServiceTypeFromTabIndex(m_modelPointFilterTabBar->currentIndex());
+        newPointUiType = modelPointUiTypeFromTabIndex(m_modelPointFilterTabBar->currentIndex());
     }
+    const configtool::ModelServiceType newPointType = modelServiceTypeFromUiType(newPointUiType);
 
     configtool::ServiceTemplate *service = model.findService(newPointType);
     if (!service) {
@@ -834,9 +903,7 @@ void MainWindow::onAddPointClicked()
     point.pointId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     point.category = newPointType;
     point.signalType = signalTypeForModelService(newPointType);
-    point.controlKind = newPointType == configtool::ModelServiceType::Control
-        ? configtool::ControlKind::RemoteControl
-        : configtool::ControlKind::None;
+    point.controlKind = controlKindFromModelPointUiType(newPointUiType);
     const int nextIndex = service->points.size() + 1;
     point.name = QStringLiteral("NewPoint%1").arg(nextIndex);
     point.description = QStringLiteral("新建点位%1").arg(nextIndex);
@@ -844,14 +911,8 @@ void MainWindow::onAddPointClicked()
     point.lnType = defaultLnTypeForModelService(newPointType);
     point.lnInst = QStringLiteral("1");
     point.doName = point.name;
-    point.doType = newPointType == configtool::ModelServiceType::Status
-        ? QStringLiteral("SPS")
-        : (newPointType == configtool::ModelServiceType::Control
-            ? QStringLiteral("SPC")
-            : QStringLiteral("MV"));
-    point.dataType = newPointType == configtool::ModelServiceType::Measurement
-        ? QStringLiteral("Float")
-        : QStringLiteral("Boolean");
+    point.doType = defaultModelDoTypeForUiType(newPointUiType);
+    point.dataType = defaultModelDataTypeForUiType(newPointUiType);
     service->points.append(point);
     const int syncedBindingCount = syncDeviceBindingsForModel(model.modelId);
 
@@ -867,7 +928,7 @@ void MainWindow::onAddPointClicked()
 void MainWindow::onModelPointFilterChanged(int index)
 {
     if (index > 0) {
-        const int comboIndex = m_newPointCategoryCombo->findData(static_cast<int>(modelServiceTypeFromTabIndex(index)));
+        const int comboIndex = m_newPointCategoryCombo->findData(modelPointUiTypeFromTabIndex(index));
         if (comboIndex >= 0) {
             QSignalBlocker blocker(m_newPointCategoryCombo);
             m_newPointCategoryCombo->setCurrentIndex(comboIndex);
@@ -900,7 +961,9 @@ void MainWindow::onModelPointCategoryChanged(int index)
 
     const int serviceIndex = combo->property("serviceIndex").toInt();
     const int pointIndex = combo->property("pointIndex").toInt();
-    const configtool::ModelServiceType targetType = static_cast<configtool::ModelServiceType>(combo->itemData(index).toInt());
+    const int targetUiType = combo->itemData(index).toInt();
+    const configtool::ModelServiceType targetType = modelServiceTypeFromUiType(targetUiType);
+    const configtool::ControlKind targetControlKind = controlKindFromModelPointUiType(targetUiType);
 
     configtool::ConfigProject &project = m_configProjectManager.project();
     if (modelIndex >= project.models.size()) {
@@ -918,16 +981,29 @@ void MainWindow::onModelPointCategoryChanged(int index)
     }
 
     configtool::PointTemplate point = sourceService.points.at(pointIndex);
-    if (point.category == targetType) {
+    if (point.category == targetType && point.controlKind == targetControlKind) {
+        return;
+    }
+
+    point.category = targetType;
+    point.signalType = signalTypeForModelService(targetType);
+    point.controlKind = targetControlKind;
+    point.doType = defaultModelDoTypeForUiType(targetUiType);
+    point.dataType = defaultModelDataTypeForUiType(targetUiType);
+    const int syncedBindingCount = syncModelPointCategoryToDeviceBindings(model.modelId, point);
+    if (point.category == sourceService.type) {
+        sourceService.points[pointIndex] = point;
+        refreshConfigObjectViews();
+        refreshModelDetail(modelIndex);
+        selectModelPointById(point.pointId);
+        statusBar()->showMessage(syncedBindingCount > 0
+                                     ? QStringLiteral("已调整点位类别，并同步 %1 个设备绑定").arg(syncedBindingCount)
+                                     : QStringLiteral("已调整点位类别"),
+                                 3000);
         return;
     }
 
     sourceService.points.removeAt(pointIndex);
-    point.category = targetType;
-    point.signalType = signalTypeForModelService(targetType);
-    point.controlKind = targetType == configtool::ModelServiceType::Control
-        ? configtool::ControlKind::RemoteControl
-        : configtool::ControlKind::None;
     configtool::ServiceTemplate *targetService = model.findService(targetType);
     if (!targetService) {
         return;
@@ -937,7 +1013,10 @@ void MainWindow::onModelPointCategoryChanged(int index)
     refreshConfigObjectViews();
     refreshModelDetail(modelIndex);
     selectModelPointById(point.pointId);
-    statusBar()->showMessage(QStringLiteral("已调整点位类别"), 3000);
+    statusBar()->showMessage(syncedBindingCount > 0
+                                 ? QStringLiteral("已调整点位类别，并同步 %1 个设备绑定").arg(syncedBindingCount)
+                                 : QStringLiteral("已调整点位类别"),
+                             3000);
 }
 
 void MainWindow::onCopyPointClicked()
@@ -1885,6 +1964,7 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
     case ModelPointColumnDataType:
         point.dataType = normalizedModelDataType(point.category, value);
         updateModelPointControlKind(point);
+        syncModelPointCategoryToDeviceBindings(model.modelId, point);
         break;
     case ModelPointColumnUnit:
         point.unit = value;
@@ -3410,11 +3490,11 @@ void MainWindow::refreshModelDetail(int modelIndex)
         : QString();
     int totalPointCount = 0;
     for (const configtool::ServiceTemplate &service : model.services) {
-        if (filterTabIndex != 0 && modelPointFilterTabIndex(service.type) != filterTabIndex) {
-            continue;
-        }
-
         for (const configtool::PointTemplate &point : service.points) {
+            if (filterTabIndex != 0 && modelPointFilterTabIndex(point) != filterTabIndex) {
+                continue;
+            }
+
             const bool matchesKeyword = keyword.isEmpty()
                 || point.dataRef().contains(keyword, Qt::CaseInsensitive)
                 || point.description.contains(keyword, Qt::CaseInsensitive);
@@ -3430,11 +3510,12 @@ void MainWindow::refreshModelDetail(int modelIndex)
     int row = 0;
     for (int serviceIndex = 0; serviceIndex < model.services.size(); ++serviceIndex) {
         const configtool::ServiceTemplate &service = model.services.at(serviceIndex);
-        if (filterTabIndex != 0 && modelPointFilterTabIndex(service.type) != filterTabIndex) {
-            continue;
-        }
         for (int pointIndex = 0; pointIndex < service.points.size(); ++pointIndex) {
             const configtool::PointTemplate &point = service.points.at(pointIndex);
+            if (filterTabIndex != 0 && modelPointFilterTabIndex(point) != filterTabIndex) {
+                continue;
+            }
+
             const bool matchesKeyword = keyword.isEmpty()
                 || point.dataRef().contains(keyword, Qt::CaseInsensitive)
                 || point.description.contains(keyword, Qt::CaseInsensitive);
@@ -3444,7 +3525,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
 
             auto *handleItem = new QTableWidgetItem(QStringLiteral("\u22EE"));
             auto *northVisibleItem = new QTableWidgetItem();
-            auto *categoryItem = new QTableWidgetItem(configtool::modelServiceTypeDisplayName(point.category));
+            auto *categoryItem = new QTableWidgetItem(modelPointUiTypeDisplayName(modelPointUiTypeForPoint(point)));
             auto *nameItem = new QTableWidgetItem(point.doName);
             auto *descriptionItem = new QTableWidgetItem(point.description);
             auto *ldNameItem = new QTableWidgetItem(point.ldName);
@@ -3525,7 +3606,9 @@ void MainWindow::refreshModelDetail(int modelIndex)
             dataTypeCombo->setProperty("serviceIndex", serviceIndex);
             dataTypeCombo->setProperty("pointIndex", pointIndex);
             const int dataTypeIndex = dataTypeCombo->findText(dataType);
-            dataTypeCombo->setCurrentIndex(dataTypeIndex >= 0 ? dataTypeIndex : dataTypeCombo->findText(defaultModelDataTypeForService(point.category)));
+            dataTypeCombo->setCurrentIndex(dataTypeIndex >= 0
+                                               ? dataTypeIndex
+                                               : dataTypeCombo->findText(defaultModelDataTypeForUiType(modelPointUiTypeForPoint(point))));
             connect(dataTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this, dataTypeCombo](int index) {
                 if (m_updatingModelPointsTable || m_restoringConfigUndo || index < 0) {
                     return;
@@ -3563,6 +3646,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
                 pushConfigUndoSnapshot();
                 point.dataType = dataType;
                 updateModelPointControlKind(point);
+                syncModelPointCategoryToDeviceBindings(model.modelId, point);
                 const QString pointId = point.pointId;
                 refreshConfigObjectViews();
                 refreshModelDetail(modelIndex);
@@ -3574,12 +3658,13 @@ void MainWindow::refreshModelDetail(int modelIndex)
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
             categoryCombo->setObjectName(QStringLiteral("modelPointCategoryCombo"));
             configureTableCellCombo(categoryCombo, this);
-            categoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
-            categoryCombo->addItem(QStringLiteral("遥信"), static_cast<int>(configtool::ModelServiceType::Status));
-            categoryCombo->addItem(QStringLiteral("控制"), static_cast<int>(configtool::ModelServiceType::Control));
+            categoryCombo->addItem(QStringLiteral("遥测"), ModelPointUiTypeMeasurement);
+            categoryCombo->addItem(QStringLiteral("遥信"), ModelPointUiTypeStatus);
+            categoryCombo->addItem(QStringLiteral("遥控"), ModelPointUiTypeRemoteControl);
+            categoryCombo->addItem(QStringLiteral("遥调"), ModelPointUiTypeRemoteAdjust);
             categoryCombo->setProperty("serviceIndex", serviceIndex);
             categoryCombo->setProperty("pointIndex", pointIndex);
-            const int categoryComboIndex = categoryCombo->findData(static_cast<int>(point.category));
+            const int categoryComboIndex = categoryCombo->findData(modelPointUiTypeForPoint(point));
             categoryCombo->setCurrentIndex(categoryComboIndex >= 0 ? categoryComboIndex : 0);
             connect(categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                     this, &MainWindow::onModelPointCategoryChanged);
@@ -3995,8 +4080,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             }
 
             for (const configtool::ServiceTemplate &service : model.services) {
-                const int tabIndex = modelPointFilterTabIndex(service.type);
                 for (const configtool::PointTemplate &point : service.points) {
+                    const int tabIndex = modelPointFilterTabIndex(point);
                     const QString pointRef = point.pointRef(model.modelId).trimmed();
                     if (!pointRef.isEmpty()) {
                         modelPointTabByPointRef.insert(pointRef, tabIndex);
@@ -4025,8 +4110,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                     pointTabIndex = 1;
                 } else if (kind == QStringLiteral("yx")) {
                     pointTabIndex = 2;
-                } else if (kind == QStringLiteral("yk") || kind == QStringLiteral("yt")) {
+                } else if (kind == QStringLiteral("yk")) {
                     pointTabIndex = 3;
+                } else if (kind == QStringLiteral("yt")) {
+                    pointTabIndex = 4;
                 }
             } else if (dlt645Device) {
                 const QString kind = dlt645BindingKind(binding);
@@ -4034,8 +4121,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                     pointTabIndex = 1;
                 } else if (kind == QStringLiteral("yx")) {
                     pointTabIndex = 2;
-                } else if (kind == QStringLiteral("yk") || kind == QStringLiteral("yt")) {
+                } else if (kind == QStringLiteral("yk")) {
                     pointTabIndex = 3;
+                } else if (kind == QStringLiteral("yt")) {
+                    pointTabIndex = 4;
                 }
             } else {
                 const QString pointRef = binding.pointRef.trimmed();

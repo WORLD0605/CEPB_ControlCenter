@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_config_p.h"
 
 #include <QAction>
 #include <QApplication>
@@ -1192,16 +1193,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointFilterTabBar->addTab(QStringLiteral("全部"));
     m_modelPointFilterTabBar->addTab(QStringLiteral("遥测"));
     m_modelPointFilterTabBar->addTab(QStringLiteral("遥信"));
-    m_modelPointFilterTabBar->addTab(QStringLiteral("控制"));
+    m_modelPointFilterTabBar->addTab(QStringLiteral("遥控"));
+    m_modelPointFilterTabBar->addTab(QStringLiteral("遥调"));
     m_modelPointFilterTabBar->setExpanding(false);
     m_modelPointFilterTabBar->setCurrentIndex(0);
     pointToolbar->addWidget(m_modelPointFilterTabBar);
     pointToolbar->addStretch();
     pointToolbar->addWidget(new QLabel("新建到:"));
     m_newPointCategoryCombo = new QComboBox(this);
-    m_newPointCategoryCombo->addItem(QStringLiteral("遥测"), static_cast<int>(configtool::ModelServiceType::Measurement));
-    m_newPointCategoryCombo->addItem(QStringLiteral("遥信"), static_cast<int>(configtool::ModelServiceType::Status));
-    m_newPointCategoryCombo->addItem(QStringLiteral("控制"), static_cast<int>(configtool::ModelServiceType::Control));
+    m_newPointCategoryCombo->addItem(QStringLiteral("遥测"), cepb_config_helpers::ModelPointUiTypeMeasurement);
+    m_newPointCategoryCombo->addItem(QStringLiteral("遥信"), cepb_config_helpers::ModelPointUiTypeStatus);
+    m_newPointCategoryCombo->addItem(QStringLiteral("遥控"), cepb_config_helpers::ModelPointUiTypeRemoteControl);
+    m_newPointCategoryCombo->addItem(QStringLiteral("遥调"), cepb_config_helpers::ModelPointUiTypeRemoteAdjust);
     pointToolbar->addWidget(m_newPointCategoryCombo);
     m_addPointBtn = new QPushButton("新增点位");
     m_copyPointBtn = new QPushButton("复制点位");
@@ -1450,7 +1453,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingFilterTabBar->addTab(QStringLiteral("全部"));
     m_deviceBindingFilterTabBar->addTab(QStringLiteral("遥测"));
     m_deviceBindingFilterTabBar->addTab(QStringLiteral("遥信"));
-    m_deviceBindingFilterTabBar->addTab(QStringLiteral("控制"));
+    m_deviceBindingFilterTabBar->addTab(QStringLiteral("遥控"));
+    m_deviceBindingFilterTabBar->addTab(QStringLiteral("遥调"));
     m_deviceBindingFilterTabBar->setExpanding(false);
     m_deviceBindingFilterTabBar->setCurrentIndex(0);
     bindingToolbar->addWidget(m_deviceBindingFilterTabBar);
