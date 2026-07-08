@@ -83,8 +83,9 @@ QString controlTypeText(int ctrlType)
 
 bool isServiceChannelApp(const AppConfig &appConfig)
 {
-    return appConfig.name.compare(QStringLiteral("ServiceChannel"), Qt::CaseInsensitive) == 0 ||
-           appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
+    return appConfig.name.compare(QStringLiteral("North_CEP"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0;
 }
 
 bool isModbusApp(const AppConfig &appConfig)
@@ -94,7 +95,8 @@ bool isModbusApp(const AppConfig &appConfig)
 
 bool isIec104App(const AppConfig &appConfig)
 {
-    return appConfig.name.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
+    return appConfig.name.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0;
 }
 
 bool isDlt645App(const AppConfig &appConfig)
@@ -104,17 +106,18 @@ bool isDlt645App(const AppConfig &appConfig)
 
 bool isIec101App(const AppConfig &appConfig)
 {
-    return appConfig.name.compare(QStringLiteral("IEC101ServiceChannel"), Qt::CaseInsensitive) == 0;
+    return appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0;
 }
 
 bool isLogicCenterApp(const AppConfig &appConfig)
 {
-    return appConfig.name.compare(QStringLiteral("LogicCenter"), Qt::CaseInsensitive) == 0;
+    return appConfig.name.compare(QStringLiteral("cepLogicCenter"), Qt::CaseInsensitive) == 0;
 }
 
 bool supportsRawFrameLogWindow(const AppConfig &appConfig)
 {
-    return isModbusApp(appConfig) ||
+    return isServiceChannelApp(appConfig) ||
+           isModbusApp(appConfig) ||
            isIec104App(appConfig) ||
            isDlt645App(appConfig) ||
            isIec101App(appConfig) ||
@@ -123,6 +126,9 @@ bool supportsRawFrameLogWindow(const AppConfig &appConfig)
 
 QString rawFrameDebugCategory(const AppConfig &appConfig)
 {
+    if (appConfig.name.compare(QStringLiteral("North_CEP"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("north");
+    }
     if (isIec104App(appConfig)) {
         return QStringLiteral("104");
     }
@@ -161,6 +167,15 @@ QString rawFrameDebugCategoryDisplayName(const QString &category)
 
 QString rawFrameAppDisplayName(const AppConfig &appConfig)
 {
+    if (appConfig.name.compare(QStringLiteral("North_CEP"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("North_CEP");
+    }
+    if (appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("North_104");
+    }
+    if (appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("North_101");
+    }
     if (isIec104App(appConfig)) {
         return QStringLiteral("IEC104");
     }
@@ -171,7 +186,7 @@ QString rawFrameAppDisplayName(const AppConfig &appConfig)
         return QStringLiteral("IEC101");
     }
     if (isLogicCenterApp(appConfig)) {
-        return QStringLiteral("LogicCenter");
+        return QStringLiteral("cepLogicCenter");
     }
     return QStringLiteral("Modbus");
 }

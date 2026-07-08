@@ -757,12 +757,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_controlResponseTimer->setInterval(15000);
 
     m_appConfigs = {
-        {"ServiceChannel", 4444, "ServiceChannel>", AppViewMode::DataTable},
-        {"IEC101ServiceChannel", 3333, "IEC101>", AppViewMode::DataTable},
+        {"North_CEP", 4444, "North_CEP>", AppViewMode::DataTable},
+        {"North_101", 3333, "North_101>", AppViewMode::DataTable},
+        {"North_104", 2222, "North_104>", AppViewMode::DataTable},
         {"cepmodbus", 7777, "modbus>", AppViewMode::DataTable},
         {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable},
         {"cepdlt645", 8888, "dlt645>", AppViewMode::DataTable},
-        {"LogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
+        {"cepLogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
     };
 
     for (int index = 0; index < m_appConfigs.size(); ++index) {
