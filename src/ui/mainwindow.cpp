@@ -1199,7 +1199,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelPointFilterTabBar->setExpanding(false);
     m_modelPointFilterTabBar->setCurrentIndex(0);
     pointToolbar->addWidget(m_modelPointFilterTabBar);
-    pointToolbar->addStretch();
+    pointToolbar->addWidget(new QLabel(QStringLiteral("搜索:")));
+    m_modelPointDataRefFilterEdit = new QLineEdit(this);
+    m_modelPointDataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
+    m_modelPointDataRefFilterEdit->setClearButtonEnabled(true);
+    m_modelPointDataRefFilterEdit->setMinimumWidth(320);
+    pointToolbar->addWidget(m_modelPointDataRefFilterEdit, 1);
     pointToolbar->addWidget(new QLabel("新建到:"));
     m_newPointCategoryCombo = new QComboBox(this);
     m_newPointCategoryCombo->addItem(QStringLiteral("遥测"), cepb_config_helpers::ModelPointUiTypeMeasurement);
@@ -1214,17 +1219,6 @@ MainWindow::MainWindow(QWidget *parent)
     pointToolbar->addWidget(m_copyPointBtn);
     pointToolbar->addWidget(m_deletePointBtn);
     modelDetailLayout->addLayout(pointToolbar);
-
-    auto *pointFilterToolbar = new QHBoxLayout();
-    pointFilterToolbar->setSpacing(8);
-    pointFilterToolbar->addSpacing(2);
-    pointFilterToolbar->addWidget(new QLabel(QStringLiteral("搜索:")));
-    m_modelPointDataRefFilterEdit = new QLineEdit(this);
-    m_modelPointDataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
-    m_modelPointDataRefFilterEdit->setClearButtonEnabled(true);
-    m_modelPointDataRefFilterEdit->setMinimumWidth(320);
-    pointFilterToolbar->addWidget(m_modelPointDataRefFilterEdit, 1);
-    modelDetailLayout->addLayout(pointFilterToolbar);
 
     m_modelValidationLabel = new QLabel(this);
     m_modelValidationLabel->setWordWrap(false);
@@ -1267,8 +1261,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelDetailLayout->setStretch(0, 0);
     modelDetailLayout->setStretch(1, 0);
     modelDetailLayout->setStretch(2, 0);
-    modelDetailLayout->setStretch(3, 0);
-    modelDetailLayout->setStretch(4, 1);
+    modelDetailLayout->setStretch(3, 1);
 
     m_deviceEditorPage = new QWidget(this);
     auto *deviceEditorLayout = new QVBoxLayout(m_deviceEditorPage);
@@ -1459,23 +1452,17 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingFilterTabBar->setExpanding(false);
     m_deviceBindingFilterTabBar->setCurrentIndex(0);
     bindingToolbar->addWidget(m_deviceBindingFilterTabBar);
-    m_autoMergeDlt645FfBtn = new QPushButton(QStringLiteral("自动合并FF块读取"), this);
-    m_autoMergeDlt645FfBtn->setToolTip(QStringLiteral("按点位DI前3字节生成 xxxxFF 采集DI，并把同一采集DI下的645读点合并到同一采集帧"));
-    m_autoMergeDlt645FfBtn->setVisible(false);
-    bindingToolbar->addWidget(m_autoMergeDlt645FfBtn);
-    bindingToolbar->addStretch();
-    deviceEditorLayout->addLayout(bindingToolbar);
-
-    auto *bindingFilterToolbar = new QHBoxLayout();
-    bindingFilterToolbar->setSpacing(8);
-    bindingFilterToolbar->addSpacing(2);
-    bindingFilterToolbar->addWidget(new QLabel(QStringLiteral("搜索:"), this));
+    bindingToolbar->addWidget(new QLabel(QStringLiteral("搜索:"), this));
     m_deviceBindingDataRefFilterEdit = new QLineEdit(this);
     m_deviceBindingDataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
     m_deviceBindingDataRefFilterEdit->setClearButtonEnabled(true);
     m_deviceBindingDataRefFilterEdit->setMinimumWidth(320);
-    bindingFilterToolbar->addWidget(m_deviceBindingDataRefFilterEdit, 1);
-    deviceEditorLayout->addLayout(bindingFilterToolbar);
+    bindingToolbar->addWidget(m_deviceBindingDataRefFilterEdit, 1);
+    m_autoMergeDlt645FfBtn = new QPushButton(QStringLiteral("自动合并FF块读取"), this);
+    m_autoMergeDlt645FfBtn->setToolTip(QStringLiteral("按点位DI前3字节生成 xxxxFF 采集DI，并把同一采集DI下的645读点合并到同一采集帧"));
+    m_autoMergeDlt645FfBtn->setVisible(false);
+    bindingToolbar->addWidget(m_autoMergeDlt645FfBtn);
+    deviceEditorLayout->addLayout(bindingToolbar);
 
     auto *deviceBindingsTable = new EnterToNextRowTableWidget(0, 6, this);
     deviceBindingsTable->enableEnterToNextRowEdit();
@@ -1505,8 +1492,7 @@ MainWindow::MainWindow(QWidget *parent)
     deviceEditorLayout->setStretch(1, 0);
     deviceEditorLayout->setStretch(2, 0);
     deviceEditorLayout->setStretch(3, 0);
-    deviceEditorLayout->setStretch(4, 0);
-    deviceEditorLayout->setStretch(5, 1);
+    deviceEditorLayout->setStretch(4, 1);
 
     auto *deviceDetailPage = new QWidget(this);
     auto *deviceDetailLayout = new QFormLayout(deviceDetailPage);
@@ -2112,7 +2098,7 @@ MainWindow::MainWindow(QWidget *parent)
     iec101PointsLayout->setSpacing(6);
 
     auto *iec101PointsHeader = new QHBoxLayout();
-    auto *iec101PointsTitle = new QLabel(QStringLiteral("点表（来自南向设备）"), this);
+    auto *iec101PointsTitle = new QLabel(QStringLiteral("点表（根据北向101点表填写）"), this);
     QFont boldFont = iec101PointsTitle->font();
     boldFont.setBold(true);
     iec101PointsTitle->setFont(boldFont);
