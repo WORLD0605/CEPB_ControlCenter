@@ -96,3 +96,61 @@ void ProgramControlSshWorker::runUpgrade(quint64 serial,
                          result.ok ? 0 : result.exitCode,
                          result.output.isEmpty() ? result.error : result.output);
 }
+
+void ProgramControlSshWorker::runInstall(quint64 serial,
+                                         int kind,
+                                         const QString &title,
+                                         const QString &appName,
+                                         const QString &localBinaryPath,
+                                         const QString &remoteBinaryTempPath,
+                                         const QString &localServicePath,
+                                         const QString &remoteServiceTempPath,
+                                         const QString &installCommand)
+{
+    SshClient::CommandResult result;
+    if (!m_session || !m_session->isConnected()) {
+        result.error = QStringLiteral("程序控制 SSH 已断开");
+        result.output = result.error;
+        emit commandFinished(serial, kind, title, appName, result.exitCode, result.output);
+        return;
+    }
+
+    QString uploadError;
+    const bool binaryUploaded = m_session->uploadFileScp(
+        localBinaryPath,
+        remoteBinaryTempPath,
+        &uploadError,
+        [this, serial, appName](qint64 sent, qint64 total) {
+            emit upgradeProgress(serial, appName, sent, total);
+            return true;
+        });
+    if (!binaryUploaded) {
+        result.error = uploadError;
+        result.output = result.error;
+        emit commandFinished(serial, kind, title, appName, result.exitCode, result.output);
+        return;
+    }
+
+    const bool serviceUploaded = m_session->uploadFileScp(
+        localServicePath,
+        remoteServiceTempPath,
+        &uploadError,
+        [this, serial, appName](qint64 sent, qint64 total) {
+            emit upgradeProgress(serial, appName, sent, total);
+            return true;
+        });
+    if (!serviceUploaded) {
+        result.error = uploadError;
+        result.output = result.error;
+        emit commandFinished(serial, kind, title, appName, result.exitCode, result.output);
+        return;
+    }
+
+    result = m_session->execCommand(installCommand);
+    emit commandFinished(serial,
+                         kind,
+                         title,
+                         appName,
+                         result.ok ? 0 : result.exitCode,
+                         result.output.isEmpty() ? result.error : result.output);
+}

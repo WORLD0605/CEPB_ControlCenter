@@ -36,6 +36,15 @@ public slots:
                     const QString &localPath,
                     const QString &remoteTempPath,
                     const QString &installCommand);
+    void runInstall(quint64 serial,
+                    int kind,
+                    const QString &title,
+                    const QString &appName,
+                    const QString &localBinaryPath,
+                    const QString &remoteBinaryTempPath,
+                    const QString &localServicePath,
+                    const QString &remoteServiceTempPath,
+                    const QString &installCommand);
 
 signals:
     void connected(quint64 serial, const QString &key);

@@ -1911,7 +1911,7 @@ MainWindow::MainWindow(QWidget *parent)
     programConnectionRow->addStretch();
     programControlLayout->addLayout(programConnectionRow);
 
-    m_programControlTable = new QTableWidget(0, 8, this);
+    m_programControlTable = new QTableWidget(0, 9, this);
     m_programControlTable->setHorizontalHeaderLabels({
         QStringLiteral("状态"),
         QStringLiteral("APP"),
@@ -1921,7 +1921,8 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("重启"),
         QStringLiteral("开机自启")
     });
-    m_programControlTable->setHorizontalHeaderItem(7, new QTableWidgetItem(QStringLiteral("升级")));
+    m_programControlTable->setHorizontalHeaderItem(7, new QTableWidgetItem(QStringLiteral("安装")));
+    m_programControlTable->setHorizontalHeaderItem(8, new QTableWidgetItem(QStringLiteral("升级")));
     m_programControlTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_programControlTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_programControlTable->setFocusPolicy(Qt::NoFocus);
@@ -1937,6 +1938,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_programControlTable->setColumnWidth(5, 90);
     m_programControlTable->setColumnWidth(6, 120);
     m_programControlTable->setColumnWidth(7, 90);
+    m_programControlTable->setColumnWidth(8, 90);
     programControlLayout->addWidget(m_programControlTable, 1);
 
     // ============================================================

@@ -116,6 +116,7 @@ private:
         Restart,
         EnableAutostart,
         DisableAutostart,
+        Install,
         Upgrade
     };
 
@@ -199,6 +200,7 @@ private slots:
     void onForceStopProgramClicked();
     void onRestartProgramClicked();
     void onToggleProgramAutostartClicked();
+    void onInstallProgramClicked();
     void onUpgradeProgramClicked();
     void onIec101CommModeChanged(int index);
     void onRefreshIec101PointsClicked();
@@ -393,6 +395,7 @@ private:
     QStringList managedProgramAppNames() const;
     QString programServiceName(const QString &appName) const;
     QString localProgramBinaryPath(const QString &appName) const;
+    QString localProgramServicePath(const QString &appName) const;
     QString remoteProgramBinaryPath(const QString &appName) const;
     bool upgradeProgramBinary(const QString &appName,
                               QString *output,

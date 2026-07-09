@@ -34,7 +34,8 @@ constexpr int ProgramColumnStart = 3;
 constexpr int ProgramColumnStop = 4;
 constexpr int ProgramColumnRestart = 5;
 constexpr int ProgramColumnAutostart = 6;
-constexpr int ProgramColumnUpgrade = 7;
+constexpr int ProgramColumnInstall = 7;
+constexpr int ProgramColumnUpgrade = 8;
 
 QString remoteProgramShellQuote(const QString &text)
 {
@@ -116,6 +117,36 @@ QString localAppBinaryPathForApp(const QString &appName)
     }
 
     return appPath;
+}
+
+QString localServicePathForApp(const QString &serviceName)
+{
+    const QString serviceDirName = QStringLiteral("systemd");
+    const QString releasePath = QDir(QCoreApplication::applicationDirPath())
+        .filePath(serviceDirName + QLatin1Char('/') + serviceName);
+    if (QFileInfo::exists(releasePath)) {
+        return releasePath;
+    }
+
+    const QString currentPath = QDir(QDir::currentPath())
+        .filePath(serviceDirName + QLatin1Char('/') + serviceName);
+    if (QFileInfo::exists(currentPath)) {
+        return currentPath;
+    }
+
+    const QString sourceTreePath = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("../scripts/systemd/") + serviceName);
+    if (QFileInfo::exists(sourceTreePath)) {
+        return QFileInfo(sourceTreePath).absoluteFilePath();
+    }
+
+    const QString currentSourceTreePath = QDir(QDir::currentPath())
+        .filePath(QStringLiteral("scripts/systemd/") + serviceName);
+    if (QFileInfo::exists(currentSourceTreePath)) {
+        return currentSourceTreePath;
+    }
+
+    return releasePath;
 }
 
 QString programStatusScanCommand(const QString &baseDir, const QStringList &appNames)
@@ -271,6 +302,11 @@ QString MainWindow::localProgramBinaryPath(const QString &appName) const
     return localAppBinaryPathForApp(appName);
 }
 
+QString MainWindow::localProgramServicePath(const QString &appName) const
+{
+    return localServicePathForApp(programServiceName(appName));
+}
+
 QString MainWindow::remoteProgramBinaryPath(const QString &appName) const
 {
     const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
@@ -334,7 +370,8 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
     const QString title = m_programControlCommandTitle;
     const QString appName = m_programControlCommandAppName;
     clearProgramControlCommandState();
-    if (kind == ProgramControlCommandKind::Upgrade && m_programControlUpgradeProgress) {
+    if ((kind == ProgramControlCommandKind::Install || kind == ProgramControlCommandKind::Upgrade)
+        && m_programControlUpgradeProgress) {
         m_programControlUpgradeProgress->close();
         m_programControlUpgradeProgress = nullptr;
     }
@@ -390,6 +427,12 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
                                  QStringLiteral("禁用 %1 开机自启失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
+        case ProgramControlCommandKind::Install:
+            QMessageBox::warning(this,
+                                 QStringLiteral("程序安装"),
+                                 QStringLiteral("安装 %1 失败。\n\n%2").arg(appName, output));
+            startProgramStatusRefresh();
+            break;
         case ProgramControlCommandKind::Upgrade:
             QMessageBox::warning(this,
                                  QStringLiteral("程序升级"),
@@ -417,6 +460,13 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
     case ProgramControlCommandKind::DisableAutostart:
         refreshProgramControlTable(output);
         statusBar()->showMessage(QStringLiteral("%1 完成").arg(title), 3000);
+        break;
+    case ProgramControlCommandKind::Install:
+        QMessageBox::information(this,
+                                 QStringLiteral("程序安装"),
+                                 QStringLiteral("%1 完成。\n\n%2").arg(title, output.trimmed()));
+        statusBar()->showMessage(QStringLiteral("%1 完成").arg(title), 3000);
+        startProgramStatusRefresh();
         break;
     case ProgramControlCommandKind::Upgrade:
         QMessageBox::information(this,
@@ -687,6 +737,7 @@ void MainWindow::updateProgramControlBusyUi(bool busy)
                            ProgramColumnStop,
                            ProgramColumnRestart,
                            ProgramColumnAutostart,
+                           ProgramColumnInstall,
                            ProgramColumnUpgrade}) {
             QWidget *widget = m_programControlTable->cellWidget(row, column);
             if (widget) {
@@ -843,6 +894,12 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
                                     || status.autostart == QStringLiteral("disabled"));
         connect(autostartButton, &QPushButton::clicked, this, &MainWindow::onToggleProgramAutostartClicked);
         m_programControlTable->setCellWidget(row, ProgramColumnAutostart, wrapCellButton(autostartButton));
+
+        auto *installButton = makeCellButton(QStringLiteral("安装"), this);
+        installButton->setProperty("appName", appName);
+        installButton->setToolTip(QStringLiteral("创建设备端 APP 目录，上传 bin，并安装 systemd 服务"));
+        connect(installButton, &QPushButton::clicked, this, &MainWindow::onInstallProgramClicked);
+        m_programControlTable->setCellWidget(row, ProgramColumnInstall, wrapCellButton(installButton));
 
         auto *upgradeButton = makeCellButton(QStringLiteral("升级"), this);
         upgradeButton->setProperty("appName", appName);
@@ -1103,6 +1160,122 @@ void MainWindow::onToggleProgramAutostartClicked()
                                title,
                                kind,
                                appName);
+}
+
+void MainWindow::onInstallProgramClicked()
+{
+    auto *button = qobject_cast<QPushButton *>(sender());
+    const QString appName = button ? button->property("appName").toString() : QString();
+    if (appName.isEmpty()) {
+        return;
+    }
+
+    if (!m_programControlConnected) {
+        closeProgramControlShell();
+        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("请先连接程序控制 SSH。"));
+        return;
+    }
+    if (m_programControlShellKey != programControlShellKey()) {
+        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("连接参数已变化，请断开后重新连接。"));
+        return;
+    }
+    if (m_programControlCommandRunning) {
+        statusBar()->showMessage(QStringLiteral("程序控制正在执行上一条命令"), 3000);
+        return;
+    }
+    if (!m_programControlWorker || !m_programControlThread || !m_programControlThread->isRunning()) {
+        closeProgramControlShell();
+        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("程序控制 SSH 已断开，请重新连接。"));
+        return;
+    }
+
+    const QString localBinaryPath = localProgramBinaryPath(appName);
+    const QString localServicePath = localProgramServicePath(appName);
+    const QString service = programServiceName(appName);
+    const QString remoteAppDir = QStringLiteral("%1/%2").arg(trimRemoteBaseDir(configRemoteBaseDir()), appName);
+    const QString remoteBinaryPath = remoteProgramBinaryPath(appName);
+    if (!QFileInfo::exists(localBinaryPath)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("程序安装"),
+                             QStringLiteral("未找到本地 APP 文件：\n%1").arg(localBinaryPath));
+        return;
+    }
+    if (!QFileInfo::exists(localServicePath)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("程序安装"),
+                             QStringLiteral("未找到本地 Service 文件：\n%1").arg(localServicePath));
+        return;
+    }
+
+    const QMessageBox::StandardButton confirm = QMessageBox::question(
+        this,
+        QStringLiteral("程序安装"),
+        QStringLiteral("将在设备端安装 %1：\n\nAPP 目录：%2\n程序文件：%3\nService：/etc/systemd/system/%4\n\n安装会创建 bin/dev/model/etc/log/config 目录，并执行 systemctl daemon-reload。是否继续？")
+            .arg(appName, remoteAppDir, remoteBinaryPath, service),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const QString timestamp = QString::number(QDateTime::currentMSecsSinceEpoch());
+    const QString remoteBinaryTempPath = QStringLiteral("/tmp/cepb_install_%1_%2.bin").arg(appName, timestamp);
+    const QString remoteServiceTempPath = QStringLiteral("/tmp/cepb_install_%1_%2.service").arg(appName, timestamp);
+    const QString command = QStringLiteral(
+        "set -e; "
+        "app_dir=%1; bin_tmp=%2; service_tmp=%3; service=%4; app_bin=%5; "
+        "mkdir -p \"$app_dir\" \"$app_dir/bin\" \"$app_dir/dev\" \"$app_dir/model\" \"$app_dir/etc\" \"$app_dir/log\" \"$app_dir/config\"; "
+        "install -m 0755 \"$bin_tmp\" \"$app_dir/bin/$app_bin\"; "
+        "install -m 0644 \"$service_tmp\" \"/etc/systemd/system/$service\"; "
+        "rm -f \"$bin_tmp\" \"$service_tmp\"; "
+        "systemctl daemon-reload; "
+        "echo installed \"$app_dir\"; "
+        "echo installed \"/etc/systemd/system/$service\"")
+        .arg(remoteProgramShellQuote(remoteAppDir),
+             remoteProgramShellQuote(remoteBinaryTempPath),
+             remoteProgramShellQuote(remoteServiceTempPath),
+             remoteProgramShellQuote(service),
+             remoteProgramShellQuote(appName));
+
+    const quint64 serial = ++m_programControlCommandSerial;
+    m_programControlCommandRunning = true;
+    m_programControlCommandKind = ProgramControlCommandKind::Install;
+    m_programControlCommandTitle = QStringLiteral("安装 %1").arg(appName);
+    m_programControlCommandAppName = appName;
+    updateProgramControlBusyUi(true);
+    setProgramControlRowPending(appName, QStringLiteral("安装中"));
+    statusBar()->showMessage(QStringLiteral("正在安装 %1").arg(appName), 3000);
+
+    auto *progress = new QProgressDialog(QStringLiteral("正在上传 %1...").arg(appName),
+                                         QString(),
+                                         0,
+                                         100,
+                                         this);
+    progress->setWindowTitle(QStringLiteral("程序安装"));
+    progress->setWindowModality(Qt::ApplicationModal);
+    progress->setMinimumDuration(0);
+    progress->setCancelButton(nullptr);
+    progress->setAttribute(Qt::WA_DeleteOnClose);
+    connect(progress, &QObject::destroyed, this, [this, progress]() {
+        if (m_programControlUpgradeProgress == progress) {
+            m_programControlUpgradeProgress = nullptr;
+        }
+    });
+    m_programControlUpgradeProgress = progress;
+    progress->show();
+
+    QMetaObject::invokeMethod(m_programControlWorker,
+                              "runInstall",
+                              Qt::QueuedConnection,
+                              Q_ARG(quint64, serial),
+                              Q_ARG(int, static_cast<int>(ProgramControlCommandKind::Install)),
+                              Q_ARG(QString, m_programControlCommandTitle),
+                              Q_ARG(QString, appName),
+                              Q_ARG(QString, localBinaryPath),
+                              Q_ARG(QString, remoteBinaryTempPath),
+                              Q_ARG(QString, localServicePath),
+                              Q_ARG(QString, remoteServiceTempPath),
+                              Q_ARG(QString, command));
 }
 
 void MainWindow::onUpgradeProgramClicked()

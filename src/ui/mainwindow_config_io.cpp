@@ -1,10 +1,106 @@
 #include "mainwindow_config_p.h"
 #include "network/ssh_client.h"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QUrl>
 
 using namespace cepb_config_helpers;
+
+namespace {
+
+struct ConfigAppDirMigration {
+    QString newName;
+    QStringList oldNames;
+};
+
+QList<ConfigAppDirMigration> configAppDirMigrations()
+{
+    return {
+        {QStringLiteral("North_CEP"), {QStringLiteral("ServiceChannel")}},
+        {QStringLiteral("North_101"), {QStringLiteral("IEC101ServiceChannel")}},
+        {QStringLiteral("North_104"), {QStringLiteral("IEC104ServiceChannel")}},
+        {QStringLiteral("North_Mqtt"), {QStringLiteral("MqttServiceChannel")}},
+        {QStringLiteral("LogicCenter"), {QStringLiteral("cepLogicCenter")}},
+        {QStringLiteral("South_Modbus"), {QStringLiteral("cepmodbus")}},
+        {QStringLiteral("South_104"), {QStringLiteral("cepiec104")}},
+        {QStringLiteral("South_645"), {QStringLiteral("cepdlt645")}}
+    };
+}
+
+bool migrateOneConfigAppDir(const QDir &rootDir,
+                            const QString &oldName,
+                            const QString &newName,
+                            configtool::ExportReport &report)
+{
+    const QString oldPath = rootDir.filePath(oldName);
+    const QString newPath = rootDir.filePath(newName);
+    const QFileInfo oldInfo(oldPath);
+    if (!oldInfo.exists() || !oldInfo.isDir()) {
+        return true;
+    }
+
+    if (!QFileInfo::exists(newPath)) {
+        if (!QDir().rename(oldPath, newPath)) {
+            report.addIssue(configtool::ImportIssueSeverity::Error,
+                            oldPath,
+                            QStringLiteral("无法将旧配置目录 %1 重命名为 %2").arg(oldName, newName));
+            return false;
+        }
+        report.addIssue(configtool::ImportIssueSeverity::Info,
+                        newPath,
+                        QStringLiteral("已将旧配置目录 %1 重命名为 %2").arg(oldName, newName));
+        return true;
+    }
+
+    const QString backupName = QStringLiteral("%1_legacy_%2")
+        .arg(oldName, QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddHHmmss")));
+    const QString backupPath = rootDir.filePath(backupName);
+    if (!QDir().rename(oldPath, backupPath)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        oldPath,
+                        QStringLiteral("目标目录 %1 已存在，且无法将旧目录 %2 备份为 %3")
+                            .arg(newName, oldName, backupName));
+        return false;
+    }
+    report.addIssue(configtool::ImportIssueSeverity::Warning,
+                    backupPath,
+                    QStringLiteral("目标目录 %1 已存在，旧目录 %2 已备份为 %3，本次保存写入新目录")
+                        .arg(newName, oldName, backupName));
+    return true;
+}
+
+bool migrateLegacyConfigAppDirs(const QString &projectRoot, configtool::ExportReport &report)
+{
+    const QFileInfo rootInfo(projectRoot);
+    if (!rootInfo.exists() || !rootInfo.isDir()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        projectRoot,
+                        QStringLiteral("配置工程目录不存在，无法迁移旧 APP 目录"));
+        return false;
+    }
+
+    bool ok = true;
+    const QDir rootDir(rootInfo.absoluteFilePath());
+    for (const ConfigAppDirMigration &migration : configAppDirMigrations()) {
+        for (const QString &oldName : migration.oldNames) {
+            ok = migrateOneConfigAppDir(rootDir, oldName, migration.newName, report) && ok;
+        }
+    }
+    return ok;
+}
+
+QStringList configAppFolderNames()
+{
+    QStringList names;
+    for (const ConfigAppDirMigration &migration : configAppDirMigrations()) {
+        names << migration.newName;
+        names << migration.oldNames;
+    }
+    return names;
+}
+
+} // namespace
 
 void MainWindow::onBrowseConfigImportDirClicked()
 {
@@ -127,22 +223,13 @@ void MainWindow::onExportIec104ConfigClicked()
         return;
     }
 
-    const QString resolvedIec104Dir = resolveIec104AppDir(projectRoot);
-    const QString resolvedModbusDir = resolveModbusAppDir(projectRoot);
-    const QString resolvedDlt645Dir = resolveDlt645AppDir(projectRoot);
-    const QString resolvedLogicCenterDir = resolveLogicCenterAppDir(projectRoot);
-    const QString iec104AppDir = resolvedIec104Dir.isEmpty()
-        ? QDir(projectRoot).filePath(QStringLiteral("South_104"))
-        : resolvedIec104Dir;
-    const QString modbusAppDir = resolvedModbusDir.isEmpty()
-        ? QDir(projectRoot).filePath(QStringLiteral("South_Modbus"))
-        : resolvedModbusDir;
-    const QString dlt645AppDir = resolvedDlt645Dir.isEmpty()
-        ? QDir(projectRoot).filePath(QStringLiteral("South_645"))
-        : resolvedDlt645Dir;
-    const QString logicCenterAppDir = resolvedLogicCenterDir.isEmpty()
-        ? QDir(projectRoot).filePath(QStringLiteral("LogicCenter"))
-        : resolvedLogicCenterDir;
+    configtool::ExportReport report;
+    bool ok = migrateLegacyConfigAppDirs(projectRoot, report);
+
+    const QString iec104AppDir = QDir(projectRoot).filePath(QStringLiteral("South_104"));
+    const QString modbusAppDir = QDir(projectRoot).filePath(QStringLiteral("South_Modbus"));
+    const QString dlt645AppDir = QDir(projectRoot).filePath(QStringLiteral("South_645"));
+    const QString logicCenterAppDir = QDir(projectRoot).filePath(QStringLiteral("LogicCenter"));
     if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty() && logicCenterAppDir.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到可导出的配置目录"));
         return;
@@ -150,8 +237,6 @@ void MainWindow::onExportIec104ConfigClicked()
 
     m_configImportDirEdit->setText(projectRoot);
 
-    configtool::ExportReport report;
-    bool ok = true;
     ok = m_configProjectManager.exportIec104AppDirectory(iec104AppDir, report) && ok;
     ok = m_configProjectManager.exportModbusAppDirectory(modbusAppDir, report) && ok;
     ok = m_configProjectManager.exportDlt645AppDirectory(dlt645AppDir, report) && ok;
@@ -160,10 +245,7 @@ void MainWindow::onExportIec104ConfigClicked()
         report) && ok;
 
     // ---- IEC101 配置导出 ----
-    const QString resolvedIec101Dir = resolveIec101ServiceChannelAppDir(projectRoot);
-    const QString iec101ExportDir = resolvedIec101Dir.isEmpty()
-        ? QDir(projectRoot).filePath(QStringLiteral("North_101"))
-        : resolvedIec101Dir;
+    const QString iec101ExportDir = QDir(projectRoot).filePath(QStringLiteral("North_101"));
     const QString iec101ConfigDir = QDir(iec101ExportDir).filePath(QStringLiteral("config"));
     const QString iec101ConfigPath = QDir(iec101ConfigDir).filePath(QStringLiteral("localhost.json"));
     if (!QDir().mkpath(iec101ConfigDir)) {
@@ -943,18 +1025,7 @@ QString MainWindow::normalizedConfigProjectRoot(const QString &selectedPath) con
     const QFileInfo selectedInfo(selectedPath);
     const QString absolutePath = selectedInfo.absoluteFilePath();
     const QString folderName = selectedInfo.fileName().trimmed();
-    const QStringList appFolderNames = {
-        QStringLiteral("South_104"),
-        QStringLiteral("cepiec104"),
-        QStringLiteral("South_Modbus"),
-        QStringLiteral("cepmodbus"),
-        QStringLiteral("South_645"),
-        QStringLiteral("cepdlt645"),
-        QStringLiteral("LogicCenter"),
-        QStringLiteral("cepLogicCenter"),
-        QStringLiteral("North_101"),
-        QStringLiteral("IEC101ServiceChannel")
-    };
+    const QStringList appFolderNames = configAppFolderNames();
     for (const QString &appFolderName : appFolderNames) {
         if (folderName.compare(appFolderName, Qt::CaseInsensitive) == 0) {
             return QDir(absolutePath).absoluteFilePath(QStringLiteral(".."));

@@ -11,6 +11,8 @@ set "BUILD_DIR=%SOURCE_DIR%\build"
 set "RELEASE_DIR=%SOURCE_DIR%\build-release"
 set "APP_BIN_SRC=%SOURCE_DIR%\app_binaries"
 set "APP_BIN_RELEASE=%RELEASE_DIR%\app_binaries"
+set "SYSTEMD_SRC=%SOURCE_DIR%\scripts\systemd"
+set "SYSTEMD_RELEASE=%RELEASE_DIR%\systemd"
 set "APP_VERSION=unknown"
 
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
@@ -116,6 +118,13 @@ for %%a in (North_CEP North_101 North_104 North_Mqtt LogicCenter South_Modbus So
     ) else (
         echo         [WARN] Missing %APP_BIN_SRC%\%%a
     )
+)
+
+echo       Adding APP systemd services...
+if not exist "%SYSTEMD_RELEASE%" mkdir "%SYSTEMD_RELEASE%"
+for %%s in ("%SYSTEMD_SRC%\*.service") do (
+    copy /Y "%%~fs" "%SYSTEMD_RELEASE%\" >nul
+    echo         [OK] %%~nxs
 )
 
 echo [7/8] Cleaning build files...
