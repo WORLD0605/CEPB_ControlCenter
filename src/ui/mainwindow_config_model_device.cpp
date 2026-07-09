@@ -3653,6 +3653,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
                 selectModelPointById(pointId);
                 m_modelPointsTable->setCurrentCell(m_modelPointsTable->currentRow(), ModelPointColumnDataType);
             });
+            hideComboBackedItemText(dataTypeItem);
             m_modelPointsTable->setCellWidget(row, ModelPointColumnDataType, dataTypeCombo);
 
             auto *categoryCombo = new QComboBox(m_modelPointsTable);
@@ -3668,6 +3669,7 @@ void MainWindow::refreshModelDetail(int modelIndex)
             categoryCombo->setCurrentIndex(categoryComboIndex >= 0 ? categoryComboIndex : 0);
             connect(categoryCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                     this, &MainWindow::onModelPointCategoryChanged);
+            hideComboBackedItemText(categoryItem);
             m_modelPointsTable->setCellWidget(row, ModelPointColumnCategory, categoryCombo);
             ++row;
         }
@@ -4290,6 +4292,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                     }
                 }
             });
+            hideComboBackedItemText(kindItem);
             m_deviceBindingsTable->setCellWidget(row, ModbusColumnKind, kindCombo);
             m_deviceBindingsTable->setItem(row, ModbusColumnDataRef, dataRefItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnDescription, descriptionItem);
@@ -4343,6 +4346,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                     }
                 }
             });
+            hideComboBackedItemText(dataTypeItem);
             m_deviceBindingsTable->setCellWidget(row, ModbusColumnDataType, dataTypeCombo);
             m_deviceBindingsTable->setItem(row, ModbusColumnScale, scaleItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnGroupNo, groupItem);
@@ -4550,6 +4554,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                     }
                 }
             });
+            hideComboBackedItemText(dataTypeItem);
             m_deviceBindingsTable->setCellWidget(row, Dlt645ColumnDataType, dataTypeCombo);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnDataLength, dataLengthItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnGroupNo, groupItem);

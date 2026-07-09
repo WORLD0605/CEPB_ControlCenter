@@ -131,6 +131,16 @@ inline void configureTableCellCombo(QComboBox *combo, QObject *eventFilterOwner)
         combo->installEventFilter(eventFilterOwner);
     }
 }
+
+inline void hideComboBackedItemText(QTableWidgetItem *item)
+{
+    if (!item) {
+        return;
+    }
+
+    item->setData(Qt::DisplayRole, QString());
+}
+
 inline constexpr int LogicComputationColumnDragHandle = 0;
 inline constexpr int LogicComputationColumnOutputDevice = 1;
 inline constexpr int LogicComputationColumnOutputPoint = 2;
