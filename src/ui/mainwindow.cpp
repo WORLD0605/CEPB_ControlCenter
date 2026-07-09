@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include "mainwindow_config_p.h"
 
 #include <QAction>
@@ -1897,18 +1897,19 @@ MainWindow::MainWindow(QWidget *parent)
     programConnectionRow->addStretch();
     programControlLayout->addLayout(programConnectionRow);
 
-    m_programControlTable = new QTableWidget(0, 9, this);
+    m_programControlTable = new QTableWidget(0, 10, this);
     m_programControlTable->setHorizontalHeaderLabels({
         QStringLiteral("状态"),
         QStringLiteral("APP"),
         QStringLiteral("PID"),
+        QStringLiteral("重启次数"),
         QStringLiteral("启动"),
         QStringLiteral("停止"),
         QStringLiteral("重启"),
-        QStringLiteral("开机自启")
+        QStringLiteral("开机自启"),
+        QStringLiteral("安装"),
+        QStringLiteral("升级")
     });
-    m_programControlTable->setHorizontalHeaderItem(7, new QTableWidgetItem(QStringLiteral("安装")));
-    m_programControlTable->setHorizontalHeaderItem(8, new QTableWidgetItem(QStringLiteral("升级")));
     m_programControlTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_programControlTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_programControlTable->setFocusPolicy(Qt::NoFocus);
@@ -1920,11 +1921,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_programControlTable->setColumnWidth(1, 180);
     m_programControlTable->setColumnWidth(2, 120);
     m_programControlTable->setColumnWidth(3, 90);
-    m_programControlTable->setColumnWidth(4, 150);
-    m_programControlTable->setColumnWidth(5, 90);
-    m_programControlTable->setColumnWidth(6, 120);
-    m_programControlTable->setColumnWidth(7, 90);
+    m_programControlTable->setColumnWidth(4, 90);
+    m_programControlTable->setColumnWidth(5, 150);
+    m_programControlTable->setColumnWidth(6, 90);
+    m_programControlTable->setColumnWidth(7, 120);
     m_programControlTable->setColumnWidth(8, 90);
+    m_programControlTable->setColumnWidth(9, 90);
     programControlLayout->addWidget(m_programControlTable, 1);
 
     // ============================================================
@@ -2195,7 +2197,7 @@ MainWindow::MainWindow(QWidget *parent)
     onIec101CommModeChanged(1);
 
     m_mainTabWidget->addTab(debugPage, "调试控制");
-    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("程序控制"));
+    m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("APP管理"));
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");

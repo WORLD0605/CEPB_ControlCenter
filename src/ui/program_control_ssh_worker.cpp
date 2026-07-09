@@ -1,4 +1,4 @@
-#include "program_control_ssh_worker.h"
+﻿#include "program_control_ssh_worker.h"
 
 ProgramControlSshWorker::ProgramControlSshWorker(QObject *parent)
     : QObject(parent)
@@ -42,7 +42,7 @@ void ProgramControlSshWorker::runCommand(quint64 serial,
 {
     SshClient::CommandResult result;
     if (!m_session || !m_session->isConnected()) {
-        result.error = QStringLiteral("程序控制 SSH 已断开");
+        result.error = QStringLiteral("APP管理 SSH 已断开");
         result.output = result.error;
     } else {
         result = m_session->execCommand(command);
@@ -66,7 +66,7 @@ void ProgramControlSshWorker::runUpgrade(quint64 serial,
 {
     SshClient::CommandResult result;
     if (!m_session || !m_session->isConnected()) {
-        result.error = QStringLiteral("程序控制 SSH 已断开");
+        result.error = QStringLiteral("APP管理 SSH 已断开");
         result.output = result.error;
         emit commandFinished(serial, kind, title, appName, result.exitCode, result.output);
         return;
@@ -109,7 +109,7 @@ void ProgramControlSshWorker::runInstall(quint64 serial,
 {
     SshClient::CommandResult result;
     if (!m_session || !m_session->isConnected()) {
-        result.error = QStringLiteral("程序控制 SSH 已断开");
+        result.error = QStringLiteral("APP管理 SSH 已断开");
         result.output = result.error;
         emit commandFinished(serial, kind, title, appName, result.exitCode, result.output);
         return;

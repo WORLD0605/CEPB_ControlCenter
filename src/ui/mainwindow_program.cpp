@@ -1,4 +1,4 @@
-#include "mainwindow_config_p.h"
+﻿#include "mainwindow_config_p.h"
 #include "network/ssh_client.h"
 #include "program_control_ssh_worker.h"
 
@@ -30,12 +30,13 @@ namespace {
 constexpr int ProgramColumnStatus = 0;
 constexpr int ProgramColumnApp = 1;
 constexpr int ProgramColumnPid = 2;
-constexpr int ProgramColumnStart = 3;
-constexpr int ProgramColumnStop = 4;
-constexpr int ProgramColumnRestart = 5;
-constexpr int ProgramColumnAutostart = 6;
-constexpr int ProgramColumnInstall = 7;
-constexpr int ProgramColumnUpgrade = 8;
+constexpr int ProgramColumnRestarts = 3;
+constexpr int ProgramColumnStart = 4;
+constexpr int ProgramColumnStop = 5;
+constexpr int ProgramColumnRestart = 6;
+constexpr int ProgramColumnAutostart = 7;
+constexpr int ProgramColumnInstall = 8;
+constexpr int ProgramColumnUpgrade = 9;
 
 QString remoteProgramShellQuote(const QString &text)
 {
@@ -160,8 +161,9 @@ QString programStatusScanCommand(const QString &baseDir, const QStringList &appN
             "active=$(systemctl show \"$service\" -p ActiveState --value --no-page 2>/dev/null || true); "
             "sub=$(systemctl show \"$service\" -p SubState --value --no-page 2>/dev/null || true); "
             "pid=$(systemctl show \"$service\" -p MainPID --value --no-page 2>/dev/null || true); "
+            "restarts=$(systemctl show \"$service\" -p NRestarts --value --no-page 2>/dev/null || true); "
             "enabled=$(systemctl is-enabled \"$service\" 2>/dev/null || true); "
-            "echo \"$app|$service|${active:-unknown}|${sub:-unknown}|${pid:-0}|${enabled:-unknown}\"; ")
+            "echo \"$app|$service|${active:-unknown}|${sub:-unknown}|${pid:-0}|${restarts:-unknown}|${enabled:-unknown}\"; ")
             .arg(remoteProgramShellQuote(service), remoteProgramShellQuote(appName));
     }
     return command;
@@ -293,23 +295,23 @@ bool MainWindow::startProgramControlCommand(const QString &command,
 {
     if (!m_programControlConnected) {
         closeProgramControlShell();
-        statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开，请手动连接"), 5000);
-        QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("请先在“程序控制”页面点击“连接”。"));
+        statusBar()->showMessage(QStringLiteral("APP管理 SSH 已断开，请手动连接"), 5000);
+        QMessageBox::warning(this, QStringLiteral("APP管理"), QStringLiteral("请先在“APP管理”页面点击“连接”。"));
         return false;
     }
     if (m_programControlShellKey != programControlShellKey()) {
-        statusBar()->showMessage(QStringLiteral("程序控制连接参数已变化，请断开后重新连接"), 5000);
-        QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("连接参数已变化，请先断开，再重新连接。"));
+        statusBar()->showMessage(QStringLiteral("APP管理连接参数已变化，请断开后重新连接"), 5000);
+        QMessageBox::warning(this, QStringLiteral("APP管理"), QStringLiteral("连接参数已变化，请先断开，再重新连接。"));
         return false;
     }
     if (m_programControlCommandRunning) {
-        statusBar()->showMessage(QStringLiteral("程序控制正在执行上一条命令"), 3000);
+        statusBar()->showMessage(QStringLiteral("APP管理正在执行上一条命令"), 3000);
         return false;
     }
     if (!m_programControlWorker || !m_programControlThread || !m_programControlThread->isRunning()) {
         closeProgramControlShell();
-        statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开，请重新连接"), 5000);
-        QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("程序控制 SSH 已断开，请重新连接。"));
+        statusBar()->showMessage(QStringLiteral("APP管理 SSH 已断开，请重新连接"), 5000);
+        QMessageBox::warning(this, QStringLiteral("APP管理"), QStringLiteral("APP管理 SSH 已断开，请重新连接。"));
         return false;
     }
 
@@ -353,50 +355,50 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
         switch (kind) {
         case ProgramControlCommandKind::Verify:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
-                                 QStringLiteral("验证程序控制 SSH 失败。\n\n%1").arg(output));
+                                 QStringLiteral("APP管理"),
+                                 QStringLiteral("验证 APP管理 SSH 失败。\n\n%1").arg(output));
             closeProgramControlShell();
-            statusBar()->showMessage(QStringLiteral("程序控制 SSH 连接失败"), 5000);
+            statusBar()->showMessage(QStringLiteral("APP管理 SSH 连接失败"), 5000);
             break;
         case ProgramControlCommandKind::RefreshStatus:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("刷新程序状态失败。\n\n%1").arg(output));
             statusBar()->showMessage(QStringLiteral("刷新程序状态失败"), 5000);
             break;
         case ProgramControlCommandKind::Start:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("启动 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         case ProgramControlCommandKind::Stop:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("停止 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         case ProgramControlCommandKind::ForceStop:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("强制停止 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         case ProgramControlCommandKind::Restart:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("重启 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         case ProgramControlCommandKind::EnableAutostart:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("启用 %1 开机自启失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
         case ProgramControlCommandKind::DisableAutostart:
             QMessageBox::warning(this,
-                                 QStringLiteral("程序控制"),
+                                 QStringLiteral("APP管理"),
                                  QStringLiteral("禁用 %1 开机自启失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
@@ -418,7 +420,7 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
 
     switch (kind) {
     case ProgramControlCommandKind::Verify:
-        statusBar()->showMessage(QStringLiteral("程序控制 SSH 已连接"), 5000);
+        statusBar()->showMessage(QStringLiteral("APP管理 SSH 已连接"), 5000);
         startProgramStatusRefresh();
         break;
     case ProgramControlCommandKind::RefreshStatus:
@@ -519,7 +521,7 @@ void MainWindow::startOpenProgramControlShell(const QString &title,
         if (progress) {
             progress->close();
         }
-        QMessageBox::warning(this, QStringLiteral("程序控制"), QStringLiteral("请先填写程序控制设备地址。"));
+        QMessageBox::warning(this, QStringLiteral("APP管理"), QStringLiteral("请先填写 APP管理设备地址。"));
         return;
     }
 
@@ -599,7 +601,7 @@ void MainWindow::handleProgramControlConnected(quint64 serial, const QString &ke
     m_programControlConnected = true;
     clearProgramControlCommandState();
     updateProgramControlConnectionUi(true);
-    statusBar()->showMessage(QStringLiteral("程序控制 SSH 已连接"), 5000);
+    statusBar()->showMessage(QStringLiteral("APP管理 SSH 已连接"), 5000);
     startProgramStatusRefresh();
 }
 
@@ -611,9 +613,9 @@ void MainWindow::handleProgramControlConnectFailed(quint64 serial, const QString
 
     closeProgramControlShell();
     QMessageBox::warning(this,
-                         QStringLiteral("程序控制"),
-                         QStringLiteral("连接程序控制 SSH 失败。\n\n%1").arg(message));
-    statusBar()->showMessage(QStringLiteral("程序控制 SSH 连接失败"), 5000);
+                         QStringLiteral("APP管理"),
+                         QStringLiteral("连接 APP管理 SSH 失败。\n\n%1").arg(message));
+    statusBar()->showMessage(QStringLiteral("APP管理 SSH 连接失败"), 5000);
 }
 
 void MainWindow::handleProgramControlCommandFinished(quint64 serial,
@@ -653,24 +655,24 @@ void MainWindow::handleProgramControlUpgradeProgress(quint64 serial,
 
 void MainWindow::onConnectProgramControlClicked()
 {
-    auto *progress = new QProgressDialog(QStringLiteral("连接程序控制 SSH"),
+    auto *progress = new QProgressDialog(QStringLiteral("连接 APP管理 SSH"),
                                          QString(),
                                          0,
                                          0,
                                          this);
-    progress->setWindowTitle(QStringLiteral("程序控制"));
+    progress->setWindowTitle(QStringLiteral("APP管理"));
     progress->setWindowModality(Qt::ApplicationModal);
     progress->setMinimumDuration(0);
     progress->setAttribute(Qt::WA_DeleteOnClose);
     progress->setCancelButton(nullptr);
 
-    startOpenProgramControlShell(QStringLiteral("连接程序控制 SSH"), progress);
+    startOpenProgramControlShell(QStringLiteral("连接 APP管理 SSH"), progress);
 }
 
 void MainWindow::onDisconnectProgramControlClicked()
 {
     closeProgramControlShell();
-    statusBar()->showMessage(QStringLiteral("程序控制 SSH 已断开"), 5000);
+    statusBar()->showMessage(QStringLiteral("APP管理 SSH 已断开"), 5000);
 }
 
 void MainWindow::updateProgramControlConnectionUi(bool connected)
@@ -737,6 +739,7 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         QString service;
         QString autostart = QStringLiteral("unknown");
         QString pids;
+        QString restarts = QStringLiteral("unknown");
     };
 
     QHash<QString, ProgramStatus> statusByApp;
@@ -757,12 +760,17 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         status.state = parts.value(2).trimmed();
         status.subState = parts.value(3).trimmed();
         status.pids = parts.value(4).trimmed();
-        status.autostart = parts.value(5).trimmed();
+        if (parts.size() >= 7) {
+            status.restarts = parts.value(5).trimmed();
+            status.autostart = parts.value(6).trimmed();
+        } else {
+            status.autostart = parts.value(5).trimmed();
+        }
         statusByApp.insert(appName, status);
     }
     if (statusByApp.isEmpty() && !statusOutput.trimmed().isEmpty()) {
         QMessageBox::warning(this,
-                             QStringLiteral("程序控制"),
+                             QStringLiteral("APP管理"),
                              QStringLiteral("无法解析程序状态输出。\n\n%1").arg(statusOutput.trimmed()));
     }
 
@@ -791,6 +799,7 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
             status.state = QStringLiteral("unknown");
             status.subState = QStringLiteral("unknown");
             status.pids = QStringLiteral("0");
+            status.restarts = QStringLiteral("unknown");
             status.autostart = QStringLiteral("unknown");
         }
         const bool running = status.state == QStringLiteral("active");
@@ -815,6 +824,9 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         appItem->setToolTip(status.service);
         m_programControlTable->setItem(row, ProgramColumnApp, appItem);
         m_programControlTable->setItem(row, ProgramColumnPid, makeProgramItem(pidText));
+        auto *restartsItem = makeProgramItem(status.restarts == QStringLiteral("unknown") ? QString() : status.restarts);
+        restartsItem->setToolTip(QStringLiteral("systemd NRestarts=%1").arg(status.restarts));
+        m_programControlTable->setItem(row, ProgramColumnRestarts, restartsItem);
 
         auto *startButton = makeCellButton(QStringLiteral("启动"), this);
         startButton->setProperty("appName", appName);
@@ -1131,7 +1143,7 @@ void MainWindow::onInstallProgramClicked()
 
     if (!m_programControlConnected) {
         closeProgramControlShell();
-        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("请先连接程序控制 SSH。"));
+        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("请先连接 APP管理 SSH。"));
         return;
     }
     if (m_programControlShellKey != programControlShellKey()) {
@@ -1139,12 +1151,12 @@ void MainWindow::onInstallProgramClicked()
         return;
     }
     if (m_programControlCommandRunning) {
-        statusBar()->showMessage(QStringLiteral("程序控制正在执行上一条命令"), 3000);
+        statusBar()->showMessage(QStringLiteral("APP管理正在执行上一条命令"), 3000);
         return;
     }
     if (!m_programControlWorker || !m_programControlThread || !m_programControlThread->isRunning()) {
         closeProgramControlShell();
-        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("程序控制 SSH 已断开，请重新连接。"));
+        QMessageBox::warning(this, QStringLiteral("程序安装"), QStringLiteral("APP管理 SSH 已断开，请重新连接。"));
         return;
     }
 
@@ -1247,7 +1259,7 @@ void MainWindow::onUpgradeProgramClicked()
 
     if (!m_programControlConnected) {
         closeProgramControlShell();
-        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("请先连接程序控制 SSH。"));
+        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("请先连接 APP管理 SSH。"));
         return;
     }
     if (m_programControlShellKey != programControlShellKey()) {
@@ -1255,7 +1267,7 @@ void MainWindow::onUpgradeProgramClicked()
         return;
     }
     if (m_programControlCommandRunning) {
-        statusBar()->showMessage(QStringLiteral("程序控制正在执行上一条命令"), 3000);
+        statusBar()->showMessage(QStringLiteral("APP管理正在执行上一条命令"), 3000);
         return;
     }
 
@@ -1274,7 +1286,7 @@ void MainWindow::onUpgradeProgramClicked()
 
     if (!m_programControlWorker || !m_programControlThread || !m_programControlThread->isRunning()) {
         closeProgramControlShell();
-        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("程序控制 SSH 已断开，请重新连接。"));
+        QMessageBox::warning(this, QStringLiteral("程序升级"), QStringLiteral("APP管理 SSH 已断开，请重新连接。"));
         return;
     }
 
