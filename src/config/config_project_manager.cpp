@@ -672,11 +672,11 @@ QJsonObject serializeBinding(const PointBinding &binding,
     object.insert(QStringLiteral("description"), binding.descriptionOverride.isEmpty()
         ? descriptionMap.value(binding.dataRef)
         : binding.descriptionOverride);
-    if (!binding.initValue.isEmpty()) {
-        object.insert(QStringLiteral("init_value"), binding.initValue);
-    }
     if (!binding.selfSignalFlag.isEmpty()) {
         object.insert(QStringLiteral("self_sig_flag"), binding.selfSignalFlag);
+    }
+    if (!binding.initValue.isEmpty()) {
+        object.insert(QStringLiteral("init_value"), binding.initValue);
     }
     return object;
 }
@@ -750,11 +750,11 @@ QJsonObject serializeModbusBinding(const PointBinding &binding,
     if (!scaleValue.isUndefined() && !scaleValue.isNull()) {
         object.insert(QStringLiteral("scale"), scaleValue);
     }
-    if (!binding.initValue.isEmpty()) {
-        object.insert(QStringLiteral("init_value"), binding.initValue);
-    }
     if (!binding.selfSignalFlag.isEmpty()) {
         object.insert(QStringLiteral("self_sig_flag"), binding.selfSignalFlag);
+    }
+    if (!binding.initValue.isEmpty()) {
+        object.insert(QStringLiteral("init_value"), binding.initValue);
     }
     if (binding.extensions.contains(QStringLiteral("precontrol_dataIndex"))) {
         object.insert(QStringLiteral("precontrol_dataIndex"), binding.extensions.value(QStringLiteral("precontrol_dataIndex")));

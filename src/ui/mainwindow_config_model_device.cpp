@@ -1795,7 +1795,7 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
         binding.enabled = item->checkState() == Qt::Checked;
     } else if ((modbusDevice && item->column() == ModbusColumnSelfSignal)
                || (dlt645Device && item->column() == Dlt645ColumnSelfSignal)
-               || (!modbusDevice && !dlt645Device && item->column() == 5)) {
+               || (!modbusDevice && !dlt645Device && item->column() == 4)) {
         binding.selfSignalFlag = item->checkState() == Qt::Checked ? QStringLiteral("1") : QString();
         refreshEditor = false;
     } else {
@@ -2040,6 +2040,9 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         case ModbusColumnSelfSignal:
             binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
             break;
+        case ModbusColumnInitValue:
+            binding.initValue = value;
+            break;
         default:
             break;
         }
@@ -2120,6 +2123,9 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         case Dlt645ColumnSelfSignal:
             binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
             break;
+        case Dlt645ColumnInitValue:
+            binding.initValue = value;
+            break;
         default:
             break;
         }
@@ -2135,10 +2141,10 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
         binding.address = value;
         break;
     case 4:
-        binding.initValue = value;
+        binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
         break;
     case 5:
-        binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
+        binding.initValue = value;
         break;
     default:
         break;
@@ -4161,7 +4167,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("组号"),
             QStringLiteral("序号"),
             QStringLiteral("dataIndex"),
-            QStringLiteral("虚拟点标志")
+            QStringLiteral("虚拟点标志"),
+            QStringLiteral("初始值")
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
@@ -4176,6 +4183,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEntryNo, 58);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDataIndex, 90);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnSelfSignal, 80);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnInitValue, 90);
 
         for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
             const int bindingIndex = visibleBindingIndexes.at(row);
@@ -4215,6 +4223,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *entryItem = new QTableWidgetItem(entryNo);
             auto *dataIndexItem = new QTableWidgetItem(binding.address);
             auto *selfSignalItem = new QTableWidgetItem();
+            auto *initValueItem = new QTableWidgetItem(binding.initValue);
             selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
             selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
 
@@ -4237,6 +4246,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 entryItem->setForeground(duplicateColor);
                 dataIndexItem->setForeground(duplicateColor);
                 selfSignalItem->setForeground(duplicateColor);
+                initValueItem->setForeground(duplicateColor);
             } else if (binding.enabled && !hasRegister) {
                 ++missingRegisterCount;
                 const QColor warningColor(QStringLiteral("#b9770e"));
@@ -4355,6 +4365,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnEntryNo, entryItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnDataIndex, dataIndexItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnSelfSignal, selfSignalItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnInitValue, initValueItem);
         }
         m_updatingDeviceBindingsTable = false;
 
@@ -4419,7 +4430,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("组号"),
             QStringLiteral("序号"),
             QStringLiteral("dataIndex"),
-            QStringLiteral("虚拟点标志")
+            QStringLiteral("虚拟点标志"),
+            QStringLiteral("初始值")
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnEnabled, 56);
@@ -4435,6 +4447,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnEntryNo, 58);
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnDataIndex, 90);
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnSelfSignal, 80);
+        m_deviceBindingsTable->setColumnWidth(Dlt645ColumnInitValue, 90);
 
         for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
             const int bindingIndex = visibleBindingIndexes.at(row);
@@ -4483,6 +4496,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *entryItem = new QTableWidgetItem(entryNo);
             auto *dataIndexItem = new QTableWidgetItem(binding.address);
             auto *selfSignalItem = new QTableWidgetItem();
+            auto *initValueItem = new QTableWidgetItem(binding.initValue);
             selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
             selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
 
@@ -4563,6 +4577,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, Dlt645ColumnEntryNo, entryItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnDataIndex, dataIndexItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnSelfSignal, selfSignalItem);
+            m_deviceBindingsTable->setItem(row, Dlt645ColumnInitValue, initValueItem);
         }
         m_updatingDeviceBindingsTable = false;
 
@@ -4623,8 +4638,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         QStringLiteral("DataRef"),
         QStringLiteral("描述"),
         QStringLiteral("地址"),
-        QStringLiteral("初值"),
-        QStringLiteral("虚拟点标志")
+        QStringLiteral("虚拟点标志"),
+        QStringLiteral("初始值")
     });
     m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
     for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
@@ -4661,8 +4676,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setItem(row, 1, dataRefItem);
         m_deviceBindingsTable->setItem(row, 2, descriptionItem);
         m_deviceBindingsTable->setItem(row, 3, addressItem);
-        m_deviceBindingsTable->setItem(row, 4, initValueItem);
-        m_deviceBindingsTable->setItem(row, 5, selfSignalItem);
+        m_deviceBindingsTable->setItem(row, 4, selfSignalItem);
+        m_deviceBindingsTable->setItem(row, 5, initValueItem);
     }
     m_updatingDeviceBindingsTable = false;
 

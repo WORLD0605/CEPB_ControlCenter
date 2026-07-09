@@ -61,7 +61,7 @@
 namespace cepb_config_helpers {
 
 inline constexpr int Iec104BindingColumnCount = 6;
-inline constexpr int ModbusBindingColumnCount = 12;
+inline constexpr int ModbusBindingColumnCount = 13;
 inline constexpr int ModbusColumnEnabled = 0;
 inline constexpr int ModbusColumnKind = 1;
 inline constexpr int ModbusColumnDataRef = 2;
@@ -74,7 +74,8 @@ inline constexpr int ModbusColumnGroupNo = 8;
 inline constexpr int ModbusColumnEntryNo = 9;
 inline constexpr int ModbusColumnDataIndex = 10;
 inline constexpr int ModbusColumnSelfSignal = 11;
-inline constexpr int Dlt645BindingColumnCount = 13;
+inline constexpr int ModbusColumnInitValue = 12;
+inline constexpr int Dlt645BindingColumnCount = 14;
 inline constexpr int Dlt645ColumnEnabled = 0;
 inline constexpr int Dlt645ColumnKind = 1;
 inline constexpr int Dlt645ColumnDataRef = 2;
@@ -88,6 +89,7 @@ inline constexpr int Dlt645ColumnGroupNo = 9;
 inline constexpr int Dlt645ColumnEntryNo = 10;
 inline constexpr int Dlt645ColumnDataIndex = 11;
 inline constexpr int Dlt645ColumnSelfSignal = 12;
+inline constexpr int Dlt645ColumnInitValue = 13;
 inline constexpr int LogicAgcAvcDeviceColumnDeviceId = 0;
 inline constexpr int LogicAgcAvcDeviceColumnCtrlP = 1;
 inline constexpr int LogicAgcAvcDeviceColumnCtrlQ = 2;
