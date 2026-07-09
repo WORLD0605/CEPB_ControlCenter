@@ -90,6 +90,42 @@ bool migrateLegacyConfigAppDirs(const QString &projectRoot, configtool::ExportRe
     return ok;
 }
 
+bool writeDefaultNorthCepMainstationConfig(const QString &projectRoot, configtool::ExportReport &report)
+{
+    const QString etcDirPath = QDir(projectRoot).filePath(QStringLiteral("North_CEP/etc"));
+    const QString filePath = QDir(etcDirPath).filePath(QStringLiteral("mainstation.json"));
+    if (!QDir().mkpath(etcDirPath)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法创建 North_CEP 主站配置目录: %1").arg(etcDirPath));
+        return false;
+    }
+
+    QJsonObject station;
+    station.insert(QStringLiteral("sl_ip"), QStringLiteral("0.0.0.0"));
+    station.insert(QStringLiteral("ms1_ip"), QStringLiteral("255.255.255.255"));
+    station.insert(QStringLiteral("ms2_ip"), QStringLiteral("0.0.0.0"));
+    station.insert(QStringLiteral("ms3_ip"), QStringLiteral("0.0.0.0"));
+    station.insert(QStringLiteral("ms4_ip"), QStringLiteral("0.0.0.0"));
+    station.insert(QStringLiteral("port1"), QStringLiteral("9901"));
+    station.insert(QStringLiteral("port2"), QStringLiteral("9902"));
+
+    QJsonObject root;
+    root.insert(QStringLiteral("mainstation"), QJsonArray{station});
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法写入 North_CEP 主站配置文件: %1").arg(file.errorString()));
+        return false;
+    }
+
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    file.close();
+    return true;
+}
+
 QStringList configAppFolderNames()
 {
     QStringList names;
@@ -243,6 +279,7 @@ void MainWindow::onExportIec104ConfigClicked()
     ok = m_configProjectManager.exportLogicCenterConfigFile(
         QDir(logicCenterAppDir).filePath(QStringLiteral("etc/LogicCenter_Config.json")),
         report) && ok;
+    ok = writeDefaultNorthCepMainstationConfig(projectRoot, report) && ok;
 
     // ---- IEC101 配置导出 ----
     const QString iec101ExportDir = QDir(projectRoot).filePath(QStringLiteral("North_101"));

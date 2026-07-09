@@ -793,6 +793,7 @@ inline QStringList configTransferPathList()
         QStringLiteral("South_645/dev"),
         QStringLiteral("South_645/etc"),
         QStringLiteral("LogicCenter/etc"),
+        QStringLiteral("North_CEP/etc"),
         QStringLiteral("North_101/config")
     };
 }
