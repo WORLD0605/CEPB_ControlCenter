@@ -249,33 +249,6 @@ QTableWidgetItem *makeProgramItem(const QString &text)
     return item;
 }
 
-QString counterpartNorthboundProgram(const QString &appName)
-{
-    if (appName == QStringLiteral("North_CEP")) {
-        return QStringLiteral("North_101");
-    }
-    if (appName == QStringLiteral("North_101")) {
-        return QStringLiteral("North_CEP");
-    }
-    return QString();
-}
-
-bool programTableAppIsRunning(const QTableWidget *table, const QString &appName)
-{
-    if (!table) {
-        return false;
-    }
-    for (int row = 0; row < table->rowCount(); ++row) {
-        const QTableWidgetItem *appItem = table->item(row, ProgramColumnApp);
-        if (!appItem || appItem->text() != appName) {
-            continue;
-        }
-        const QTableWidgetItem *statusItem = table->item(row, ProgramColumnStatus);
-        return statusItem && statusItem->text().contains(QStringLiteral("运行中"));
-    }
-    return false;
-}
-
 } // namespace
 
 QStringList MainWindow::managedProgramAppNames() const
@@ -822,9 +795,6 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         }
         const bool running = status.state == QStringLiteral("active");
         const bool enabled = status.autostart == QStringLiteral("enabled");
-        const QString counterpart = counterpartNorthboundProgram(appName);
-        const bool blockedByNorthboundPeer = !counterpart.isEmpty()
-            && statusByApp.value(counterpart).state == QStringLiteral("active");
         const QString statusText = running ? QStringLiteral("● 运行中")
             : status.state == QStringLiteral("inactive") ? QStringLiteral("● 未运行")
             : status.state == QStringLiteral("failed") ? QStringLiteral("● 失败")
@@ -848,10 +818,7 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
 
         auto *startButton = makeCellButton(QStringLiteral("启动"), this);
         startButton->setProperty("appName", appName);
-        startButton->setEnabled(!running && !blockedByNorthboundPeer);
-        if (blockedByNorthboundPeer) {
-            startButton->setToolTip(QStringLiteral("%1 与 %2 互斥，请先停止 %2").arg(appName, counterpart));
-        }
+        startButton->setEnabled(!running);
         connect(startButton, &QPushButton::clicked, this, &MainWindow::onStartProgramClicked);
         m_programControlTable->setCellWidget(row, ProgramColumnStart, wrapCellButton(startButton));
 
@@ -1017,14 +984,6 @@ void MainWindow::onStartProgramClicked()
     auto *button = qobject_cast<QPushButton *>(sender());
     const QString appName = button ? button->property("appName").toString() : QString();
     if (appName.isEmpty()) {
-        return;
-    }
-
-    const QString counterpart = counterpartNorthboundProgram(appName);
-    if (!counterpart.isEmpty() && programTableAppIsRunning(m_programControlTable, counterpart)) {
-        QMessageBox::warning(this,
-                             QStringLiteral("程序控制"),
-                             QStringLiteral("%1 与 %2 互斥，请先停止 %2。").arg(appName, counterpart));
         return;
     }
 
