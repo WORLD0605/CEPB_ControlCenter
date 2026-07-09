@@ -298,13 +298,16 @@ bool isDeviceForProtocol(const ProtocolDeviceInstance &device,
         return true;
     }
     if (protocol == ProtocolType::Iec104) {
-        return device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
+        return device.appType.compare(QStringLiteral("South_104"), Qt::CaseInsensitive) == 0
+            || device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0;
     }
     if (protocol == ProtocolType::Dlt645) {
-        return device.appType.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
+        return device.appType.compare(QStringLiteral("South_645"), Qt::CaseInsensitive) == 0
+            || device.appType.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
     }
     if (protocol == ProtocolType::Modbus) {
-        return device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
+        return device.appType.compare(QStringLiteral("South_Modbus"), Qt::CaseInsensitive) == 0
+            || device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
     }
     return false;
 }
@@ -1439,6 +1442,7 @@ QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalChannel(
 
     for (const ProtocolDeviceInstance &device : devices) {
         if (device.protocol != ProtocolType::Modbus
+            && device.appType.compare(QStringLiteral("South_Modbus"), Qt::CaseInsensitive) != 0
             && device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) != 0) {
             continue;
         }
@@ -1615,8 +1619,8 @@ void ConfigProjectManager::createEmptyProject(const QString &projectName,
     m_project.projectId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_project.projectName = projectName;
     m_project.sourceRoot = sourceRoot;
-    m_project.northApp = QStringLiteral("ServiceChannel");
-    m_project.logicApp = QStringLiteral("cepLogicCenter");
+    m_project.northApp = QStringLiteral("North_CEP");
+    m_project.logicApp = QStringLiteral("LogicCenter");
 }
 
 bool ConfigProjectManager::importIec104AppDirectory(const QString &appDir,

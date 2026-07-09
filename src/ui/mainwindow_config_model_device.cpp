@@ -59,12 +59,14 @@ configtool::PointBinding createBindingForModelPoint(const configtool::ModelTempl
 bool isDlt645Device(const configtool::ProtocolDeviceInstance &device)
 {
     return device.protocol == configtool::ProtocolType::Dlt645
+        || device.appType.compare(QStringLiteral("South_645"), Qt::CaseInsensitive) == 0
         || device.appType.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
 }
 
 QString southProtocolDisplayName(const configtool::ProtocolDeviceInstance &device)
 {
     if (device.protocol == configtool::ProtocolType::Iec104
+        || device.appType.compare(QStringLiteral("South_104"), Qt::CaseInsensitive) == 0
         || device.appType.compare(QStringLiteral("cepiec104"), Qt::CaseInsensitive) == 0) {
         return QStringLiteral("IEC104");
     }
@@ -1324,8 +1326,8 @@ void MainWindow::openCreateDeviceDialog(int preselectedModelIndex)
     configtool::ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     device.appType = createModbus
-        ? QStringLiteral("cepmodbus")
-        : (createDlt645 ? QStringLiteral("cepdlt645") : QStringLiteral("cepiec104"));
+        ? QStringLiteral("South_Modbus")
+        : (createDlt645 ? QStringLiteral("South_645") : QStringLiteral("South_104"));
     device.protocol = protocol;
     device.deviceId = deviceId;
     device.deviceDesc = model.displayName.isEmpty() ? model.modelId : model.displayName;

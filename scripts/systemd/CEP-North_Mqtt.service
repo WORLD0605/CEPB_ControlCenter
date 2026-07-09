@@ -1,13 +1,13 @@
 [Unit]
-Description=CEP ServiceChannel
+Description=CEP North_Mqtt
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/cepgateway/app/ServiceChannel
+WorkingDirectory=/home/cepgateway/app/North_Mqtt
 Environment="LD_LIBRARY_PATH=/home/cepgateway/app/lib/:/home/cepgateway/lib/"
-ExecStart=/home/cepgateway/app/ServiceChannel/bin/ServiceChannel -debug
+ExecStart=/home/cepgateway/app/North_Mqtt/bin/North_Mqtt -debug
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

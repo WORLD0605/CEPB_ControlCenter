@@ -29,8 +29,8 @@ bool Iec104ConfigImporter::importAppDirectory(const QString &appDir,
     ok = importModelDirectory(modelDir, project, report) && ok;
     ok = importDeviceDirectory(deviceDir, project, report) && ok;
 
-    if (!project.southApps.contains(QStringLiteral("cepiec104"))) {
-        project.southApps.append(QStringLiteral("cepiec104"));
+    if (!project.southApps.contains(QStringLiteral("South_104"))) {
+        project.southApps.append(QStringLiteral("South_104"));
     }
 
     return ok;
@@ -165,7 +165,7 @@ bool Iec104ConfigImporter::importDeviceFile(const QString &filePath,
 
     ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    device.appType = QStringLiteral("cepiec104");
+    device.appType = QStringLiteral("South_104");
     device.protocol = ProtocolType::Iec104;
     device.deviceId = root.value(QStringLiteral("DeviceId")).toString();
     device.deviceDesc = root.value(QStringLiteral("DeviceDesc")).toString();

@@ -49,7 +49,7 @@ private:
     QTcpSocket *m_socket = nullptr;
     QByteArray m_readBuffer;
 
-    QString m_promptPattern; // 如 "cepiec104>"
+    QString m_promptPattern; // 如 "South_104>"
     bool m_executingCommand = false;
     QStringList m_commandReplyBuffer;
 };

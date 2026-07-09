@@ -7,6 +7,7 @@ namespace configtool {
 bool isModbusDevice(const ProtocolDeviceInstance &device)
 {
     return device.protocol == ProtocolType::Modbus
+        || device.appType.compare(QStringLiteral("South_Modbus"), Qt::CaseInsensitive) == 0
         || device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
 }
 

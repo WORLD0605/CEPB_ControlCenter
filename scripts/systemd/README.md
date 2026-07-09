@@ -15,8 +15,10 @@ systemctl daemon-reload
 Enable and start the services:
 
 ```sh
-systemctl enable --now CEP-ServiceChannel.service
-systemctl enable --now CEP-IEC101ServiceChannel.service
+systemctl enable --now CEP-North_CEP.service
+systemctl enable --now CEP-North_101.service
+systemctl enable --now CEP-North_104.service
+systemctl enable --now CEP-North_Mqtt.service
 systemctl enable --now CEP-LogicCenter.service
 systemctl enable --now CEP-Modbus.service
 systemctl enable --now CEP-IEC104.service
@@ -32,10 +34,10 @@ systemctl disable --now CEP_Init.service
 ## Common commands
 
 ```sh
-systemctl status CEP-ServiceChannel.service
-systemctl restart CEP-ServiceChannel.service
-systemctl show CEP-ServiceChannel.service -p ActiveState -p SubState -p MainPID --no-page
-journalctl -u CEP-ServiceChannel.service -n 100 --no-pager
+systemctl status CEP-North_CEP.service
+systemctl restart CEP-North_CEP.service
+systemctl show CEP-North_CEP.service -p ActiveState -p SubState -p MainPID --no-page
+journalctl -u CEP-North_CEP.service -n 100 --no-pager
 ```
 
 ## Notes

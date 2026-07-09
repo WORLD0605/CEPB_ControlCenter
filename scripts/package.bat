@@ -109,7 +109,7 @@ copy /Y "%~dp0README_RELEASE.txt" "%RELEASE_DIR%\README.txt" >nul
 echo [6/8] Adding APP upgrade binaries...
 if not exist "%APP_BIN_RELEASE%" mkdir "%APP_BIN_RELEASE%"
 if exist "%APP_BIN_SRC%\README.md" copy /Y "%APP_BIN_SRC%\README.md" "%APP_BIN_RELEASE%\" >nul
-for %%a in (ServiceChannel IEC101ServiceChannel cepLogicCenter cepmodbus cepiec104 cepdlt645) do (
+for %%a in (North_CEP North_101 North_104 North_Mqtt LogicCenter South_Modbus South_104 South_645) do (
     if exist "%APP_BIN_SRC%\%%a" (
         copy /Y "%APP_BIN_SRC%\%%a" "%APP_BIN_RELEASE%\" >nul
         echo         [OK] %%a

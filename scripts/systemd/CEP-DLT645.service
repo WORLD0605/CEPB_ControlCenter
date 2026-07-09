@@ -5,9 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/cepgateway/app/cepdlt645
+WorkingDirectory=/home/cepgateway/app/South_645
 Environment="LD_LIBRARY_PATH=/home/cepgateway/app/lib/:/home/cepgateway/lib/"
-ExecStart=/home/cepgateway/app/cepdlt645/bin/cepdlt645 -debug
+ExecStart=/home/cepgateway/app/South_645/bin/South_645 -debug
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

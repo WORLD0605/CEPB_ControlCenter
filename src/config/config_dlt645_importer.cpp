@@ -135,8 +135,8 @@ bool Dlt645ConfigImporter::importAppDirectory(const QString &appDir,
         report.addIssue(ImportIssueSeverity::Warning, iniPath, QStringLiteral("cepdlt645.ini 不存在，已仅导入设备 JSON"));
     }
 
-    if (!project.southApps.contains(QStringLiteral("cepdlt645"))) {
-        project.southApps.append(QStringLiteral("cepdlt645"));
+    if (!project.southApps.contains(QStringLiteral("South_645"))) {
+        project.southApps.append(QStringLiteral("South_645"));
     }
 
     return ok;
@@ -261,7 +261,7 @@ bool Dlt645ConfigImporter::importDeviceFile(const QString &filePath,
 
     ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    device.appType = QStringLiteral("cepdlt645");
+    device.appType = QStringLiteral("South_645");
     device.protocol = ProtocolType::Dlt645;
     device.deviceId = jsonValueToString(root.value(QStringLiteral("DeviceId")));
     device.deviceDesc = root.value(QStringLiteral("DeviceDesc")).toString();

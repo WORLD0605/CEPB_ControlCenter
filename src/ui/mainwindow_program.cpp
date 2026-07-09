@@ -73,22 +73,28 @@ QString programPidScanSnippet(const QString &baseDir, const QString &appName)
 
 QString programServiceNameForApp(const QString &appName)
 {
-    if (appName == QStringLiteral("ServiceChannel")) {
-        return QStringLiteral("CEP-ServiceChannel.service");
+    if (appName == QStringLiteral("North_CEP")) {
+        return QStringLiteral("CEP-North_CEP.service");
     }
-    if (appName == QStringLiteral("IEC101ServiceChannel")) {
-        return QStringLiteral("CEP-IEC101ServiceChannel.service");
+    if (appName == QStringLiteral("North_101")) {
+        return QStringLiteral("CEP-North_101.service");
     }
-    if (appName == QStringLiteral("cepLogicCenter")) {
+    if (appName == QStringLiteral("North_104")) {
+        return QStringLiteral("CEP-North_104.service");
+    }
+    if (appName == QStringLiteral("North_Mqtt")) {
+        return QStringLiteral("CEP-North_Mqtt.service");
+    }
+    if (appName == QStringLiteral("LogicCenter")) {
         return QStringLiteral("CEP-LogicCenter.service");
     }
-    if (appName == QStringLiteral("cepmodbus")) {
+    if (appName == QStringLiteral("South_Modbus")) {
         return QStringLiteral("CEP-Modbus.service");
     }
-    if (appName == QStringLiteral("cepiec104")) {
+    if (appName == QStringLiteral("South_104")) {
         return QStringLiteral("CEP-IEC104.service");
     }
-    if (appName == QStringLiteral("cepdlt645")) {
+    if (appName == QStringLiteral("South_645")) {
         return QStringLiteral("CEP-DLT645.service");
     }
     return appName + QStringLiteral(".service");
@@ -214,11 +220,11 @@ QTableWidgetItem *makeProgramItem(const QString &text)
 
 QString counterpartNorthboundProgram(const QString &appName)
 {
-    if (appName == QStringLiteral("ServiceChannel")) {
-        return QStringLiteral("IEC101ServiceChannel");
+    if (appName == QStringLiteral("North_CEP")) {
+        return QStringLiteral("North_101");
     }
-    if (appName == QStringLiteral("IEC101ServiceChannel")) {
-        return QStringLiteral("ServiceChannel");
+    if (appName == QStringLiteral("North_101")) {
+        return QStringLiteral("North_CEP");
     }
     return QString();
 }
@@ -244,12 +250,14 @@ bool programTableAppIsRunning(const QTableWidget *table, const QString &appName)
 QStringList MainWindow::managedProgramAppNames() const
 {
     return {
-        QStringLiteral("ServiceChannel"),
-        QStringLiteral("IEC101ServiceChannel"),
-        QStringLiteral("cepLogicCenter"),
-        QStringLiteral("cepmodbus"),
-        QStringLiteral("cepiec104"),
-        QStringLiteral("cepdlt645")
+        QStringLiteral("North_CEP"),
+        QStringLiteral("North_101"),
+        QStringLiteral("North_104"),
+        QStringLiteral("North_Mqtt"),
+        QStringLiteral("LogicCenter"),
+        QStringLiteral("South_Modbus"),
+        QStringLiteral("South_104"),
+        QStringLiteral("South_645")
     };
 }
 

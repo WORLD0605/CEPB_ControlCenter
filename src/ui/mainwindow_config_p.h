@@ -784,16 +784,16 @@ inline QString remotePathJoin(const QString &baseDir, const QString &relativePat
 inline QStringList configTransferPathList()
 {
     return {
-        QStringLiteral("cepiec104/model"),
-        QStringLiteral("cepiec104/dev"),
-        QStringLiteral("cepmodbus/model"),
-        QStringLiteral("cepmodbus/dev"),
-        QStringLiteral("cepmodbus/etc"),
-        QStringLiteral("cepdlt645/model"),
-        QStringLiteral("cepdlt645/dev"),
-        QStringLiteral("cepdlt645/etc"),
-        QStringLiteral("cepLogicCenter/etc"),
-        QStringLiteral("IEC101ServiceChannel/config")
+        QStringLiteral("South_104/model"),
+        QStringLiteral("South_104/dev"),
+        QStringLiteral("South_Modbus/model"),
+        QStringLiteral("South_Modbus/dev"),
+        QStringLiteral("South_Modbus/etc"),
+        QStringLiteral("South_645/model"),
+        QStringLiteral("South_645/dev"),
+        QStringLiteral("South_645/etc"),
+        QStringLiteral("LogicCenter/etc"),
+        QStringLiteral("North_101/config")
     };
 }
 

@@ -1,13 +1,13 @@
 [Unit]
-Description=CEP IEC101ServiceChannel
+Description=CEP North_CEP
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/cepgateway/app/IEC101ServiceChannel
+WorkingDirectory=/home/cepgateway/app/North_CEP
 Environment="LD_LIBRARY_PATH=/home/cepgateway/app/lib/:/home/cepgateway/lib/"
-ExecStart=/home/cepgateway/app/IEC101ServiceChannel/bin/IEC101ServiceChannel -debug
+ExecStart=/home/cepgateway/app/North_CEP/bin/North_CEP -debug
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

@@ -760,10 +760,10 @@ MainWindow::MainWindow(QWidget *parent)
         {"North_CEP", 4444, "North_CEP>", AppViewMode::DataTable},
         {"North_101", 3333, "North_101>", AppViewMode::DataTable},
         {"North_104", 2222, "North_104>", AppViewMode::DataTable},
-        {"cepmodbus", 7777, "modbus>", AppViewMode::DataTable},
-        {"cepiec104", 6666, "cepiec104>", AppViewMode::DataTable},
-        {"cepdlt645", 8888, "dlt645>", AppViewMode::DataTable},
-        {"cepLogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
+        {"South_Modbus", 7777, "South_Modbus>", AppViewMode::DataTable},
+        {"South_104", 6666, "South_104>", AppViewMode::DataTable},
+        {"South_645", 8888, "South_645>", AppViewMode::DataTable},
+        {"LogicCenter", 5555, "LogicCenter>", AppViewMode::LogicAgcAvcTable}
     };
 
     for (int index = 0; index < m_appConfigs.size(); ++index) {
@@ -981,7 +981,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *importRow = new QHBoxLayout();
     importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
-    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 cepiec104、cepmodbus、cepdlt645、cepLogicCenter、IEC101ServiceChannel 的目录");
+    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_101 的目录");
     {
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         const QString lastDir = settings.value(QStringLiteral("config/lastBrowseDir")).toString().trimmed();

@@ -35,8 +35,8 @@ bool ModbusConfigImporter::importAppDirectory(const QString &appDir,
         report.addIssue(ImportIssueSeverity::Warning, iniPath, QStringLiteral("cepmodbus.ini 不存在，已仅导入设备 JSON"));
     }
 
-    if (!project.southApps.contains(QStringLiteral("cepmodbus"))) {
-        project.southApps.append(QStringLiteral("cepmodbus"));
+    if (!project.southApps.contains(QStringLiteral("South_Modbus"))) {
+        project.southApps.append(QStringLiteral("South_Modbus"));
     }
 
     return ok;
@@ -161,7 +161,7 @@ bool ModbusConfigImporter::importDeviceFile(const QString &filePath,
 
     ProtocolDeviceInstance device;
     device.deviceUid = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    device.appType = QStringLiteral("cepmodbus");
+    device.appType = QStringLiteral("South_Modbus");
     device.protocol = ProtocolType::Modbus;
     device.deviceId = jsonValueToString(root.value(QStringLiteral("DeviceId")));
     device.deviceDesc = root.value(QStringLiteral("DeviceDesc")).toString();

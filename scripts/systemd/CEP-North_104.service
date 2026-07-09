@@ -1,13 +1,13 @@
 [Unit]
-Description=CEP IEC104
+Description=CEP North_104
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/cepgateway/app/South_104
+WorkingDirectory=/home/cepgateway/app/North_104
 Environment="LD_LIBRARY_PATH=/home/cepgateway/app/lib/:/home/cepgateway/lib/"
-ExecStart=/home/cepgateway/app/South_104/bin/South_104 -debug
+ExecStart=/home/cepgateway/app/North_104/bin/North_104 -debug
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
