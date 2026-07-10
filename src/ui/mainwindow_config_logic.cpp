@@ -2261,7 +2261,35 @@ int MainWindow::currentConfigDeviceIndex() const
     }
 
     const QModelIndexList rows = m_configDeviceTable->selectionModel()->selectedRows();
-    return rows.isEmpty() ? -1 : rows.first().row();
+    if (rows.isEmpty()) {
+        return -1;
+    }
+
+    const int row = rows.first().row();
+    QTableWidgetItem *anchorItem = m_configDeviceTable->item(row, 0);
+    if (!anchorItem) {
+        return -1;
+    }
+
+    const QVariant deviceIndexData = anchorItem->data(Qt::UserRole);
+    return deviceIndexData.isValid() ? deviceIndexData.toInt() : row;
+}
+
+bool MainWindow::selectConfigDeviceByIndex(int deviceIndex)
+{
+    if (!m_configDeviceTable || deviceIndex < 0) {
+        return false;
+    }
+
+    for (int row = 0; row < m_configDeviceTable->rowCount(); ++row) {
+        QTableWidgetItem *anchorItem = m_configDeviceTable->item(row, 0);
+        if (anchorItem && anchorItem->data(Qt::UserRole).toInt() == deviceIndex) {
+            m_configDeviceTable->selectRow(row);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 QPair<int, int> MainWindow::currentModelPointLocation() const

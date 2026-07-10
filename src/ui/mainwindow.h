@@ -354,6 +354,7 @@ private:
                                            const QSet<QString> &dataRefs);
     int renameLogicDeviceReferences(const QString &oldDeviceId, const QString &newDeviceId);
     void selectModelPointById(const QString &pointId);
+    bool selectConfigDeviceByIndex(int deviceIndex);
     int currentConfigModelIndex() const;
     int currentConfigDeviceIndex() const;
     QPair<int, int> currentModelPointLocation() const;
@@ -450,6 +451,7 @@ private:
     bool m_updatingLogicComputationPointPage = false;
     bool m_updatingLogicControlRulePage = false;
     bool m_updatingEditorNavigationCombos = false;
+    bool m_updatingConfigObjectViews = false;
     bool m_restoringConfigUndo = false;
     bool m_restoringNavigation = false;
     bool m_lastConfigExportOk = false;
@@ -598,7 +600,9 @@ private:
     QLabel *m_modelOverviewVersionLabel = nullptr;
     QLabel *m_modelOverviewPointCountLabel = nullptr;
     QLabel *m_deviceDetailTitleLabel = nullptr;
+    QLabel *m_deviceDetailIdLabel = nullptr;
     QLabel *m_deviceDetailModelLabel = nullptr;
+    QLabel *m_deviceDetailProtocolLabel = nullptr;
     QLabel *m_deviceDetailAddressLabel = nullptr;
     QLabel *m_deviceDetailIpLabel = nullptr;
     QLabel *m_deviceDetailPortLabel = nullptr;

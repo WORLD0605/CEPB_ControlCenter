@@ -249,12 +249,17 @@ int dlt645WildcardEntryNo(const QString &pointDi, const QString &pollDi)
 
 void MainWindow::onConfigModelSelectionChanged()
 {
+    if (m_updatingConfigObjectViews) {
+        return;
+    }
+
     const int modelIndex = currentConfigModelIndex();
     if (m_deleteModelBtn) {
         m_deleteModelBtn->setEnabled(modelIndex >= 0);
     }
     refreshModelOverview(modelIndex);
     refreshModelDetail(modelIndex);
+    refreshConfigObjectViews();
     refreshSelectionOverview();
     refreshEditorNavigationCombos();
 }
@@ -304,9 +309,19 @@ void MainWindow::onConfigDeviceActivated(int row, int /*column*/)
         return;
     }
 
-    m_configDeviceTable->selectRow(row);
-    refreshDeviceDetail(row);
-    refreshDeviceEditor(row);
+    int deviceIndex = row;
+    if (row < m_configDeviceTable->rowCount()) {
+        if (QTableWidgetItem *anchorItem = m_configDeviceTable->item(row, 0)) {
+            const QVariant deviceIndexData = anchorItem->data(Qt::UserRole);
+            if (deviceIndexData.isValid()) {
+                deviceIndex = deviceIndexData.toInt();
+            }
+        }
+    }
+
+    selectConfigDeviceByIndex(deviceIndex);
+    refreshDeviceDetail(deviceIndex);
+    refreshDeviceEditor(deviceIndex);
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
 }
 
@@ -347,8 +362,12 @@ void MainWindow::onDeviceEditorSelectionChanged(int index)
         return;
     }
 
-    if (m_configDeviceTable) {
-        m_configDeviceTable->selectRow(row);
+    if (m_configDeviceTable && !selectConfigDeviceByIndex(row)) {
+        if (m_configModelTable) {
+            m_configModelTable->clearSelection();
+        }
+        refreshConfigObjectViews();
+        selectConfigDeviceByIndex(row);
     }
     refreshDeviceDetail(row);
     refreshDeviceEditor(row);
@@ -388,7 +407,16 @@ void MainWindow::navigateToConfigIssue(int row)
     } else if (targetType == QStringLiteral("device")) {
         for (int index = 0; index < project.devices.size(); ++index) {
             if (project.devices.at(index).deviceId == targetKey) {
-                onConfigDeviceActivated(index, 0);
+                if (!selectConfigDeviceByIndex(index)) {
+                    if (m_configModelTable) {
+                        m_configModelTable->clearSelection();
+                    }
+                    refreshConfigObjectViews();
+                    selectConfigDeviceByIndex(index);
+                }
+                refreshDeviceDetail(index);
+                refreshDeviceEditor(index);
+                m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
                 return;
             }
         }
@@ -430,7 +458,16 @@ void MainWindow::navigateToConfigIssue(int row)
             if (objectId == targetKey || targetKey.contains(objectId)) {
                 for (int deviceIndex = 0; deviceIndex < project.devices.size(); ++deviceIndex) {
                     if (project.devices.at(deviceIndex).deviceId == link.deviceId) {
-                        onConfigDeviceActivated(deviceIndex, 0);
+                        if (!selectConfigDeviceByIndex(deviceIndex)) {
+                            if (m_configModelTable) {
+                                m_configModelTable->clearSelection();
+                            }
+                            refreshConfigObjectViews();
+                            selectConfigDeviceByIndex(deviceIndex);
+                        }
+                        refreshDeviceDetail(deviceIndex);
+                        refreshDeviceEditor(deviceIndex);
+                        m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
                         statusBar()->showMessage(QStringLiteral("已进入设备编辑器，请检查在线状态联动。"), 5000);
                         return;
                     }
@@ -1386,10 +1423,7 @@ void MainWindow::openCreateDeviceDialog(int preselectedModelIndex)
     project.devices.append(device);
     configtool::ImportReport report;
     refreshConfigImportSummary(report);
-    const int row = m_configDeviceTable->rowCount() - 1;
-    if (row >= 0) {
-        m_configDeviceTable->selectRow(row);
-    }
+    selectConfigDeviceByIndex(project.devices.size() - 1);
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
     statusBar()->showMessage(createModbus
                                  ? QStringLiteral("已根据模型生成 Modbus 设备绑定骨架")
@@ -1493,10 +1527,7 @@ void MainWindow::onCopyDeviceClicked()
     project.devices.append(copiedDevice);
     configtool::ImportReport report;
     refreshConfigImportSummary(report);
-    const int row = m_configDeviceTable->rowCount() - 1;
-    if (row >= 0) {
-        m_configDeviceTable->selectRow(row);
-    }
+    selectConfigDeviceByIndex(project.devices.size() - 1);
     m_mainTabWidget->setCurrentWidget(m_deviceEditorPage);
     statusBar()->showMessage(QStringLiteral("已复制设备"), 3000);
 }
@@ -1581,7 +1612,7 @@ void MainWindow::onDeleteDeviceClicked()
     refreshConfigImportSummary(report);
     const int nextDeviceIndex = qMin(deviceIndex, project.devices.size() - 1);
     if (nextDeviceIndex >= 0) {
-        m_configDeviceTable->selectRow(nextDeviceIndex);
+        selectConfigDeviceByIndex(nextDeviceIndex);
     }
     refreshSelectionOverview();
     refreshDeviceDetail(currentConfigDeviceIndex());
@@ -1679,9 +1710,7 @@ void MainWindow::onDeviceFieldEdited()
     refreshConfigObjectViews();
     refreshDeviceDetail(deviceIndex);
     refreshDeviceEditor(deviceIndex);
-    if (deviceIndex < m_configDeviceTable->rowCount()) {
-        m_configDeviceTable->selectRow(deviceIndex);
-    }
+    selectConfigDeviceByIndex(deviceIndex);
     if (renamedReferenceCount > 0) {
         statusBar()->showMessage(QStringLiteral("已同步更新 %1 处 DeviceId 引用").arg(renamedReferenceCount), 5000);
     }
@@ -2878,9 +2907,7 @@ void MainWindow::undoLastConfigEdit()
     if (modelIndex >= 0 && modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
     }
-    if (deviceIndex >= 0 && deviceIndex < m_configDeviceTable->rowCount()) {
-        m_configDeviceTable->selectRow(deviceIndex);
-    }
+    selectConfigDeviceByIndex(deviceIndex);
 
     if (currentPage == m_modelEditorPage) {
         refreshModelDetail(currentConfigModelIndex());
@@ -2922,6 +2949,10 @@ void MainWindow::refreshConfigObjectViews()
     const int previousModelIndex = currentConfigModelIndex();
     const int previousDeviceIndex = currentConfigDeviceIndex();
 
+    m_updatingConfigObjectViews = true;
+    QSignalBlocker modelSelectionBlocker(m_configModelTable);
+    QSignalBlocker deviceSelectionBlocker(m_configDeviceTable);
+
     m_configModelTable->setRowCount(project.models.size());
     for (int row = 0; row < project.models.size(); ++row) {
         const configtool::ModelTemplate &model = project.models.at(row);
@@ -2936,10 +2967,31 @@ void MainWindow::refreshConfigObjectViews()
         m_configModelTable->setItem(row, 3, new QTableWidgetItem(QString::number(pointCount)));
     }
 
-    m_configDeviceTable->setRowCount(project.devices.size());
-    for (int row = 0; row < project.devices.size(); ++row) {
-        const configtool::ProtocolDeviceInstance &device = project.devices.at(row);
-        m_configDeviceTable->setItem(row, 0, new QTableWidgetItem(device.deviceId));
+    int selectedModelIndex = -1;
+    QString selectedModelId;
+    if (previousModelIndex >= 0 && previousModelIndex < project.models.size()) {
+        selectedModelIndex = previousModelIndex;
+        selectedModelId = project.models.at(previousModelIndex).modelId;
+        m_configModelTable->selectRow(previousModelIndex);
+    } else {
+        m_configModelTable->clearSelection();
+    }
+
+    QList<int> visibleDeviceIndexes;
+    for (int index = 0; index < project.devices.size(); ++index) {
+        const configtool::ProtocolDeviceInstance &device = project.devices.at(index);
+        if (selectedModelId.isEmpty() || device.modelId == selectedModelId) {
+            visibleDeviceIndexes.append(index);
+        }
+    }
+
+    m_configDeviceTable->setRowCount(visibleDeviceIndexes.size());
+    for (int row = 0; row < visibleDeviceIndexes.size(); ++row) {
+        const int deviceIndex = visibleDeviceIndexes.at(row);
+        const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
+        auto *deviceIdItem = new QTableWidgetItem(device.deviceId);
+        deviceIdItem->setData(Qt::UserRole, deviceIndex);
+        m_configDeviceTable->setItem(row, 0, deviceIdItem);
         m_configDeviceTable->setItem(row, 1, new QTableWidgetItem(device.deviceDesc));
         m_configDeviceTable->setItem(row, 2, new QTableWidgetItem(device.modelId));
         m_configDeviceTable->setItem(row, 3, new QTableWidgetItem(southProtocolDisplayName(device)));
@@ -2947,19 +2999,28 @@ void MainWindow::refreshConfigObjectViews()
         m_configDeviceTable->setItem(row, 5, new QTableWidgetItem(QString::number(device.bindings.size())));
     }
 
-    if (previousModelIndex >= 0 && previousModelIndex < project.models.size()) {
-        m_configModelTable->selectRow(previousModelIndex);
-    } else if (!project.models.isEmpty()) {
-        m_configModelTable->selectRow(0);
-    } else {
-        refreshModelOverview(-1);
-        refreshModelDetail(-1);
+    bool selectedPreviousDevice = false;
+    if (previousDeviceIndex >= 0 && previousDeviceIndex < project.devices.size()) {
+        for (int row = 0; row < m_configDeviceTable->rowCount(); ++row) {
+            QTableWidgetItem *anchorItem = m_configDeviceTable->item(row, 0);
+            if (anchorItem && anchorItem->data(Qt::UserRole).toInt() == previousDeviceIndex) {
+                m_configDeviceTable->selectRow(row);
+                selectedPreviousDevice = true;
+                break;
+            }
+        }
+    }
+    if (!selectedPreviousDevice) {
+        m_configDeviceTable->clearSelection();
     }
 
-    if (previousDeviceIndex >= 0 && previousDeviceIndex < project.devices.size()) {
-        m_configDeviceTable->selectRow(previousDeviceIndex);
-    } else if (!project.devices.isEmpty()) {
-        m_configDeviceTable->selectRow(0);
+    m_updatingConfigObjectViews = false;
+
+    refreshModelOverview(selectedModelIndex);
+    refreshModelDetail(selectedModelIndex);
+    if (selectedPreviousDevice) {
+        refreshDeviceDetail(previousDeviceIndex);
+        refreshDeviceEditor(previousDeviceIndex);
     } else {
         refreshDeviceDetail(-1);
         refreshDeviceEditor(-1);
@@ -3401,13 +3462,16 @@ void MainWindow::refreshSelectionOverview()
     if (modelIndex >= 0 && modelIndex < project.models.size()) {
         const configtool::ModelTemplate &model = project.models.at(modelIndex);
         const QString displayName = model.displayName.isEmpty() ? model.modelId : model.displayName;
-        modelGroupTitle = QStringLiteral("模型列表  [当前: %1]").arg(displayName);
+        modelGroupTitle = QStringLiteral("模型列表  [当前模型: %1]").arg(displayName);
+        deviceGroupTitle = QStringLiteral("设备列表  [所属模型: %1]").arg(displayName);
+    } else {
+        deviceGroupTitle = QStringLiteral("设备列表  [全部设备]");
     }
 
     if (deviceIndex >= 0 && deviceIndex < project.devices.size()) {
         const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
         const QString deviceName = device.deviceDesc.isEmpty() ? device.deviceId : device.deviceDesc;
-        deviceGroupTitle = QStringLiteral("设备列表  [当前: %1]").arg(deviceName);
+        deviceGroupTitle += QStringLiteral("  [当前设备: %1]").arg(deviceName);
     }
 
     m_modelGroupBox->setTitle(modelGroupTitle);
@@ -3728,6 +3792,14 @@ void MainWindow::selectModelPointById(const QString &pointId)
 
 void MainWindow::refreshModelOverview(int modelIndex)
 {
+    if (!m_modelOverviewIdLabel
+        || !m_modelOverviewDisplayNameLabel
+        || !m_modelOverviewDeviceTypeLabel
+        || !m_modelOverviewVersionLabel
+        || !m_modelOverviewPointCountLabel) {
+        return;
+    }
+
     const configtool::ConfigProject &project = m_configProjectManager.project();
     if (modelIndex < 0 || modelIndex >= project.models.size()) {
         m_modelOverviewIdLabel->setText(QStringLiteral("-"));
@@ -3756,7 +3828,9 @@ void MainWindow::refreshDeviceDetail(int deviceIndex)
     const configtool::ConfigProject &project = m_configProjectManager.project();
     if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
         m_deviceDetailTitleLabel->setText(QStringLiteral("-"));
+        m_deviceDetailIdLabel->setText(QStringLiteral("-"));
         m_deviceDetailModelLabel->setText(QStringLiteral("-"));
+        m_deviceDetailProtocolLabel->setText(QStringLiteral("-"));
         m_deviceDetailAddressLabel->setText(QStringLiteral("-"));
         m_deviceDetailIpLabel->setText(QStringLiteral("-"));
         m_deviceDetailPortLabel->setText(QStringLiteral("-"));
@@ -3765,8 +3839,10 @@ void MainWindow::refreshDeviceDetail(int deviceIndex)
     }
 
     const configtool::ProtocolDeviceInstance &device = project.devices.at(deviceIndex);
-    m_deviceDetailTitleLabel->setText(device.deviceDesc.isEmpty() ? device.deviceId : device.deviceDesc);
+    m_deviceDetailTitleLabel->setText(device.deviceDesc.isEmpty() ? QStringLiteral("-") : device.deviceDesc);
+    m_deviceDetailIdLabel->setText(device.deviceId.isEmpty() ? QStringLiteral("-") : device.deviceId);
     m_deviceDetailModelLabel->setText(device.modelId);
+    m_deviceDetailProtocolLabel->setText(southProtocolDisplayName(device));
     m_deviceDetailAddressLabel->setText(device.transport.stationAddress);
     m_deviceDetailIpLabel->setText(device.transport.ip);
     m_deviceDetailPortLabel->setText(device.transport.port);
@@ -3876,9 +3952,7 @@ void MainWindow::setCurrentDeviceOnlineLinkTarget(const QString &targetDeviceId)
     }
 
     refreshConfigObjectViews();
-    if (deviceIndex < m_configDeviceTable->rowCount()) {
-        m_configDeviceTable->selectRow(deviceIndex);
-    }
+    selectConfigDeviceByIndex(deviceIndex);
     refreshDeviceEditor(deviceIndex);
     statusBar()->showMessage(normalizedTarget.isEmpty()
         ? QStringLiteral("已取消当前设备的在线状态联动")

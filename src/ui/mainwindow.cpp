@@ -1043,6 +1043,9 @@ MainWindow::MainWindow(QWidget *parent)
     modelContentLayout->setSpacing(8);
     auto *modelToolbar = new QVBoxLayout();
     modelToolbar->setSpacing(8);
+    auto *showAllDevicesBtn = new QPushButton("全部设备");
+    showAllDevicesBtn->setToolTip(QStringLiteral("取消模型筛选，显示全部设备"));
+    modelToolbar->addWidget(showAllDevicesBtn);
     m_newModelBtn = new QPushButton("新建模型");
     modelToolbar->addWidget(m_newModelBtn);
     m_deleteModelBtn = new QPushButton("删除模型");
@@ -1119,28 +1122,6 @@ MainWindow::MainWindow(QWidget *parent)
     auto *detailPanelLayout = new QVBoxLayout(detailPanel);
     detailPanelLayout->setContentsMargins(0, 0, 0, 0);
     detailPanelLayout->setSpacing(8);
-
-    auto *modelOverviewPage = new QWidget(this);
-    auto *modelOverviewLayout = new QFormLayout(modelOverviewPage);
-    modelOverviewLayout->setContentsMargins(12, 12, 12, 12);
-    modelOverviewLayout->setHorizontalSpacing(24);
-    modelOverviewLayout->setVerticalSpacing(10);
-    m_modelOverviewIdLabel = new QLabel("-");
-    m_modelOverviewDisplayNameLabel = new QLabel("-");
-    m_modelOverviewDeviceTypeLabel = new QLabel("-");
-    m_modelOverviewVersionLabel = new QLabel("-");
-    m_modelOverviewPointCountLabel = new QLabel("0");
-    auto *modelOverviewTitle = new QLabel("模型概览", this);
-    QFont modelTitleFont = modelOverviewTitle->font();
-    modelTitleFont.setBold(true);
-    modelOverviewTitle->setFont(modelTitleFont);
-    detailPanelLayout->addWidget(modelOverviewTitle);
-    modelOverviewLayout->addRow("模型:", m_modelOverviewIdLabel);
-    modelOverviewLayout->addRow("模型描述:", m_modelOverviewDisplayNameLabel);
-    modelOverviewLayout->addRow("设备类型:", m_modelOverviewDeviceTypeLabel);
-    modelOverviewLayout->addRow("版本:", m_modelOverviewVersionLabel);
-    modelOverviewLayout->addRow("点位数:", m_modelOverviewPointCountLabel);
-    detailPanelLayout->addWidget(modelOverviewPage);
 
     m_modelEditorPage = new QWidget(this);
     auto *modelDetailLayout = new QVBoxLayout(m_modelEditorPage);
@@ -1500,18 +1481,22 @@ MainWindow::MainWindow(QWidget *parent)
     deviceDetailLayout->setHorizontalSpacing(24);
     deviceDetailLayout->setVerticalSpacing(10);
     m_deviceDetailTitleLabel = new QLabel("-");
+    m_deviceDetailIdLabel = new QLabel("-");
     m_deviceDetailModelLabel = new QLabel("-");
+    m_deviceDetailProtocolLabel = new QLabel("-");
     m_deviceDetailAddressLabel = new QLabel("-");
     m_deviceDetailIpLabel = new QLabel("-");
     m_deviceDetailPortLabel = new QLabel("-");
     m_deviceDetailBindingCountLabel = new QLabel("0");
-    auto *deviceDetailTitle = new QLabel("设备概览", this);
+    auto *deviceDetailTitle = new QLabel("设备详情", this);
     QFont titleFont = deviceDetailTitle->font();
     titleFont.setBold(true);
     deviceDetailTitle->setFont(titleFont);
     detailPanelLayout->addWidget(deviceDetailTitle);
-    deviceDetailLayout->addRow("设备:", m_deviceDetailTitleLabel);
-    deviceDetailLayout->addRow("模型:", m_deviceDetailModelLabel);
+    deviceDetailLayout->addRow("设备名称:", m_deviceDetailTitleLabel);
+    deviceDetailLayout->addRow("DeviceId:", m_deviceDetailIdLabel);
+    deviceDetailLayout->addRow("所属模型:", m_deviceDetailModelLabel);
+    deviceDetailLayout->addRow("南向协议:", m_deviceDetailProtocolLabel);
     deviceDetailLayout->addRow("协议地址:", m_deviceDetailAddressLabel);
     deviceDetailLayout->addRow("IP:", m_deviceDetailIpLabel);
     deviceDetailLayout->addRow("端口:", m_deviceDetailPortLabel);
@@ -1902,7 +1887,7 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("状态"),
         QStringLiteral("APP"),
         QStringLiteral("PID"),
-        QStringLiteral("重启次数"),
+        QStringLiteral("异常重启"),
         QStringLiteral("启动"),
         QStringLiteral("停止"),
         QStringLiteral("重启"),
@@ -2367,6 +2352,20 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeleteDeviceClicked);
     connect(m_configModelTable, &QTableWidget::itemSelectionChanged,
             this, &MainWindow::onConfigModelSelectionChanged);
+    connect(showAllDevicesBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_configModelTable) {
+            return;
+        }
+        {
+            QSignalBlocker blocker(m_configModelTable);
+            m_configModelTable->clearSelection();
+        }
+        if (m_deleteModelBtn) {
+            m_deleteModelBtn->setEnabled(false);
+        }
+        refreshConfigObjectViews();
+        refreshSelectionOverview();
+    });
     connect(m_configDeviceTable, &QTableWidget::itemSelectionChanged,
             this, &MainWindow::onConfigDeviceSelectionChanged);
     connect(m_configModelTable, &QTableWidget::cellDoubleClicked,
