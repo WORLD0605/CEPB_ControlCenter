@@ -14,6 +14,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLayout>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -1127,13 +1128,18 @@ void MainWindow::onOpenRawFrameLogClicked()
 
     auto *dialog = new QDialog(this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowFlag(Qt::WindowMinimizeButtonHint, true);
+    dialog->setWindowFlag(Qt::WindowMaximizeButtonHint, true);
+    dialog->setWindowFlag(Qt::WindowCloseButtonHint, true);
     const QStringList debugCategories = rawFrameDebugCategories(appConfig);
     const QString appDisplayName = rawFrameAppDisplayName(appConfig);
 
     dialog->setWindowTitle(QStringLiteral("%1 原始 debugconsole 日志").arg(appDisplayName));
     dialog->resize(900, 560);
+    dialog->setMinimumSize(480, 320);
 
     auto *layout = new QVBoxLayout(dialog);
+    layout->setSizeConstraint(QLayout::SetNoConstraint);
     layout->setContentsMargins(10, 10, 10, 10);
     layout->setSpacing(8);
 

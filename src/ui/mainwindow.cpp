@@ -20,12 +20,14 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLayout>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPalette>
 #include <QPushButton>
 #include <QSettings>
 #include <QShortcut>
+#include <QSizePolicy>
 #include <QSplitter>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -776,13 +778,20 @@ MainWindow::MainWindow(QWidget *parent)
 
     setWindowTitle("CEPB Control Center");
     resize(1080, 720);
+    // Keep the native Windows frame free to enter Win11 Snap Layout regions.
+    // Wide child toolbars may have a much larger size hint, but they must not
+    // turn that hint into the top-level window's minimum tracking size.
+    setMinimumSize(640, 480);
 
     auto *central = new QWidget(this);
     auto *mainLayout = new QVBoxLayout(central);
+    mainLayout->setSizeConstraint(QLayout::SetNoConstraint);
     mainLayout->setSpacing(10);
     mainLayout->setContentsMargins(12, 12, 12, 12);
 
     m_mainTabWidget = new QTabWidget(this);
+    m_mainTabWidget->setUsesScrollButtons(true);
+    m_mainTabWidget->setElideMode(Qt::ElideRight);
     mainLayout->addWidget(m_mainTabWidget, 1);
 
     auto *deviceIpWidget = new QWidget(m_mainTabWidget);
@@ -806,11 +815,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_appTabBar = new QTabBar();
     m_appTabBar->setDocumentMode(true);
     m_appTabBar->setExpanding(false);
+    m_appTabBar->setUsesScrollButtons(true);
+    m_appTabBar->setElideMode(Qt::ElideRight);
+    m_appTabBar->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_appTabBar->setMinimumWidth(120);
     for (int index = 0; index < m_appConfigs.size(); ++index) {
         const int tabIndex = m_appTabBar->addTab(m_appConfigs.at(index).name);
         m_appTabBar->setTabData(tabIndex, index);
     }
-    topLayout->addWidget(m_appTabBar);
+    topLayout->addWidget(m_appTabBar, 1);
 
     m_connectBtn = new QPushButton("连接");
     m_disconnectBtn = new QPushButton("断开");
@@ -821,7 +834,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_rawFrameLogBtn->setToolTip(QStringLiteral("单独打开原始报文 debugconsole 窗口"));
     m_rawFrameLogBtn->setVisible(false);
     topLayout->addWidget(m_rawFrameLogBtn);
-    topLayout->addStretch();
 
     debugLayout->addLayout(topLayout);
 
@@ -2223,7 +2235,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_statusLabel = new QLabel("未连接");
     statusBar()->addWidget(m_statusLabel);
     m_controlStatusLabel = new QLabel(QStringLiteral("状态: -"));
-    m_controlStatusLabel->setMinimumWidth(360);
+    m_controlStatusLabel->setMinimumWidth(0);
+    m_controlStatusLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     statusBar()->addWidget(m_controlStatusLabel, 1);
     statusBar()->addWidget(m_modelValidationLabel, 1);
 
