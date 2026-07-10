@@ -61,7 +61,7 @@
 namespace cepb_config_helpers {
 
 inline constexpr int Iec104BindingColumnCount = 6;
-inline constexpr int ModbusBindingColumnCount = 13;
+inline constexpr int ModbusBindingColumnCount = 15;
 inline constexpr int ModbusColumnEnabled = 0;
 inline constexpr int ModbusColumnKind = 1;
 inline constexpr int ModbusColumnDataRef = 2;
@@ -69,12 +69,14 @@ inline constexpr int ModbusColumnDescription = 3;
 inline constexpr int ModbusColumnFunCode = 4;
 inline constexpr int ModbusColumnRegister = 5;
 inline constexpr int ModbusColumnDataType = 6;
-inline constexpr int ModbusColumnScale = 7;
-inline constexpr int ModbusColumnGroupNo = 8;
-inline constexpr int ModbusColumnEntryNo = 9;
-inline constexpr int ModbusColumnDataIndex = 10;
-inline constexpr int ModbusColumnSelfSignal = 11;
-inline constexpr int ModbusColumnInitValue = 12;
+inline constexpr int ModbusColumnSourceIndex = 7;
+inline constexpr int ModbusColumnBitIndex = 8;
+inline constexpr int ModbusColumnScale = 9;
+inline constexpr int ModbusColumnGroupNo = 10;
+inline constexpr int ModbusColumnEntryNo = 11;
+inline constexpr int ModbusColumnDataIndex = 12;
+inline constexpr int ModbusColumnSelfSignal = 13;
+inline constexpr int ModbusColumnInitValue = 14;
 inline constexpr int Dlt645BindingColumnCount = 14;
 inline constexpr int Dlt645ColumnEnabled = 0;
 inline constexpr int Dlt645ColumnKind = 1;
@@ -335,6 +337,9 @@ inline QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalC
         QString addressSpace;
         int start = 0;
         int end = 0;
+        bool pocketBit = false;
+        int sourceIndex = -1;
+        int bitIndex = -1;
     };
 
     QHash<QString, QList<RegisterRange>> seenRangesByChannel;
@@ -380,12 +385,19 @@ inline QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalC
             current.addressSpace = modbusAddressSpaceKey(funCode);
             current.start = registerAddress;
             current.end = registerAddress + registerCount;
+            current.pocketBit = dataType.compare(QStringLiteral("POCKETBIT"), Qt::CaseInsensitive) == 0;
+            current.sourceIndex = modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"), -1);
+            current.bitIndex = modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1);
 
             for (const RegisterRange &seen : seenRanges) {
                 if (seen.addressSpace != current.addressSpace) {
                     continue;
                 }
-                if (current.start < seen.end && seen.start < current.end) {
+                const bool distinctPocketBits = current.pocketBit && seen.pocketBit
+                    && current.start == seen.start
+                    && current.sourceIndex >= 0 && current.bitIndex >= 0
+                    && (current.sourceIndex != seen.sourceIndex || current.bitIndex != seen.bitIndex);
+                if (!distinctPocketBits && current.start < seen.end && seen.start < current.end) {
                     duplicateAddresses.insert(seen.startAddress);
                     duplicateAddresses.insert(current.startAddress);
                 }

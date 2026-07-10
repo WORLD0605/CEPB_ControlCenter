@@ -203,6 +203,12 @@ bool ModbusConfigImporter::importDeviceFile(const QString &filePath,
         if (bindingObject.contains(QStringLiteral("scale"))) {
             binding.extensions.insert(QStringLiteral("modbusPointScale"), jsonValueToString(bindingObject.value(QStringLiteral("scale"))));
         }
+        if (bindingObject.contains(QStringLiteral("sourceIndex"))) {
+            binding.extensions.insert(QStringLiteral("modbusSourceIndex"), bindingObject.value(QStringLiteral("sourceIndex")));
+        }
+        if (bindingObject.contains(QStringLiteral("bitIndex"))) {
+            binding.extensions.insert(QStringLiteral("modbusBitIndex"), bindingObject.value(QStringLiteral("bitIndex")));
+        }
         if (bindingObject.contains(QStringLiteral("precontrol_dataIndex"))) {
             binding.extensions.insert(QStringLiteral("precontrol_dataIndex"), bindingObject.value(QStringLiteral("precontrol_dataIndex")));
         }

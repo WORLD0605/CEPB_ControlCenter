@@ -750,6 +750,14 @@ QJsonObject serializeModbusBinding(const PointBinding &binding,
     if (!scaleValue.isUndefined() && !scaleValue.isNull()) {
         object.insert(QStringLiteral("scale"), scaleValue);
     }
+    const bool pocketBit = binding.extensions.value(QStringLiteral("modbusDataType")).toString()
+        .compare(QStringLiteral("POCKETBIT"), Qt::CaseInsensitive) == 0;
+    if (pocketBit && binding.extensions.contains(QStringLiteral("modbusSourceIndex"))) {
+        object.insert(QStringLiteral("sourceIndex"), binding.extensions.value(QStringLiteral("modbusSourceIndex")));
+    }
+    if (pocketBit && binding.extensions.contains(QStringLiteral("modbusBitIndex"))) {
+        object.insert(QStringLiteral("bitIndex"), binding.extensions.value(QStringLiteral("modbusBitIndex")));
+    }
     if (!binding.selfSignalFlag.isEmpty()) {
         object.insert(QStringLiteral("self_sig_flag"), binding.selfSignalFlag);
     }
@@ -1435,6 +1443,9 @@ QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalChannel(
         QString addressSpace;
         int start = 0;
         int end = 0;
+        bool pocketBit = false;
+        int sourceIndex = -1;
+        int bitIndex = -1;
     };
 
     QHash<QString, QList<RegisterRange>> seenRangesByChannel;
@@ -1482,12 +1493,19 @@ QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalChannel(
             current.addressSpace = modbusAddressSpaceKey(funCode);
             current.start = registerAddress;
             current.end = registerAddress + registerCount;
+            current.pocketBit = dataType.compare(QStringLiteral("POCKETBIT"), Qt::CaseInsensitive) == 0;
+            current.sourceIndex = modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"), -1);
+            current.bitIndex = modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1);
 
             for (const RegisterRange &seen : seenRanges) {
                 if (seen.addressSpace != current.addressSpace) {
                     continue;
                 }
-                if (current.start < seen.end && seen.start < current.end) {
+                const bool distinctPocketBits = current.pocketBit && seen.pocketBit
+                    && current.start == seen.start
+                    && current.sourceIndex >= 0 && current.bitIndex >= 0
+                    && (current.sourceIndex != seen.sourceIndex || current.bitIndex != seen.bitIndex);
+                if (!distinctPocketBits && current.start < seen.end && seen.start < current.end) {
                     duplicateAddresses.insert(seen.startAddress);
                     duplicateAddresses.insert(current.startAddress);
                 }

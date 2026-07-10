@@ -2060,8 +2060,35 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             }
             break;
         case ModbusColumnDataType:
-            binding.extensions.insert(QStringLiteral("modbusDataType"),
-                                      normalizedModbusDataTypeForKind(modbusBindingKind(binding), value));
+        {
+            const QString dataType = normalizedModbusDataTypeForKind(modbusBindingKind(binding), value);
+            binding.extensions.insert(QStringLiteral("modbusDataType"), dataType);
+            if (dataType == QStringLiteral("POCKETBIT")) {
+                if (!binding.extensions.contains(QStringLiteral("modbusSourceIndex"))) {
+                    binding.extensions.insert(QStringLiteral("modbusSourceIndex"), 0);
+                }
+                if (!binding.extensions.contains(QStringLiteral("modbusBitIndex"))) {
+                    binding.extensions.insert(QStringLiteral("modbusBitIndex"), 0);
+                }
+            } else {
+                binding.extensions.remove(QStringLiteral("modbusSourceIndex"));
+                binding.extensions.remove(QStringLiteral("modbusBitIndex"));
+            }
+            break;
+        }
+        case ModbusColumnSourceIndex:
+            if (value.isEmpty()) {
+                binding.extensions.remove(QStringLiteral("modbusSourceIndex"));
+            } else {
+                binding.extensions.insert(QStringLiteral("modbusSourceIndex"), value.toInt());
+            }
+            break;
+        case ModbusColumnBitIndex:
+            if (value.isEmpty()) {
+                binding.extensions.remove(QStringLiteral("modbusBitIndex"));
+            } else {
+                binding.extensions.insert(QStringLiteral("modbusBitIndex"), value.toInt());
+            }
             break;
         case ModbusColumnScale:
             binding.extensions.insert(QStringLiteral("modbusScale"), value);
@@ -2294,7 +2321,17 @@ void MainWindow::rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &d
             group.groupNo = groupNo;
             group.funCode = funCode;
             group.startAddr = runStartAddr;
-            group.regNum = qMax(modbusTypeRegisterCount(dataType), runRegisterEnd - runStartAddr);
+            if (dataType.compare(QStringLiteral("POCKETBIT"), Qt::CaseInsensitive) == 0) {
+                int sourceCount = 1;
+                for (int bindingIndex : runIndexes) {
+                    sourceCount = qMax(sourceCount,
+                                       modbusBindingInt(device.bindings.at(bindingIndex),
+                                                        QStringLiteral("modbusSourceIndex"), 0) + 1);
+                }
+                group.regNum = sourceCount;
+            } else {
+                group.regNum = qMax(modbusTypeRegisterCount(dataType), runRegisterEnd - runStartAddr);
+            }
             group.dataType = dataType;
             group.scale = kind == QStringLiteral("yc") ? scale : QStringLiteral("1.0");
             device.modbus.pollGroups.append(group);
@@ -2312,7 +2349,9 @@ void MainWindow::rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &d
             const int regStep = qMax(1, modbusTypeRegisterCount(dataType));
             const int regAddr = modbusBindingInt(binding, QStringLiteral("modbusRegisterAddress"));
             const int nextRegisterEnd = regAddr + regStep;
-            const bool continuous = runIndexes.isEmpty() || regAddr == runRegisterEnd;
+            const bool pocketBit = dataType.compare(QStringLiteral("POCKETBIT"), Qt::CaseInsensitive) == 0;
+            const bool continuous = runIndexes.isEmpty()
+                || (pocketBit ? regAddr == runStartAddr : regAddr == runRegisterEnd);
             const bool withinFrameLimit = runIndexes.isEmpty()
                 || (nextRegisterEnd - runStartAddr) <= modbusMaxReadQuantity(funCode);
 
@@ -4231,6 +4270,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
     if (modbusDevice) {
         int missingRegisterCount = 0;
+        int invalidPocketBitCount = 0;
         m_updatingDeviceBindingsTable = true;
         m_deviceBindingsTable->clear();
         m_deviceBindingsTable->setColumnCount(ModbusBindingColumnCount);
@@ -4242,6 +4282,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("功能码"),
             QStringLiteral("寄存器"),
             QStringLiteral("数据类型"),
+            QStringLiteral("源序号"),
+            QStringLiteral("位序号"),
             QStringLiteral("比例"),
             QStringLiteral("组号"),
             QStringLiteral("序号"),
@@ -4257,6 +4299,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(ModbusColumnFunCode, 64);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnRegister, 80);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDataType, 130);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnSourceIndex, 68);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnBitIndex, 68);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnScale, 64);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnGroupNo, 58);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEntryNo, 58);
@@ -4288,6 +4332,15 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             const QString entryNo = binding.extensions.contains(QStringLiteral("modbusEntryNo"))
                 ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusEntryNo")))
                 : QString();
+            const bool pocketBit = dataType == QStringLiteral("POCKETBIT");
+            const QString sourceIndex = pocketBit && binding.extensions.contains(QStringLiteral("modbusSourceIndex"))
+                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"))) : QString();
+            const QString bitIndex = pocketBit && binding.extensions.contains(QStringLiteral("modbusBitIndex"))
+                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusBitIndex"))) : QString();
+            const bool invalidPocketBit = pocketBit
+                && (modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"), -1) < 0
+                    || modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1) < 0
+                    || modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1) > 15);
 
             auto *kindItem = new QTableWidgetItem(modbusKindDisplayName(kind));
             kindItem->setFlags(kindItem->flags() & ~Qt::ItemIsEditable);
@@ -4297,6 +4350,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *funCodeItem = new QTableWidgetItem(funCode);
             auto *registerItem = new QTableWidgetItem(registerAddress);
             auto *dataTypeItem = new QTableWidgetItem(dataType);
+            auto *sourceIndexItem = new QTableWidgetItem(sourceIndex);
+            auto *bitIndexItem = new QTableWidgetItem(bitIndex);
             auto *scaleItem = new QTableWidgetItem(scale);
             auto *groupItem = new QTableWidgetItem(groupNo);
             auto *entryItem = new QTableWidgetItem(entryNo);
@@ -4310,6 +4365,17 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
             entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsEditable);
             dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
+            if (!pocketBit) {
+                sourceIndexItem->setFlags(sourceIndexItem->flags() & ~Qt::ItemIsEditable);
+                bitIndexItem->setFlags(bitIndexItem->flags() & ~Qt::ItemIsEditable);
+                sourceIndexItem->setForeground(QColor(QStringLiteral("#9e9e9e")));
+                bitIndexItem->setForeground(QColor(QStringLiteral("#9e9e9e")));
+            } else if (invalidPocketBit) {
+                ++invalidPocketBitCount;
+                const QColor warningColor(QStringLiteral("#b9770e"));
+                sourceIndexItem->setForeground(warningColor);
+                bitIndexItem->setForeground(warningColor);
+            }
 
             if (binding.enabled && hasRegister && duplicateModbusRegisterAddresses.contains(registerAddress)) {
                 const QColor duplicateColor(QStringLiteral("#c0392b"));
@@ -4423,9 +4489,20 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
                 pushConfigUndoSnapshot();
                 configtool::PointBinding &binding = device.bindings[bindingIndex];
-                binding.extensions.insert(QStringLiteral("modbusDataType"),
-                                          normalizedModbusDataTypeForKind(modbusBindingKind(binding),
-                                                                         dataTypeCombo->currentText()));
+                const QString dataType = normalizedModbusDataTypeForKind(modbusBindingKind(binding),
+                                                                         dataTypeCombo->currentText());
+                binding.extensions.insert(QStringLiteral("modbusDataType"), dataType);
+                if (dataType == QStringLiteral("POCKETBIT")) {
+                    if (!binding.extensions.contains(QStringLiteral("modbusSourceIndex"))) {
+                        binding.extensions.insert(QStringLiteral("modbusSourceIndex"), 0);
+                    }
+                    if (!binding.extensions.contains(QStringLiteral("modbusBitIndex"))) {
+                        binding.extensions.insert(QStringLiteral("modbusBitIndex"), 0);
+                    }
+                } else {
+                    binding.extensions.remove(QStringLiteral("modbusSourceIndex"));
+                    binding.extensions.remove(QStringLiteral("modbusBitIndex"));
+                }
                 rebuildModbusDeviceConfig(device);
                 refreshDeviceDetail(deviceIndex);
                 refreshDeviceEditor(deviceIndex);
@@ -4439,6 +4516,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             });
             hideComboBackedItemText(dataTypeItem);
             m_deviceBindingsTable->setCellWidget(row, ModbusColumnDataType, dataTypeCombo);
+            m_deviceBindingsTable->setItem(row, ModbusColumnSourceIndex, sourceIndexItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnBitIndex, bitIndexItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnScale, scaleItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnGroupNo, groupItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnEntryNo, entryItem);
@@ -4477,6 +4556,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 QStringLiteral("检测到同物理 Modbus 通道重复或重叠的寄存器地址：%1。请检查 %2 下所有设备的启用点位寄存器。")
                     .arg(QStringList(duplicateModbusRegisterAddresses.begin(), duplicateModbusRegisterAddresses.end()).join(QStringLiteral("，")),
                          modbusPhysicalChannelDisplayName(device)));
+        } else if (invalidPocketBitCount > 0) {
+            m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
+            m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个 POCKETBIT 点位的源序号或位序号无效；源序号须不小于 0，位序号须为 0～15。")
+                .arg(invalidPocketBitCount));
         } else if (missingRegisterCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
             m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 Modbus 寄存器地址。填写后会自动生成分组、组内序号和 dataIndex。")
@@ -4583,7 +4666,6 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             dataTypeItem->setFlags(dataTypeItem->flags() & ~Qt::ItemIsEditable);
             groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
             dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
-
             const bool missingDi = binding.enabled
                 && (isDlt645SetKind(kind) ? pointDi.isEmpty() : (pointDi.isEmpty() || pollDi.isEmpty()));
             if (missingDi) {
