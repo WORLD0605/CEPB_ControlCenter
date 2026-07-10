@@ -3054,6 +3054,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
     }
 
     if (auto *combo = qobject_cast<QComboBox *>(watched)) {
+        if (event->type() == QEvent::Wheel
+            && (!combo->view() || !combo->view()->isVisible())) {
+            return true;
+        }
+
         if (combo->property("tableCellCombo").toBool()) {
             switch (event->type()) {
             case QEvent::Enter:
