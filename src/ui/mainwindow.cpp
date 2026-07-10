@@ -16,6 +16,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QIntValidator>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -1256,6 +1257,24 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceEditorCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     deviceNavLayout->addWidget(m_deviceEditorCombo, 1);
     deviceEditorLayout->addLayout(deviceNavLayout);
+
+    m_modbusGlobalParamsGroupBox = new QGroupBox(QStringLiteral("Modbus 全局参数"), this);
+    auto *modbusGlobalParamsLayout = new QHBoxLayout(m_modbusGlobalParamsGroupBox);
+    modbusGlobalParamsLayout->setContentsMargins(10, 6, 10, 6);
+    modbusGlobalParamsLayout->setSpacing(8);
+    m_modbusFrameIntervalEdit = new QLineEdit(this);
+    m_modbusFrameIntervalEdit->setValidator(new QIntValidator(1, 3600000, m_modbusFrameIntervalEdit));
+    m_modbusFrameIntervalEdit->setText(QStringLiteral("100"));
+    m_modbusFrameIntervalEdit->setPlaceholderText(QStringLiteral("100"));
+    m_modbusFrameIntervalEdit->setMaximumWidth(140);
+    m_modbusFrameIntervalEdit->setToolTip(QStringLiteral("全局生效：一帧请求执行结束后，等待该时长再调度下一帧"));
+    modbusGlobalParamsLayout->addWidget(new QLabel(QStringLiteral("请求帧间隔(ms):"), this));
+    modbusGlobalParamsLayout->addWidget(m_modbusFrameIntervalEdit);
+    auto *modbusFrameIntervalHint = new QLabel(
+        QStringLiteral("全局生效；一帧请求结束后，等待该时长再调度下一帧。"), this);
+    modbusFrameIntervalHint->setStyleSheet(QStringLiteral("QLabel { color: #666666; }"));
+    modbusGlobalParamsLayout->addWidget(modbusFrameIntervalHint, 1);
+    deviceEditorLayout->addWidget(m_modbusGlobalParamsGroupBox);
     auto *deviceTopPanel = new QWidget(this);
     auto *deviceTopLayout = new QHBoxLayout(deviceTopPanel);
     deviceTopLayout->setContentsMargins(0, 0, 0, 0);
@@ -1341,6 +1360,11 @@ MainWindow::MainWindow(QWidget *parent)
     for (const QString &parity : {QStringLiteral("N"), QStringLiteral("E"), QStringLiteral("O")}) {
         m_modbusParityCombo->addItem(parity);
     }
+    m_modbusResponseTimeoutEdit = new QLineEdit(this);
+    m_modbusResponseTimeoutEdit->setValidator(new QIntValidator(1, 3600000, m_modbusResponseTimeoutEdit));
+    m_modbusResponseTimeoutEdit->setText(QStringLiteral("500"));
+    m_modbusResponseTimeoutEdit->setPlaceholderText(QStringLiteral("500"));
+    m_modbusResponseTimeoutEdit->setToolTip(QStringLiteral("当前设备等待一帧 Modbus 响应的最长时间，单位毫秒"));
     m_modbusDebugCheck = new QCheckBox(QStringLiteral("debug"), this);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("类型:"), this), 0, 0);
     modbusParamsLayout->addWidget(m_modbusTypeCombo, 0, 1);
@@ -1356,7 +1380,9 @@ MainWindow::MainWindow(QWidget *parent)
     modbusParamsLayout->addWidget(m_modbusParityCombo, 1, 5);
     modbusParamsLayout->addWidget(m_modbusDebugCheck, 1, 6);
     modbusParamsLayout->addWidget(new QLabel(QStringLiteral("硬件型号:"), this), 2, 0);
-    modbusParamsLayout->addWidget(m_modbusHwVariantCombo, 2, 1, 1, 6);
+    modbusParamsLayout->addWidget(m_modbusHwVariantCombo, 2, 1, 1, 3);
+    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("帧超时(ms):"), this), 2, 4);
+    modbusParamsLayout->addWidget(m_modbusResponseTimeoutEdit, 2, 5, 1, 2);
     deviceTopLayout->addWidget(m_modbusParamsGroupBox, 1);
 
     m_dlt645ParamsGroupBox = new QGroupBox(QStringLiteral("DLT645 参数"), this);
@@ -2433,6 +2459,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_devicePortEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusFrameIntervalEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusSerialPortCombo, qOverload<int>(&QComboBox::currentIndexChanged),
@@ -2446,6 +2474,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_modbusStopBitsCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusParityCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusResponseTimeoutEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusDebugCheck, &QCheckBox::toggled,
             this, &MainWindow::onDeviceFieldEdited);

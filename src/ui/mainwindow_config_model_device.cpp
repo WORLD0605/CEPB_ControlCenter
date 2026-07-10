@@ -1370,6 +1370,9 @@ void MainWindow::openCreateDeviceDialog(int preselectedModelIndex)
     device.deviceDesc = model.displayName.isEmpty() ? model.modelId : model.displayName;
     device.modelId = model.modelId;
     if (createModbus) {
+        if (project.modbus.frameInterval.trimmed().isEmpty()) {
+            project.modbus.frameInterval = QStringLiteral("100");
+        }
         device.transport.protocolOptions.insert(QStringLiteral("type"), QStringLiteral("RTU"));
         device.transport.protocolOptions.insert(QStringLiteral("debug"), QStringLiteral("off"));
         device.transport.serial.insert(QStringLiteral("serialPort"), QStringLiteral("RS485_1"));
@@ -1646,6 +1649,10 @@ void MainWindow::onDeviceFieldEdited()
     device.transport.ip = m_deviceIpEdit->text().trimmed();
     device.transport.port = m_devicePortEdit->text().trimmed();
     if (isModbusDevice(device)) {
+        if (m_modbusFrameIntervalEdit) {
+            const QString frameInterval = m_modbusFrameIntervalEdit->text().trimmed();
+            project.modbus.frameInterval = frameInterval.isEmpty() ? QStringLiteral("100") : frameInterval;
+        }
         const QString type = m_modbusTypeCombo && m_modbusTypeCombo->currentIndex() >= 0
             ? m_modbusTypeCombo->currentText().trimmed().toUpper()
             : QStringLiteral("TCP");
@@ -1653,6 +1660,11 @@ void MainWindow::onDeviceFieldEdited()
         device.transport.protocolOptions.insert(QStringLiteral("debug"), m_modbusDebugCheck && m_modbusDebugCheck->isChecked()
             ? QStringLiteral("on")
             : QStringLiteral("off"));
+        const QString responseTimeoutMs = m_modbusResponseTimeoutEdit
+            ? m_modbusResponseTimeoutEdit->text().trimmed()
+            : QString();
+        device.transport.protocolOptions.insert(QStringLiteral("responseTimeoutMs"),
+                                                responseTimeoutMs.isEmpty() ? QStringLiteral("500") : responseTimeoutMs);
         if (m_modbusHwVariantCombo) {
             project.modbus.hwVariant = m_modbusHwVariantCombo->currentData().toString().trimmed();
         }
@@ -4019,13 +4031,16 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
         for (QLineEdit *edit : {m_deviceIdEdit, m_deviceDescEdit, m_deviceModelEdit,
                                 m_deviceStationAddressEdit, m_deviceIpEdit,
-                                m_devicePortEdit}) {
+                                m_devicePortEdit, m_modbusResponseTimeoutEdit}) {
             if (edit) {
                 edit->clear();
             }
         }
         if (m_modbusParamsGroupBox) {
             m_modbusParamsGroupBox->setVisible(false);
+        }
+        if (m_modbusGlobalParamsGroupBox) {
+            m_modbusGlobalParamsGroupBox->setVisible(false);
         }
         if (m_dlt645ParamsGroupBox) {
             m_dlt645ParamsGroupBox->setVisible(false);
@@ -4105,6 +4120,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     if (m_modbusParamsGroupBox) {
         m_modbusParamsGroupBox->setVisible(modbusDevice);
     }
+    if (m_modbusGlobalParamsGroupBox) {
+        m_modbusGlobalParamsGroupBox->setVisible(modbusDevice);
+    }
     if (m_dlt645ParamsGroupBox) {
         m_dlt645ParamsGroupBox->setVisible(dlt645Device);
     }
@@ -4115,6 +4133,11 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         ? device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper()
         : QString();
     if (modbusDevice) {
+        {
+            QSignalBlocker blocker(m_modbusFrameIntervalEdit);
+            const QString frameInterval = project.modbus.frameInterval.trimmed();
+            m_modbusFrameIntervalEdit->setText(frameInterval.isEmpty() ? QStringLiteral("100") : frameInterval);
+        }
         {
             QSignalBlocker blocker(m_modbusTypeCombo);
             const int typeIndex = m_modbusTypeCombo->findText(modbusTransportType);
@@ -4147,6 +4170,10 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             || debug == QStringLiteral("1")
             || debug == QStringLiteral("true")
             || debug == QStringLiteral("yes"));
+        QSignalBlocker timeoutBlocker(m_modbusResponseTimeoutEdit);
+        const QString responseTimeoutMs = uiJsonValueToString(
+            device.transport.protocolOptions.value(QStringLiteral("responseTimeoutMs"))).trimmed();
+        m_modbusResponseTimeoutEdit->setText(responseTimeoutMs.isEmpty() ? QStringLiteral("500") : responseTimeoutMs);
     }
     if (dlt645Device) {
         const QJsonObject rtu = device.transport.serial;

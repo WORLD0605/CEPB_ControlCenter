@@ -626,6 +626,8 @@ private:
     QLineEdit *m_deviceStationAddressEdit = nullptr;
     QLineEdit *m_deviceIpEdit = nullptr;
     QLineEdit *m_devicePortEdit = nullptr;
+    QGroupBox *m_modbusGlobalParamsGroupBox = nullptr;
+    QLineEdit *m_modbusFrameIntervalEdit = nullptr;
     QComboBox *m_modbusTypeCombo = nullptr;
     QComboBox *m_modbusSerialPortCombo = nullptr;
     QComboBox *m_modbusHwVariantCombo = nullptr;
@@ -633,6 +635,7 @@ private:
     QComboBox *m_modbusDataBitsCombo = nullptr;
     QComboBox *m_modbusStopBitsCombo = nullptr;
     QComboBox *m_modbusParityCombo = nullptr;
+    QLineEdit *m_modbusResponseTimeoutEdit = nullptr;
     QCheckBox *m_modbusDebugCheck = nullptr;
     QGroupBox *m_modbusParamsGroupBox = nullptr;
     QComboBox *m_dlt645SerialPortCombo = nullptr;

@@ -817,6 +817,12 @@ QJsonObject serializeModbusDevice(const ProtocolDeviceInstance &device,
     if (!debug.isEmpty() && debug.compare(QStringLiteral("off"), Qt::CaseInsensitive) != 0) {
         root.insert(QStringLiteral("debug"), debug);
     }
+    bool timeoutOk = false;
+    const int responseTimeoutMs = jsonValueToString(
+        device.transport.protocolOptions.value(QStringLiteral("responseTimeoutMs"))).toInt(&timeoutOk);
+    root.insert(QStringLiteral("responseTimeoutMs"), timeoutOk && responseTimeoutMs > 0
+        ? QJsonValue(responseTimeoutMs)
+        : QJsonValue(500));
     root.insert(QStringLiteral("meas_points"), bindingArray);
     return root;
 }

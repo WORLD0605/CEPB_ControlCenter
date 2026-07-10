@@ -31,6 +31,7 @@
     "type": "TCP",
     "ip": "192.168.1.100",
     "port": 502,
+    "responseTimeoutMs": 500,
     "debug": "on",
     "meas_points": [
         {
@@ -64,6 +65,7 @@
     "Model": "NWKJ_示例模型_1.00",
     "addr": "1",
     "type": "RTU",
+    "responseTimeoutMs": 800,
     "debug": "on",
     "rtu": {
         "serialPort": "RS485_1",
@@ -129,6 +131,7 @@
 | `DeviceDesc` | ❌ | 设备描述 |
 | `Model` | ✅ | 关联的模型名称，必须在 `../model/` 中存在对应 `.json` |
 | `addr` | ✅ | Modbus 从站地址（如 `"1"`） |
+| `responseTimeoutMs` | ❌ | 当前设备等待一帧 Modbus 响应的最长时间（毫秒），默认 `500`；每台设备可独立配置 |
 | `debug` | ❌ | 写 `"on"` / `"1"` / `"true"` 可开启该设备的 Modbus 帧级调试日志 |
 | `meas_points` | ✅ | 测点列表，每个测点包含 `dataIndex` 和 `dataRef` |
 
@@ -179,7 +182,7 @@ yc_scale=1.0
 
 | 键 | 默认值 | 说明 |
 |----|--------|------|
-| `frameInterval` | `100` | 总线调度帧间隔（毫秒），控制设备间轮询间隔 |
+| `frameInterval` | `100` | 全局请求帧间隔（毫秒）；一帧请求结束后，等待该时长再调度下一帧 |
 | `hw_variant` | 空 | 硬件版本，影响 `RS485_4` 映射（`myir` / `talowe`） |
 | `YX_UploadPeriod` | `60` | 遥信周期上送间隔（秒） |
 | `YC_UploadPeriod` | `10` | 遥测周期上送间隔（秒） |

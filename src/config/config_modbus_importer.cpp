@@ -180,6 +180,9 @@ bool ModbusConfigImporter::importDeviceFile(const QString &filePath,
     if (root.contains(QStringLiteral("debug"))) {
         device.transport.protocolOptions.insert(QStringLiteral("debug"), root.value(QStringLiteral("debug")));
     }
+    if (root.contains(QStringLiteral("responseTimeoutMs"))) {
+        device.transport.protocolOptions.insert(QStringLiteral("responseTimeoutMs"), root.value(QStringLiteral("responseTimeoutMs")));
+    }
 
     device.modbus = importDeviceIniConfig(iniPath, device.deviceId, report);
 
