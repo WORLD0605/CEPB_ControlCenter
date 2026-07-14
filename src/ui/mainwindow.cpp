@@ -791,7 +791,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_mainTabWidget = new QTabWidget(this);
     m_mainTabWidget->setUsesScrollButtons(true);
-    m_mainTabWidget->setElideMode(Qt::ElideRight);
+    m_mainTabWidget->setElideMode(Qt::ElideNone);
+    m_mainTabWidget->tabBar()->setExpanding(false);
     mainLayout->addWidget(m_mainTabWidget, 1);
 
     auto *deviceIpWidget = new QWidget(m_mainTabWidget);
@@ -816,7 +817,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_appTabBar->setDocumentMode(true);
     m_appTabBar->setExpanding(false);
     m_appTabBar->setUsesScrollButtons(true);
-    m_appTabBar->setElideMode(Qt::ElideRight);
+    m_appTabBar->setElideMode(Qt::ElideNone);
     m_appTabBar->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_appTabBar->setMinimumWidth(120);
     for (int index = 0; index < m_appConfigs.size(); ++index) {
