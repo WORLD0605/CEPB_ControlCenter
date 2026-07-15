@@ -907,15 +907,19 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceFilterCombo->setEnabled(false);
     serviceDataFilterLayout->addWidget(m_deviceFilterCombo);
     serviceDataFilterLayout->addWidget(new QLabel("Type:"));
-    m_serviceTypeFilterCombo = new QComboBox();
-    m_serviceTypeFilterCombo->addItem(QStringLiteral("all"), QString());
-    m_serviceTypeFilterCombo->addItem(QStringLiteral("遥测"), QStringLiteral("analog"));
-    m_serviceTypeFilterCombo->addItem(QStringLiteral("遥信"), QStringLiteral("discrete"));
-    m_serviceTypeFilterCombo->addItem(QStringLiteral("电度"), QStringLiteral("accumulator"));
-    m_serviceTypeFilterCombo->addItem(QStringLiteral("控制"), QStringLiteral("control"));
-    m_serviceTypeFilterCombo->setMinimumWidth(90);
-    m_serviceTypeFilterCombo->setEnabled(false);
-    serviceDataFilterLayout->addWidget(m_serviceTypeFilterCombo);
+    m_serviceTypeFilterTabBar = new QTabBar(dataPage);
+    const int allTypeTab = m_serviceTypeFilterTabBar->addTab(QStringLiteral("全部"));
+    const int analogTypeTab = m_serviceTypeFilterTabBar->addTab(QStringLiteral("遥测"));
+    const int discreteTypeTab = m_serviceTypeFilterTabBar->addTab(QStringLiteral("遥信"));
+    const int controlTypeTab = m_serviceTypeFilterTabBar->addTab(QStringLiteral("控制"));
+    m_serviceTypeFilterTabBar->setTabData(allTypeTab, QString());
+    m_serviceTypeFilterTabBar->setTabData(analogTypeTab, QStringLiteral("analog"));
+    m_serviceTypeFilterTabBar->setTabData(discreteTypeTab, QStringLiteral("discrete"));
+    m_serviceTypeFilterTabBar->setTabData(controlTypeTab, QStringLiteral("control"));
+    m_serviceTypeFilterTabBar->setExpanding(false);
+    m_serviceTypeFilterTabBar->setCurrentIndex(0);
+    m_serviceTypeFilterTabBar->setEnabled(false);
+    serviceDataFilterLayout->addWidget(m_serviceTypeFilterTabBar);
     serviceDataFilterLayout->addWidget(new QLabel(QStringLiteral("搜索:")));
     m_dataRefFilterEdit = new QLineEdit();
     m_dataRefFilterEdit->setPlaceholderText(QStringLiteral("DataRef / Description"));
@@ -2281,7 +2285,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_deviceFilterCombo, &QComboBox::currentIndexChanged,
             this, &MainWindow::onDeviceFilterChanged);
-    connect(m_serviceTypeFilterCombo, &QComboBox::currentIndexChanged,
+    connect(m_serviceTypeFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onServiceTypeFilterChanged);
     connect(m_dataRefFilterEdit, &QLineEdit::textChanged,
             this, &MainWindow::onDataRefFilterTextChanged);

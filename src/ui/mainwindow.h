@@ -508,7 +508,7 @@ private:
     QLineEdit *m_cmdEdit = nullptr;
     QPushButton *m_sendBtn = nullptr;
     QComboBox *m_deviceFilterCombo = nullptr;
-    QComboBox *m_serviceTypeFilterCombo = nullptr;
+    QTabBar *m_serviceTypeFilterTabBar = nullptr;
     QLineEdit *m_dataRefFilterEdit = nullptr;
     QComboBox *m_autoRefreshCombo = nullptr;
     QLabel *m_controlStatusLabel = nullptr;

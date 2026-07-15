@@ -25,6 +25,7 @@
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTextEdit>
@@ -623,7 +624,7 @@ void MainWindow::onConnected()
     if (isDataViewApp(appConfig)) {
         const bool dataTableApp = appConfig.viewMode == AppViewMode::DataTable;
         m_deviceFilterCombo->setEnabled(dataTableApp);
-        m_serviceTypeFilterCombo->setEnabled(dataTableApp);
+        m_serviceTypeFilterTabBar->setEnabled(dataTableApp);
         m_dataRefFilterEdit->setEnabled(dataTableApp);
         m_autoRefreshCombo->setEnabled(true);
         updateControlCommandUi();
@@ -668,8 +669,8 @@ void MainWindow::onDisconnected()
         refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
         m_deviceFilterCombo->setEnabled(false);
-        m_serviceTypeFilterCombo->setCurrentIndex(0);
-        m_serviceTypeFilterCombo->setEnabled(false);
+        m_serviceTypeFilterTabBar->setCurrentIndex(0);
+        m_serviceTypeFilterTabBar->setEnabled(false);
         m_dataRefFilterEdit->clear();
         m_dataRefFilterEdit->setEnabled(false);
         m_autoRefreshCombo->setEnabled(false);
@@ -962,7 +963,7 @@ void MainWindow::updateUIState(bool connected)
     }
     updateControlCommandUi();
     m_deviceFilterCombo->setEnabled(connected && dataTableMode);
-    m_serviceTypeFilterCombo->setEnabled(connected && dataTableMode);
+    m_serviceTypeFilterTabBar->setEnabled(connected && dataTableMode);
     m_dataRefFilterEdit->setEnabled(connected && dataTableMode);
     m_autoRefreshCombo->setEnabled(connected && dataViewMode);
 
@@ -1653,7 +1654,8 @@ void MainWindow::refreshDeviceFilterOptions()
 void MainWindow::applyServiceChannelFilter()
 {
     const QString selectedDeviceId = m_deviceFilterCombo->currentData().toString();
-    const QString selectedServiceId = m_serviceTypeFilterCombo->currentData().toString();
+    const QString selectedServiceId =
+        m_serviceTypeFilterTabBar->tabData(m_serviceTypeFilterTabBar->currentIndex()).toString();
     const QString keyword = m_dataRefFilterEdit->text().trimmed();
     QList<ServiceChannelDataItem> filteredItems;
 
