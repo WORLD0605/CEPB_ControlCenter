@@ -249,6 +249,7 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     QSet<QString> reportedDuplicateRegisterAddressChannels;
     for (const ProtocolDeviceInstance &device : exportDevices) {
         const QString type = device.transport.protocolOptions.value(QStringLiteral("type")).toString(QStringLiteral("TCP")).trimmed().toUpper();
+        const bool virtualDevice = type == QStringLiteral("VIRTUAL");
         const QString channelKey = modbusPhysicalChannelKey(device);
         const QSet<QString> duplicateRegisterAddresses = duplicateRegisterAddressesByChannel.value(channelKey);
         if (!duplicateRegisterAddresses.isEmpty()
@@ -280,10 +281,10 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
                                 .arg(device.modelId));
         }
 
-        if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
+        if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU") && !virtualDevice) {
             report.addIssue(ImportIssueSeverity::Error,
                             device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
-                            QStringLiteral("Modbus 设备 %1 的 type 必须为 TCP 或 RTU").arg(device.deviceId));
+                            QStringLiteral("Modbus 设备 %1 的 type 必须为 TCP、RTU 或 VIRTUAL").arg(device.deviceId));
         }
         bool portOk = false;
         device.transport.port.trimmed().toInt(&portOk);
@@ -306,7 +307,7 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         }
 
         for (const PointBinding &binding : device.bindings) {
-            if (!binding.enabled) {
+            if (!binding.enabled || virtualDevice) {
                 continue;
             }
             if (binding.address.trimmed().isEmpty()) {

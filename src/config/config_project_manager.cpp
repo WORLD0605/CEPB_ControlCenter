@@ -686,10 +686,13 @@ QList<PointBinding> bindingsForExport(const ProtocolDeviceInstance &device,
 {
     QList<QPair<int, PointBinding>> orderedBindings;
     orderedBindings.reserve(device.bindings.size());
+    const bool allowEmptyAddress = isDeviceForProtocol(device, ProtocolType::Modbus)
+        && device.transport.protocolOptions.value(QStringLiteral("type"))
+               .toString().trimmed().compare(QStringLiteral("VIRTUAL"), Qt::CaseInsensitive) == 0;
 
     for (int index = 0; index < device.bindings.size(); ++index) {
         const PointBinding &binding = device.bindings.at(index);
-        if (!binding.enabled || binding.address.trimmed().isEmpty()) {
+        if (!binding.enabled || (!allowEmptyAddress && binding.address.trimmed().isEmpty())) {
             continue;
         }
 
@@ -806,7 +809,7 @@ QJsonObject serializeModbusDevice(const ProtocolDeviceInstance &device,
         }
         rtu.insert(QStringLiteral("parity"), jsonValueToString(device.transport.serial.value(QStringLiteral("parity"))));
         root.insert(QStringLiteral("rtu"), rtu);
-    } else {
+    } else if (type == QStringLiteral("TCP")) {
         root.insert(QStringLiteral("ip"), device.transport.ip);
         bool ok = false;
         const int port = device.transport.port.toInt(&ok);

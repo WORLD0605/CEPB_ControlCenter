@@ -12,6 +12,90 @@
 namespace configtool {
 
 using namespace detail;
+
+namespace {
+
+PointBinding createVirtualBindingForModelPoint(const ModelTemplate &model,
+                                               const PointTemplate &point,
+                                               const SourceInfo &source)
+{
+    PointBinding binding;
+    binding.bindingId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    binding.pointRef = point.pointRef(model.modelId);
+    binding.dataRef = point.dataRef();
+    binding.descriptionOverride = point.description;
+    binding.enabled = true;
+    binding.source = source;
+
+    QString kind = QStringLiteral("yc");
+    if (point.category == ModelServiceType::Status) {
+        kind = QStringLiteral("yx");
+    } else if (point.category == ModelServiceType::Control) {
+        const QString dataType = point.dataType.trimmed().toLower();
+        kind = dataType == QStringLiteral("boolean") || dataType == QStringLiteral("dbool")
+            ? QStringLiteral("yk")
+            : QStringLiteral("yt");
+    }
+    const QString lowerDataType = point.dataType.toLower();
+    binding.extensions.insert(QStringLiteral("modbusKind"), kind);
+    binding.extensions.insert(QStringLiteral("modbusFunctionCode"),
+                              kind == QStringLiteral("yx") ? 2 : (kind == QStringLiteral("yc") ? 3 : 6));
+    binding.extensions.insert(QStringLiteral("modbusDataType"),
+                              kind == QStringLiteral("yx")
+                                  ? QStringLiteral("BIT")
+                                  : (lowerDataType.contains(QStringLiteral("float"))
+                                         ? QStringLiteral("FLOAT")
+                                         : QStringLiteral("WORD")));
+    binding.extensions.insert(QStringLiteral("modbusScale"), QStringLiteral("1.0"));
+    return binding;
+}
+
+int completeVirtualDeviceBindings(ProtocolDeviceInstance &device,
+                                  const ConfigProject &project)
+{
+    const QString type = device.transport.protocolOptions.value(QStringLiteral("type"))
+                             .toString().trimmed().toUpper();
+    if (type != QStringLiteral("VIRTUAL")) {
+        return 0;
+    }
+
+    const ModelTemplate *model = findModelById(project, device.modelId);
+    if (!model) {
+        return 0;
+    }
+
+    QSet<QString> existingPointRefs;
+    QSet<QString> existingDataRefs;
+    for (const PointBinding &binding : device.bindings) {
+        if (!binding.pointRef.trimmed().isEmpty()) {
+            existingPointRefs.insert(binding.pointRef.trimmed());
+        }
+        if (!binding.dataRef.trimmed().isEmpty()) {
+            existingDataRefs.insert(binding.dataRef.trimmed());
+        }
+    }
+
+    int addedCount = 0;
+    for (const ServiceTemplate &service : model->services) {
+        for (const PointTemplate &point : service.points) {
+            const QString pointRef = point.pointRef(model->modelId).trimmed();
+            const QString dataRef = point.dataRef().trimmed();
+            if ((!pointRef.isEmpty() && existingPointRefs.contains(pointRef))
+                || (!dataRef.isEmpty() && existingDataRefs.contains(dataRef))) {
+                continue;
+            }
+            PointBinding binding = createVirtualBindingForModelPoint(*model, point, device.source);
+            device.bindings.append(binding);
+            existingPointRefs.insert(binding.pointRef.trimmed());
+            existingDataRefs.insert(binding.dataRef.trimmed());
+            ++addedCount;
+        }
+    }
+    return addedCount;
+}
+
+} // namespace
+
 bool ModbusConfigImporter::importAppDirectory(const QString &appDir,
                                               ConfigProject &project,
                                               ImportReport &report) const
@@ -235,13 +319,22 @@ bool ModbusConfigImporter::importDeviceFile(const QString &filePath,
         device.bindings.append(binding);
     }
 
+    const int completedBindingCount = completeVirtualDeviceBindings(device, project);
+    if (completedBindingCount > 0) {
+        report.addIssue(ImportIssueSeverity::Info,
+                        filePath,
+                        QStringLiteral("Modbus 虚拟设备 %1 已根据模型 %2 补齐 %3 个点位绑定")
+                            .arg(device.deviceId, device.modelId)
+                            .arg(completedBindingCount));
+    }
+
     if (device.deviceId.isEmpty()) {
         report.addIssue(ImportIssueSeverity::Error, filePath, QStringLiteral("DeviceId 不能为空"));
         return false;
     }
 
-    if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
-        report.addIssue(ImportIssueSeverity::Warning, filePath, QStringLiteral("Modbus 设备 type 应为 TCP 或 RTU"));
+    if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU") && type != QStringLiteral("VIRTUAL")) {
+        report.addIssue(ImportIssueSeverity::Warning, filePath, QStringLiteral("Modbus 设备 type 应为 TCP、RTU 或 VIRTUAL"));
     }
 
     if (type == QStringLiteral("TCP") && (device.transport.ip.isEmpty() || device.transport.port.isEmpty())) {

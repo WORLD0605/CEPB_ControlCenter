@@ -561,6 +561,7 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                                      .toString(QStringLiteral("TCP"))
                                      .trimmed()
                                      .toUpper();
+            const bool virtualDevice = type == QStringLiteral("VIRTUAL");
             const QString channelKey = modbusPhysicalChannelKey(device);
             const QSet<QString> duplicateRegisterAddresses =
                 duplicateModbusRegisterAddressesByChannel.value(channelKey);
@@ -573,10 +574,10 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                                 .arg(QStringList(duplicateRegisterAddresses.begin(), duplicateRegisterAddresses.end()).join(QStringLiteral("，")),
                                      modbusPhysicalChannelDisplayName(device)));
             }
-            if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU")) {
+            if (type != QStringLiteral("TCP") && type != QStringLiteral("RTU") && !virtualDevice) {
                 appendIssue(configtool::ImportIssueSeverity::Error,
                             devicePath,
-                            QStringLiteral("Modbus 设备 %1 的 type 必须为 TCP 或 RTU").arg(device.deviceId));
+                            QStringLiteral("Modbus 设备 %1 的 type 必须为 TCP、RTU 或 VIRTUAL").arg(device.deviceId));
             }
             bool portOk = false;
             device.transport.port.trimmed().toInt(&portOk);
@@ -598,7 +599,7 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                 }
             }
             for (const configtool::PointBinding &binding : device.bindings) {
-                if (!binding.enabled) {
+                if (!binding.enabled || virtualDevice) {
                     continue;
                 }
                 if (binding.address.trimmed().isEmpty()) {

@@ -1346,6 +1346,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_modbusTypeCombo = new QComboBox(this);
     m_modbusTypeCombo->addItem(QStringLiteral("TCP"));
     m_modbusTypeCombo->addItem(QStringLiteral("RTU"));
+    m_modbusTypeCombo->addItem(QStringLiteral("VIRTUAL"));
+    m_modbusTypeCombo->setItemData(2,
+                                  QStringLiteral("虚拟设备不需要 IP、端口或串口参数；点位也可以不填写寄存器地址。"),
+                                  Qt::ToolTipRole);
     m_modbusSerialPortCombo = new QComboBox(this);
     for (int i = 1; i <= 8; ++i) {
         m_modbusSerialPortCombo->addItem(QStringLiteral("RS485_%1").arg(i));

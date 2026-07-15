@@ -4113,6 +4113,9 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
     const bool modbusDevice = isModbusDevice(device);
     const bool dlt645Device = isDlt645Device(device);
+    const bool virtualModbusDevice = modbusDevice
+        && device.transport.protocolOptions.value(QStringLiteral("type"))
+               .toString(QStringLiteral("TCP")).trimmed().compare(QStringLiteral("VIRTUAL"), Qt::CaseInsensitive) == 0;
     if (m_deviceBindingFilterTabBar) {
         m_deviceBindingFilterTabBar->setVisible(true);
         m_deviceBindingFilterTabBar->setEnabled(true);
@@ -4215,7 +4218,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         : QSet<QString>();
     int emptyAddressCount = 0;
     for (const configtool::PointBinding &binding : device.bindings) {
-        if (binding.enabled && binding.address.trimmed().isEmpty()) {
+        if (binding.enabled && binding.address.trimmed().isEmpty() && !virtualModbusDevice) {
             ++emptyAddressCount;
         }
     }
@@ -4419,7 +4422,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 dataIndexItem->setForeground(duplicateColor);
                 selfSignalItem->setForeground(duplicateColor);
                 initValueItem->setForeground(duplicateColor);
-            } else if (binding.enabled && !hasRegister) {
+            } else if (binding.enabled && !hasRegister && !virtualModbusDevice) {
                 ++missingRegisterCount;
                 const QColor warningColor(QStringLiteral("#b9770e"));
                 dataRefItem->setForeground(warningColor);
