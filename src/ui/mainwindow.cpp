@@ -1025,8 +1025,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_uploadConfigBtn = new QPushButton(QStringLiteral("上传到设备"), this);
     m_downloadConfigBtn = new QPushButton(QStringLiteral("从设备下载"), this);
+    m_openNetworkConfigBtn = new QPushButton(QStringLiteral("网络配置..."), this);
+    m_openNetworkConfigBtn->setToolTip(QStringLiteral("配置设备网口 IP、静态路由并测试网络连通性"));
     transferRow->addWidget(m_uploadConfigBtn);
     transferRow->addWidget(m_downloadConfigBtn);
+    transferRow->addWidget(m_openNetworkConfigBtn);
     configLayout->addLayout(transferRow);
 
     auto *summaryFrame = new QFrame(this);
@@ -2228,6 +2231,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101CommModeCombo->setCurrentIndex(1);
     onIec101CommModeChanged(1);
 
+    setupNetworkPage();
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("APP管理"));
     m_mainTabWidget->addTab(m_configPage, "配置概览");
@@ -2303,6 +2307,14 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onUploadConfigClicked);
     connect(m_downloadConfigBtn, &QPushButton::clicked,
             this, &MainWindow::onDownloadConfigClicked);
+    connect(m_openNetworkConfigBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_networkConfigPage) {
+            return;
+        }
+        m_networkConfigPage->show();
+        m_networkConfigPage->raise();
+        m_networkConfigPage->activateWindow();
+    });
     connect(m_connectProgramControlBtn, &QPushButton::clicked,
             this, &MainWindow::onConnectProgramControlClicked);
     connect(m_disconnectProgramControlBtn, &QPushButton::clicked,

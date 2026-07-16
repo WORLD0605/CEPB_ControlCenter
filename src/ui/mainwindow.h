@@ -208,6 +208,13 @@ private slots:
     void onIec101PointFilterChanged(int index);
     void onIec101PointFilterTextChanged();
     void onOpenRawFrameLogClicked();
+    void onReadNetworkConfigClicked();
+    void onSaveNetworkConfigClicked();
+    void onLoadNetworkConfigClicked();
+    void onApplyNetworkConfigClicked();
+    void onAddNetworkRouteClicked();
+    void onDeleteNetworkRouteClicked();
+    void onPingNetworkTargetClicked();
 
     void onConnected();
     void onDisconnected();
@@ -434,6 +441,11 @@ private:
     void saveThemeMode(ThemeMode mode) const;
     void applyTheme(ThemeMode mode);
     void onThemeToggleClicked();
+    void setupNetworkPage();
+    bool validateNetworkConfig(QString *errorMessage = nullptr) const;
+    QByteArray serializeNetworkConfig() const;
+    bool loadNetworkConfigData(const QByteArray &data, QString *errorMessage = nullptr);
+    QString localNetworkSupportFile(const QString &relativePath) const;
     QColor serviceChannelDefaultTextColor() const;
     QColor serviceChannelChangedTextColor() const;
 
@@ -493,6 +505,7 @@ private:
     QPushButton *m_checkConfigIssuesBtn = nullptr;
     QPushButton *m_uploadConfigBtn = nullptr;
     QPushButton *m_downloadConfigBtn = nullptr;
+    QPushButton *m_openNetworkConfigBtn = nullptr;
     QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceBtn = nullptr;
@@ -540,6 +553,7 @@ private:
     QWidget *m_logicComputationPointPage = nullptr;
     QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_programControlPage = nullptr;
+    QWidget *m_networkConfigPage = nullptr;
     QWidget *m_iec101ConfigPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
@@ -573,6 +587,17 @@ private:
     QPushButton *m_connectProgramControlBtn = nullptr;
     QPushButton *m_disconnectProgramControlBtn = nullptr;
     QTableWidget *m_programControlTable = nullptr;
+    QTableWidget *m_networkInterfaceTable = nullptr;
+    QTableWidget *m_networkRouteTable = nullptr;
+    QPushButton *m_readNetworkConfigBtn = nullptr;
+    QPushButton *m_saveNetworkConfigBtn = nullptr;
+    QPushButton *m_loadNetworkConfigBtn = nullptr;
+    QPushButton *m_applyNetworkConfigBtn = nullptr;
+    QPushButton *m_addNetworkRouteBtn = nullptr;
+    QPushButton *m_deleteNetworkRouteBtn = nullptr;
+    QLineEdit *m_networkPingTargetEdit = nullptr;
+    QPushButton *m_networkPingBtn = nullptr;
+    QTextEdit *m_networkPingOutput = nullptr;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

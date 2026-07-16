@@ -44,6 +44,7 @@ set(SOURCES
     src/ui/mainwindow_config_logic.cpp
     src/ui/mainwindow_config_iec101.cpp
     src/ui/mainwindow_program.cpp
+    src/ui/mainwindow_network.cpp
     src/ui/program_control_ssh_worker.cpp
     src/ui/point_selector_dialog.cpp
     src/ui/app_icon/app_icon.qrc
