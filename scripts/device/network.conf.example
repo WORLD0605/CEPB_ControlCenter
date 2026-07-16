@@ -1,0 +1,14 @@
+# CEPB persistent network configuration
+# Format uses pipe-separated records and supports eth0 through eth7.
+VERSION|1
+INTERFACE|eth0|192.168.0.10|24
+INTERFACE|eth1|192.168.1.10|24
+INTERFACE|eth2|192.168.2.10|24
+INTERFACE|eth3|192.168.3.10|24
+INTERFACE|eth4|192.168.4.10|24
+INTERFACE|eth5|192.168.5.10|24
+INTERFACE|eth6|192.168.6.10|24
+INTERFACE|eth7|192.168.7.10|24
+
+# ROUTE|destination/prefix|gateway|device|metric
+# ROUTE|10.20.0.0/16|192.168.1.1|eth1|100

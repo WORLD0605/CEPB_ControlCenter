@@ -1,0 +1,44 @@
+#!/bin/sh
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SERVICE_SOURCE=${1:-"$SCRIPT_DIR/../systemd/cepb-network.service"}
+APPLY_SOURCE=${2:-"$SCRIPT_DIR/cepb-network-apply"}
+EXAMPLE_SOURCE=${3:-"$SCRIPT_DIR/network.conf.example"}
+
+[ "$(id -u)" -eq 0 ] || {
+    echo "ERROR: run this installer as root" >&2
+    exit 1
+}
+[ -r "$SERVICE_SOURCE" ] || {
+    echo "ERROR: service file not found: $SERVICE_SOURCE" >&2
+    exit 1
+}
+[ -r "$APPLY_SOURCE" ] || {
+    echo "ERROR: apply helper not found: $APPLY_SOURCE" >&2
+    exit 1
+}
+[ -r "$EXAMPLE_SOURCE" ] || {
+    echo "ERROR: example configuration not found: $EXAMPLE_SOURCE" >&2
+    exit 1
+}
+
+install -d -m 0755 /etc/cepb /usr/local/sbin /etc/systemd/system
+install -m 0755 "$APPLY_SOURCE" /usr/local/sbin/cepb-network-apply
+install -m 0644 "$SERVICE_SOURCE" /etc/systemd/system/cepb-network.service
+
+if [ ! -e /etc/cepb/network.conf ]; then
+    install -m 0644 "$EXAMPLE_SOURCE" /etc/cepb/network.conf
+    echo "created default /etc/cepb/network.conf"
+else
+    echo "kept existing /etc/cepb/network.conf"
+fi
+
+/usr/local/sbin/cepb-network-apply check /etc/cepb/network.conf
+systemctl daemon-reload
+systemctl enable cepb-network.service
+
+echo "installation completed"
+echo "the service was enabled but not started, so the current SSH connection is unchanged"
+echo "review /etc/cepb/network.conf, then apply with: systemctl restart cepb-network.service"

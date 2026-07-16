@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply CEPB persistent network configuration
+Wants=cfg-apply.service
+After=cfg-apply.service
+ConditionPathExists=/etc/cepb/network.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cepb-network-apply apply /etc/cepb/network.conf
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

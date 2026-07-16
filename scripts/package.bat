@@ -13,6 +13,8 @@ set "APP_BIN_SRC=%SOURCE_DIR%\app_binaries"
 set "APP_BIN_RELEASE=%RELEASE_DIR%\app_binaries"
 set "SYSTEMD_SRC=%SOURCE_DIR%\scripts\systemd"
 set "SYSTEMD_RELEASE=%RELEASE_DIR%\systemd"
+set "DEVICE_SRC=%SOURCE_DIR%\scripts\device"
+set "DEVICE_RELEASE=%RELEASE_DIR%\device"
 set "APP_VERSION=unknown"
 
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
@@ -126,6 +128,12 @@ for %%s in ("%SYSTEMD_SRC%\*.service") do (
     copy /Y "%%~fs" "%SYSTEMD_RELEASE%\" >nul
     echo         [OK] %%~nxs
 )
+
+echo       Adding device network tools...
+if not exist "%DEVICE_RELEASE%" mkdir "%DEVICE_RELEASE%"
+copy /Y "%DEVICE_SRC%\cepb-network-apply" "%DEVICE_RELEASE%\" >nul
+copy /Y "%DEVICE_SRC%\install-cepb-network" "%DEVICE_RELEASE%\" >nul
+copy /Y "%DEVICE_SRC%\network.conf.example" "%DEVICE_RELEASE%\" >nul
 
 echo [7/8] Cleaning build files...
 rmdir /s /q "%RELEASE_DIR%\CMakeFiles" 2>nul
