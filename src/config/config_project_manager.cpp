@@ -672,6 +672,7 @@ QJsonObject serializeBinding(const PointBinding &binding,
     object.insert(QStringLiteral("description"), binding.descriptionOverride.isEmpty()
         ? descriptionMap.value(binding.dataRef)
         : binding.descriptionOverride);
+    object.insert(QStringLiteral("retain"), binding.retain);
     if (!binding.selfSignalFlag.isEmpty()) {
         object.insert(QStringLiteral("self_sig_flag"), binding.selfSignalFlag);
     }
@@ -749,6 +750,7 @@ QJsonObject serializeModbusBinding(const PointBinding &binding,
     object.insert(QStringLiteral("description"), binding.descriptionOverride.isEmpty()
         ? descriptionMap.value(binding.dataRef)
         : binding.descriptionOverride);
+    object.insert(QStringLiteral("retain"), binding.retain);
     const QJsonValue scaleValue = binding.extensions.value(QStringLiteral("modbusPointScale"));
     if (!scaleValue.isUndefined() && !scaleValue.isNull()) {
         object.insert(QStringLiteral("scale"), scaleValue);

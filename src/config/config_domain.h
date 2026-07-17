@@ -350,6 +350,7 @@ struct PointBinding {
     QString dataRef;
     QString descriptionOverride;
     bool enabled = true;
+    bool retain = false;
     QString address;
     QString initValue;
     QString selfSignalFlag;

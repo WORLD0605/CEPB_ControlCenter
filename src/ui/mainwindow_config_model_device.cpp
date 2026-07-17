@@ -1834,9 +1834,14 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
     bool refreshEditor = true;
     if (item->column() == 0) {
         binding.enabled = item->checkState() == Qt::Checked;
+    } else if ((modbusDevice && item->column() == ModbusColumnRetain)
+               || (dlt645Device && item->column() == Dlt645ColumnRetain)
+               || (!modbusDevice && !dlt645Device && item->column() == Iec104ColumnRetain)) {
+        binding.retain = item->checkState() == Qt::Checked;
+        refreshEditor = false;
     } else if ((modbusDevice && item->column() == ModbusColumnSelfSignal)
                || (dlt645Device && item->column() == Dlt645ColumnSelfSignal)
-               || (!modbusDevice && !dlt645Device && item->column() == 4)) {
+               || (!modbusDevice && !dlt645Device && item->column() == Iec104ColumnSelfSignal)) {
         binding.selfSignalFlag = item->checkState() == Qt::Checked ? QStringLiteral("1") : QString();
         refreshEditor = false;
     } else {
@@ -4319,7 +4324,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("序号"),
             QStringLiteral("dataIndex"),
             QStringLiteral("虚拟点标志"),
-            QStringLiteral("初始值")
+            QStringLiteral("初始值"),
+            QStringLiteral("持久化")
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
@@ -4337,6 +4343,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(ModbusColumnDataIndex, 90);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnSelfSignal, 80);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnInitValue, 90);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnRetain, 72);
 
         for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
             const int bindingIndex = visibleBindingIndexes.at(row);
@@ -4388,8 +4395,11 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *dataIndexItem = new QTableWidgetItem(binding.address);
             auto *selfSignalItem = new QTableWidgetItem();
             auto *initValueItem = new QTableWidgetItem(binding.initValue);
+            auto *retainItem = new QTableWidgetItem();
             selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
             selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
+            retainItem->setFlags((retainItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+            retainItem->setCheckState(binding.retain ? Qt::Checked : Qt::Unchecked);
 
             dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
             groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
@@ -4554,6 +4564,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, ModbusColumnDataIndex, dataIndexItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnSelfSignal, selfSignalItem);
             m_deviceBindingsTable->setItem(row, ModbusColumnInitValue, initValueItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnRetain, retainItem);
         }
         m_updatingDeviceBindingsTable = false;
 
@@ -4623,7 +4634,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("序号"),
             QStringLiteral("dataIndex"),
             QStringLiteral("虚拟点标志"),
-            QStringLiteral("初始值")
+            QStringLiteral("初始值"),
+            QStringLiteral("持久化")
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnEnabled, 56);
@@ -4640,6 +4652,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnDataIndex, 90);
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnSelfSignal, 80);
         m_deviceBindingsTable->setColumnWidth(Dlt645ColumnInitValue, 90);
+        m_deviceBindingsTable->setColumnWidth(Dlt645ColumnRetain, 72);
 
         for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
             const int bindingIndex = visibleBindingIndexes.at(row);
@@ -4689,8 +4702,11 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *dataIndexItem = new QTableWidgetItem(binding.address);
             auto *selfSignalItem = new QTableWidgetItem();
             auto *initValueItem = new QTableWidgetItem(binding.initValue);
+            auto *retainItem = new QTableWidgetItem();
             selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
             selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
+            retainItem->setFlags((retainItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+            retainItem->setCheckState(binding.retain ? Qt::Checked : Qt::Unchecked);
 
             dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
             dataTypeItem->setFlags(dataTypeItem->flags() & ~Qt::ItemIsEditable);
@@ -4769,6 +4785,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceBindingsTable->setItem(row, Dlt645ColumnDataIndex, dataIndexItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnSelfSignal, selfSignalItem);
             m_deviceBindingsTable->setItem(row, Dlt645ColumnInitValue, initValueItem);
+            m_deviceBindingsTable->setItem(row, Dlt645ColumnRetain, retainItem);
         }
         m_updatingDeviceBindingsTable = false;
 
@@ -4830,7 +4847,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         QStringLiteral("描述"),
         QStringLiteral("地址"),
         QStringLiteral("虚拟点标志"),
-        QStringLiteral("初始值")
+        QStringLiteral("初始值"),
+        QStringLiteral("持久化")
     });
     m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
     for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
@@ -4845,8 +4863,11 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         auto *addressItem = new QTableWidgetItem(binding.address);
         auto *initValueItem = new QTableWidgetItem(binding.initValue);
         auto *selfSignalItem = new QTableWidgetItem();
+        auto *retainItem = new QTableWidgetItem();
         selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
         selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
+        retainItem->setFlags((retainItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+        retainItem->setCheckState(binding.retain ? Qt::Checked : Qt::Unchecked);
         dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
 
         if (binding.enabled && duplicateAddresses.contains(binding.address.trimmed())) {
@@ -4863,12 +4884,13 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             addressItem->setForeground(warningColor);
         }
 
-        m_deviceBindingsTable->setItem(row, 0, enabledItem);
-        m_deviceBindingsTable->setItem(row, 1, dataRefItem);
-        m_deviceBindingsTable->setItem(row, 2, descriptionItem);
-        m_deviceBindingsTable->setItem(row, 3, addressItem);
-        m_deviceBindingsTable->setItem(row, 4, selfSignalItem);
-        m_deviceBindingsTable->setItem(row, 5, initValueItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnEnabled, enabledItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnDataRef, dataRefItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnDescription, descriptionItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnAddress, addressItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnSelfSignal, selfSignalItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnInitValue, initValueItem);
+        m_deviceBindingsTable->setItem(row, Iec104ColumnRetain, retainItem);
     }
     m_updatingDeviceBindingsTable = false;
 

@@ -284,6 +284,7 @@ bool Dlt645ConfigImporter::importDeviceFile(const QString &filePath,
         binding.dataRef = bindingObject.value(QStringLiteral("dataRef")).toString();
         binding.pointRef = device.modelId + QLatin1Char('#') + binding.dataRef;
         binding.descriptionOverride = bindingObject.value(QStringLiteral("description")).toString();
+        binding.retain = bindingObject.value(QStringLiteral("retain")).toBool(false);
         binding.address = jsonValueToString(bindingObject.value(QStringLiteral("dataIndex")));
         binding.initValue = jsonValueToString(bindingObject.value(QStringLiteral("init_value")));
         binding.selfSignalFlag = jsonValueToString(bindingObject.value(QStringLiteral("self_sig_flag")));
