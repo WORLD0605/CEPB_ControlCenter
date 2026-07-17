@@ -821,6 +821,23 @@ inline QStringList configTransferPathList()
     };
 }
 
+inline QList<QStringList> configDownloadPathCandidateGroups()
+{
+    return {
+        {QStringLiteral("South_104/model"), QStringLiteral("cepiec104/model")},
+        {QStringLiteral("South_104/dev"), QStringLiteral("cepiec104/dev")},
+        {QStringLiteral("South_Modbus/model"), QStringLiteral("cepmodbus/model")},
+        {QStringLiteral("South_Modbus/dev"), QStringLiteral("cepmodbus/dev")},
+        {QStringLiteral("South_Modbus/etc"), QStringLiteral("cepmodbus/etc")},
+        {QStringLiteral("South_645/model"), QStringLiteral("cepdlt645/model")},
+        {QStringLiteral("South_645/dev"), QStringLiteral("cepdlt645/dev")},
+        {QStringLiteral("South_645/etc"), QStringLiteral("cepdlt645/etc")},
+        {QStringLiteral("LogicCenter/etc"), QStringLiteral("cepLogicCenter/etc")},
+        {QStringLiteral("North_CEP/etc"), QStringLiteral("ServiceChannel/etc")},
+        {QStringLiteral("North_101/config"), QStringLiteral("IEC101ServiceChannel/config")}
+    };
+}
+
 inline QList<QStringList> parseClipboardTable(const QString &text)
 {
     QList<QStringList> table;

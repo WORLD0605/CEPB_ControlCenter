@@ -724,7 +724,13 @@ bool MainWindow::clearLocalConfigTransferPaths(const QString &projectRoot, QStri
     const QString rootPath = rootInfo.absoluteFilePath();
     const QString rootCanonicalPath = QDir::cleanPath(rootInfo.canonicalFilePath());
     const QDir rootDir(rootPath);
-    for (const QString &relativePath : configTransferPathList()) {
+    QStringList cleanupRelativePaths;
+    for (const QStringList &candidateGroup : configDownloadPathCandidateGroups()) {
+        cleanupRelativePaths.append(candidateGroup);
+    }
+    cleanupRelativePaths.removeDuplicates();
+
+    for (const QString &relativePath : cleanupRelativePaths) {
         if (relativePath.trimmed().isEmpty()
             || QDir::isAbsolutePath(relativePath)
             || relativePath.contains(QStringLiteral(".."))) {
@@ -975,15 +981,21 @@ void MainWindow::onDownloadConfigClicked()
         QStringLiteral("cepb_config_download_%1.tar.gz").arg(QUuid::createUuid().toString(QUuid::Id128)));
     const SshClient::Connection sshConnection{host, port, user, password};
 
-    QStringList quotedPaths;
-    for (const QString &relativePath : configTransferPathList()) {
-        quotedPaths << remoteShellQuote(relativePath);
+    QStringList selectPathCommands;
+    for (const QStringList &candidateGroup : configDownloadPathCandidateGroups()) {
+        QStringList quotedCandidates;
+        for (const QString &relativePath : candidateGroup) {
+            quotedCandidates << remoteShellQuote(relativePath);
+        }
+        selectPathCommands << QStringLiteral(
+            "for p in %1; do if [ -e \"$p\" ]; then find \"$p\" -type f -print; paths=\"$paths $p\"; break; fi; done")
+                                  .arg(quotedCandidates.join(QLatin1Char(' ')));
     }
     const QString packageCommand = QStringLiteral(
-        "set -e; cd %1; paths=\"\"; for p in %2; do [ -e \"$p\" ] && { find \"$p\" -type f -print; paths=\"$paths $p\"; }; done; "
+        "set -e; cd %1; paths=\"\"; %2; "
         "[ -n \"$paths\" ] || { echo 'no config paths found'; exit 2; }; tar -czf %3 $paths")
         .arg(remoteShellQuote(remoteBaseDir),
-             quotedPaths.join(QLatin1Char(' ')),
+             selectPathCommands.join(QStringLiteral("; ")),
              remoteShellQuote(remoteArchivePath));
 
     QProgressDialog progress(QStringLiteral("准备下载配置..."), QStringLiteral("取消"), 0, 5, this);
