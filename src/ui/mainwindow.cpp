@@ -800,9 +800,16 @@ MainWindow::MainWindow(QWidget *parent)
     deviceIpLayout->setContentsMargins(0, 0, 8, 0);
     deviceIpLayout->setSpacing(6);
     deviceIpLayout->addWidget(new QLabel(QStringLiteral("设备IP:"), deviceIpWidget));
-    m_ipEdit = new QLineEdit(QStringLiteral("192.168.7.10"), deviceIpWidget);
+    QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+    const QString savedDeviceIp = settings.value(QStringLiteral("connection/deviceIp"),
+                                                 QStringLiteral("192.168.7.10")).toString();
+    m_ipEdit = new QLineEdit(savedDeviceIp, deviceIpWidget);
     m_ipEdit->setMinimumWidth(180);
     m_ipEdit->setPlaceholderText(QStringLiteral("设备IP"));
+    connect(m_ipEdit, &QLineEdit::textChanged, this, [](const QString &deviceIp) {
+        QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+        settings.setValue(QStringLiteral("connection/deviceIp"), deviceIp);
+    });
     deviceIpLayout->addWidget(m_ipEdit);
     m_mainTabWidget->setCornerWidget(deviceIpWidget, Qt::TopRightCorner);
 
