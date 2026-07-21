@@ -18,7 +18,8 @@ void MainWindow::onRefreshIec101PointsClicked()
     refreshIec101PointsFromDevices();
 }
 
-void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject> &savedPointSettings)
+void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject> &savedPointSettings,
+                                                const QStringList &savedPointOrder)
 {
     if (!m_iec101PointsTable) {
         return;
@@ -32,6 +33,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString deathzone = QStringLiteral("0.2");
     };
     QHash<QString, PointSettings> existingSettings;
+    QStringList existingPointOrder;
     for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
         const QString deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
             ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
@@ -41,6 +43,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             continue;
         }
         const QString key = deviceId + QStringLiteral("|") + dataRef;
+        existingPointOrder.append(key);
         PointSettings s;
         QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
         s.enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
@@ -78,7 +81,8 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString description;
         int category = 0; // ModelServiceType: 0=Measurement, 1=Status, 2=Control
     };
-    QList<DevicePoint> devicePoints;
+    QHash<QString, DevicePoint> devicePointsByKey;
+    QStringList devicePointOrder;
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
         // 预解析设备模型，建立 pointRef → category 映射
         QHash<QString, int> pointCategoryMap;
@@ -103,7 +107,31 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             dp.description = binding.descriptionOverride.isEmpty()
                 ? binding.dataRef : binding.descriptionOverride;
             dp.category = pointCategoryMap.value(binding.pointRef, 0);
-            devicePoints.append(dp);
+            const QString key = dp.deviceId + QStringLiteral("|") + dp.dataRef;
+            if (!devicePointsByKey.contains(key)) {
+                devicePointOrder.append(key);
+            }
+            devicePointsByKey.insert(key, dp);
+        }
+    }
+
+    // 已有表格顺序优先；首次加载时恢复 localhost.json 中 meas_points 的数组顺序。
+    const QStringList preferredOrder = existingPointOrder.isEmpty()
+        ? savedPointOrder
+        : existingPointOrder;
+    QStringList mergedPointOrder;
+    QSet<QString> appendedKeys;
+    for (const QString &key : preferredOrder) {
+        if (devicePointsByKey.contains(key) && !appendedKeys.contains(key)) {
+            mergedPointOrder.append(key);
+            appendedKeys.insert(key);
+        }
+    }
+    // 刷新发现的新点位只追加到末尾，不打乱用户已经调整过的顺序。
+    for (const QString &key : devicePointOrder) {
+        if (!appendedKeys.contains(key)) {
+            mergedPointOrder.append(key);
+            appendedKeys.insert(key);
         }
     }
 
@@ -111,8 +139,8 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
     m_iec101PointsTable->blockSignals(true);
     m_iec101PointsTable->setRowCount(0);
 
-    for (const DevicePoint &dp : devicePoints) {
-        const QString key = dp.deviceId + QStringLiteral("|") + dp.dataRef;
+    for (const QString &key : mergedPointOrder) {
+        const DevicePoint &dp = devicePointsByKey[key];
         const int row = m_iec101PointsTable->rowCount();
         m_iec101PointsTable->insertRow(row);
 
@@ -174,6 +202,97 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(deathzone));
     }
 
+    m_iec101PointsTable->blockSignals(false);
+    applyIec101PointsFilter();
+    highlightIec101DuplicateAddresses();
+}
+
+void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
+{
+    if (!m_iec101PointsTable || sourceRows.size() != m_iec101PointsTable->rowCount()) {
+        return;
+    }
+
+    struct RowSnapshot {
+        QString deviceId;
+        QString dataRef;
+        QString description;
+        int category = 0;
+        bool enabled = true;
+        QString deviceaddr;
+        QString deathzoneType = QStringLiteral("0");
+        QString deathzone = QStringLiteral("0.2");
+    };
+    QList<RowSnapshot> allRows;
+    allRows.reserve(m_iec101PointsTable->rowCount());
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        RowSnapshot rs;
+        rs.deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+        rs.dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
+        rs.description = m_iec101PointsTable->item(row, Iec101PointColumnDescription)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDescription)->text().trimmed() : QString();
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+        rs.category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
+        rs.enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
+        rs.deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed() : QString();
+        if (auto *combo = qobject_cast<QComboBox *>(
+                m_iec101PointsTable->cellWidget(row, Iec101PointColumnDeadzoneType))) {
+            rs.deathzoneType = combo->currentData().toString();
+        }
+        rs.deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed()
+            : QStringLiteral("0.2");
+        allRows.append(rs);
+    }
+
+    m_iec101PointsTable->blockSignals(true);
+    m_iec101PointsTable->setRowCount(0);
+    for (const int sourceRow : sourceRows) {
+        if (sourceRow < 0 || sourceRow >= allRows.size()) {
+            continue;
+        }
+        const RowSnapshot &rs = allRows[sourceRow];
+        const int row = m_iec101PointsTable->rowCount();
+        m_iec101PointsTable->insertRow(row);
+
+        auto *handleItem = new QTableWidgetItem(QStringLiteral("⋮"));
+        handleItem->setTextAlignment(Qt::AlignCenter);
+        handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
+        handleItem->setForeground(QColor(QStringLiteral("#9a9a9a")));
+        handleItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDragHandle, handleItem);
+
+        auto *checkItem = new QTableWidgetItem();
+        checkItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
+        checkItem->setCheckState(rs.enabled ? Qt::Checked : Qt::Unchecked);
+        checkItem->setData(Qt::UserRole, rs.category);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnEnabled, checkItem);
+
+        auto *devIdItem = new QTableWidgetItem(rs.deviceId);
+        devIdItem->setFlags(devIdItem->flags() & ~Qt::ItemIsEditable);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDeviceId, devIdItem);
+
+        auto *dataRefItem = new QTableWidgetItem(rs.dataRef);
+        dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDataRef, dataRefItem);
+
+        auto *descItem = new QTableWidgetItem(rs.description);
+        descItem->setFlags(descItem->flags() & ~Qt::ItemIsEditable);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDescription, descItem);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnAddress, new QTableWidgetItem(rs.deviceaddr));
+
+        auto *dzTypeCombo = new QComboBox();
+        configureTableCellCombo(dzTypeCombo, this);
+        dzTypeCombo->addItem(QStringLiteral("0 — 百分比"), QStringLiteral("0"));
+        dzTypeCombo->addItem(QStringLiteral("1 — 固定值"), QStringLiteral("1"));
+        const int dzTypeIdx = dzTypeCombo->findData(rs.deathzoneType);
+        dzTypeCombo->setCurrentIndex(dzTypeIdx >= 0 ? dzTypeIdx : 0);
+        m_iec101PointsTable->setCellWidget(row, Iec101PointColumnDeadzoneType, dzTypeCombo);
+        m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(rs.deathzone));
+    }
     m_iec101PointsTable->blockSignals(false);
     applyIec101PointsFilter();
     highlightIec101DuplicateAddresses();
@@ -344,6 +463,10 @@ void MainWindow::pushIec101PointsUndoSnapshot()
     QJsonArray rows;
     for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
         QJsonObject rowObj;
+        rowObj[QStringLiteral("deviceId")] = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+        rowObj[QStringLiteral("dataRef")] = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
         QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
         rowObj[QStringLiteral("enabled")] = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
         rowObj[QStringLiteral("deviceaddr")] = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
@@ -377,6 +500,35 @@ void MainWindow::undoIec101PointsLastEdit()
 
     const QJsonObject snapshot = m_iec101PointsUndoStack.takeLast();
     const QJsonArray rows = snapshot.value(QStringLiteral("rows")).toArray();
+
+    // 排序和拖动也使用同一套撤回栈：先按点位身份恢复行序，再恢复各行编辑值。
+    QHash<QString, int> currentRowsByKey;
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        const QString deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
+        const QString dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
+            ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
+        currentRowsByKey.insert(deviceId + QStringLiteral("|") + dataRef, row);
+    }
+    QList<int> sourceRows;
+    sourceRows.reserve(rows.size());
+    bool canRestoreOrder = rows.size() == m_iec101PointsTable->rowCount();
+    for (const QJsonValue &rowValue : rows) {
+        const QJsonObject rowObj = rowValue.toObject();
+        const QString key = rowObj.value(QStringLiteral("deviceId")).toString().trimmed()
+            + QStringLiteral("|")
+            + rowObj.value(QStringLiteral("dataRef")).toString().trimmed();
+        if (!currentRowsByKey.contains(key)) {
+            canRestoreOrder = false;
+            break;
+        }
+        sourceRows.append(currentRowsByKey.value(key));
+    }
+    if (!canRestoreOrder) {
+        statusBar()->showMessage(QStringLiteral("点位集合已变化，无法撤回此前的 IEC101 点表编辑"), 5000);
+        return;
+    }
+    rebuildIec101PointRowsInOrder(sourceRows);
 
     m_iec101PointsTable->blockSignals(true);
     for (int i = 0; i < rows.size() && i < m_iec101PointsTable->rowCount(); ++i) {
@@ -617,6 +769,7 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
 
     // ---- 点表：收集 JSON 中的已保存配置，再从设备刷新 ----
     QHash<QString, QJsonObject> savedSettings;
+    QStringList savedPointOrder;
     const QJsonArray pointsArray = root.value(QStringLiteral("meas_points")).toArray();
     for (const QJsonValue &pointVal : pointsArray) {
         if (!pointVal.isObject()) {
@@ -636,11 +789,12 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
             ? (QStringLiteral("|") + dataRef)
             : (deviceId + QStringLiteral("|") + dataRef);
         savedSettings[key] = pt;
+        savedPointOrder.append(key);
     }
 
     // 清空后从设备重建（JSON 中保存的设置会被合并）
     m_iec101PointsTable->setRowCount(0);
-    refreshIec101PointsFromDevices(savedSettings);
+    refreshIec101PointsFromDevices(savedSettings, savedPointOrder);
 
     // 更新串口参数显隐
     onIec101CommModeChanged(m_iec101CommModeCombo->currentIndex());
@@ -693,6 +847,51 @@ static int iec101ParseAddress(const QString &text, bool *ok = nullptr)
     // 纯数字按十进制解析
     const int val = trimmed.toInt(ok, 10);
     return val;
+}
+
+void MainWindow::onSortIec101PointsClicked()
+{
+    if (!m_iec101PointsTable || m_iec101PointsTable->rowCount() < 2) {
+        return;
+    }
+
+    QList<int> sourceRows;
+    sourceRows.reserve(m_iec101PointsTable->rowCount());
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        sourceRows.append(row);
+    }
+
+    std::stable_sort(sourceRows.begin(), sourceRows.end(), [this](int leftRow, int rightRow) {
+        const QTableWidgetItem *leftItem = m_iec101PointsTable->item(leftRow, Iec101PointColumnAddress);
+        const QTableWidgetItem *rightItem = m_iec101PointsTable->item(rightRow, Iec101PointColumnAddress);
+        bool leftOk = false;
+        bool rightOk = false;
+        const int leftAddress = iec101ParseAddress(leftItem ? leftItem->text() : QString(), &leftOk);
+        const int rightAddress = iec101ParseAddress(rightItem ? rightItem->text() : QString(), &rightOk);
+        if (leftOk != rightOk) {
+            return leftOk; // 有效地址在前，空地址或格式错误的地址在后。
+        }
+        if (!leftOk || leftAddress == rightAddress) {
+            return false; // 稳定保留空地址、错误地址及相同地址的原有相对顺序。
+        }
+        return leftAddress < rightAddress;
+    });
+
+    bool changed = false;
+    for (int row = 0; row < sourceRows.size(); ++row) {
+        if (sourceRows[row] != row) {
+            changed = true;
+            break;
+        }
+    }
+    if (!changed) {
+        statusBar()->showMessage(QStringLiteral("IEC101 点表已按北向101地址升序排列"), 5000);
+        return;
+    }
+
+    pushIec101PointsUndoSnapshot();
+    rebuildIec101PointRowsInOrder(sourceRows);
+    statusBar()->showMessage(QStringLiteral("已按北向101地址升序排列 IEC101 点表"), 5000);
 }
 
 static QString iec101CategoryDisplayName(int category)

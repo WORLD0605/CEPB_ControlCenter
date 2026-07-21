@@ -204,6 +204,7 @@ private slots:
     void onUpgradeProgramClicked();
     void onIec101CommModeChanged(int index);
     void onRefreshIec101PointsClicked();
+    void onSortIec101PointsClicked();
     void onIec101PointItemChanged(QTableWidgetItem *item);
     void onIec101PointFilterChanged(int index);
     void onIec101PointFilterTextChanged();
@@ -312,7 +313,9 @@ private:
     void loadIec101LocalhostConfigFromFile(const QString &filePath);
     void loadIec101LocalhostConfigFromJson(const QJsonObject &root);
     void clearIec101ConfigPage();
-    void refreshIec101PointsFromDevices(const QHash<QString, QJsonObject> &savedPointSettings = {});
+    void refreshIec101PointsFromDevices(const QHash<QString, QJsonObject> &savedPointSettings = {},
+                                        const QStringList &savedPointOrder = {});
+    void rebuildIec101PointRowsInOrder(const QList<int> &sourceRows);
     void applyIec101PointsFilter();
     QSet<QString> checkIec101DuplicateAddresses() const;
     QStringList checkIec101AddressRangeErrors() const;
@@ -706,6 +709,7 @@ private:
     QLineEdit *m_iec101PointDataRefFilterEdit = nullptr;
     QTableWidget *m_iec101PointsTable = nullptr;
     QPushButton *m_refreshIec101PointsBtn = nullptr;
+    QPushButton *m_sortIec101PointsBtn = nullptr;
     QLabel *m_iec101ValidationLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
     QPushButton *m_themeToggleBtn = nullptr;

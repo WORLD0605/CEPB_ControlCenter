@@ -3300,103 +3300,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
 
             pushIec101PointsUndoSnapshot();
-
-            // 收集所有行的数据（从旧表格中提取，之后清空重建）
-            struct RowSnapshot {
-                QString deviceId;
-                QString dataRef;
-                QString description;
-                int category = 0;
-                bool enabled = true;
-                QString deviceaddr;
-                QString deathzoneType = QStringLiteral("0");
-                QString deathzone = QStringLiteral("0.2");
-            };
-            QList<RowSnapshot> allRows;
-            allRows.reserve(m_iec101PointsTable->rowCount());
+            QList<int> sourceRows;
+            sourceRows.reserve(m_iec101PointsTable->rowCount());
             for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
-                RowSnapshot rs;
-                rs.deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
-                    ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
-                rs.dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
-                    ? m_iec101PointsTable->item(row, Iec101PointColumnDataRef)->text().trimmed() : QString();
-                rs.description = m_iec101PointsTable->item(row, Iec101PointColumnDescription)
-                    ? m_iec101PointsTable->item(row, Iec101PointColumnDescription)->text().trimmed() : QString();
-                QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
-                rs.category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
-                rs.enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
-                rs.deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
-                    ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed() : QString();
-                QWidget *w = m_iec101PointsTable->cellWidget(row, Iec101PointColumnDeadzoneType);
-                if (auto *combo = qobject_cast<QComboBox *>(w)) {
-                    rs.deathzoneType = combo->currentData().toString();
-                }
-                rs.deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
-                    ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed() : QStringLiteral("0.2");
-                allRows.append(rs);
+                sourceRows.append(row);
             }
-
-            // 移动数据
-            allRows.move(sourceRow, destinationRow);
-
-            // 完全重建表格（安全：旧 item/widget 被 Qt 正确删除，无残留状态）
-            m_iec101PointsTable->blockSignals(true);
-            m_iec101PointsTable->setRowCount(0);
-
-            for (const RowSnapshot &rs : allRows) {
-                const int row = m_iec101PointsTable->rowCount();
-                m_iec101PointsTable->insertRow(row);
-
-                // Col 0: 拖动手柄
-                auto *handleItem = new QTableWidgetItem(QStringLiteral("⋮"));
-                handleItem->setTextAlignment(Qt::AlignCenter);
-                handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
-                handleItem->setForeground(QColor(QStringLiteral("#9a9a9a")));
-                handleItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled);
-                m_iec101PointsTable->setItem(row, Iec101PointColumnDragHandle, handleItem);
-
-                // Col 1: 启用
-                auto *checkItem = new QTableWidgetItem();
-                checkItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
-                checkItem->setCheckState(rs.enabled ? Qt::Checked : Qt::Unchecked);
-                checkItem->setData(Qt::UserRole, rs.category);
-                m_iec101PointsTable->setItem(row, Iec101PointColumnEnabled, checkItem);
-
-                // Col 2: DeviceId
-                auto *devIdItem = new QTableWidgetItem(rs.deviceId);
-                devIdItem->setFlags(devIdItem->flags() & ~Qt::ItemIsEditable);
-                m_iec101PointsTable->setItem(row, Iec101PointColumnDeviceId, devIdItem);
-
-                // Col 3: DataRef
-                auto *dataRefItem = new QTableWidgetItem(rs.dataRef);
-                dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
-                m_iec101PointsTable->setItem(row, Iec101PointColumnDataRef, dataRefItem);
-
-                // Col 4: Description
-                auto *descItem = new QTableWidgetItem(rs.description);
-                descItem->setFlags(descItem->flags() & ~Qt::ItemIsEditable);
-                m_iec101PointsTable->setItem(row, Iec101PointColumnDescription, descItem);
-
-                // Col 5: 北向101地址
-                m_iec101PointsTable->setItem(row, Iec101PointColumnAddress, new QTableWidgetItem(rs.deviceaddr));
-
-                // Col 6: 死区类型
-                auto *dzTypeCombo = new QComboBox();
-                configureTableCellCombo(dzTypeCombo, this);
-                dzTypeCombo->addItem(QStringLiteral("0 — 百分比"), QStringLiteral("0"));
-                dzTypeCombo->addItem(QStringLiteral("1 — 固定值"), QStringLiteral("1"));
-                const int dzTypeIdx = dzTypeCombo->findData(rs.deathzoneType);
-                dzTypeCombo->setCurrentIndex(dzTypeIdx >= 0 ? dzTypeIdx : 0);
-                m_iec101PointsTable->setCellWidget(row, Iec101PointColumnDeadzoneType, dzTypeCombo);
-
-                // Col 7: 死区值
-                m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(rs.deathzone));
-            }
-
-            m_iec101PointsTable->blockSignals(false);
-            applyIec101PointsFilter();
+            sourceRows.move(sourceRow, destinationRow);
+            rebuildIec101PointRowsInOrder(sourceRows);
             m_iec101PointsTable->selectRow(destinationRow);
-            highlightIec101DuplicateAddresses();
             statusBar()->showMessage(QStringLiteral("已调整 IEC101 点表顺序"), 5000);
 
             dropEvent->setDropAction(Qt::CopyAction);

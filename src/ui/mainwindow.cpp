@@ -2182,6 +2182,8 @@ MainWindow::MainWindow(QWidget *parent)
     iec101PointsTitle->setFont(boldFont);
     iec101PointsHeader->addWidget(iec101PointsTitle);
     iec101PointsHeader->addStretch();
+    m_sortIec101PointsBtn = new QPushButton(QStringLiteral("按101地址排序"), this);
+    iec101PointsHeader->addWidget(m_sortIec101PointsBtn);
     m_refreshIec101PointsBtn = new QPushButton(QStringLiteral("从设备刷新点位"), this);
     iec101PointsHeader->addWidget(m_refreshIec101PointsBtn);
     iec101PointsLayout->addLayout(iec101PointsHeader);
@@ -2261,6 +2263,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onIec101CommModeChanged);
     connect(m_refreshIec101PointsBtn, &QPushButton::clicked,
             this, &MainWindow::onRefreshIec101PointsClicked);
+    connect(m_sortIec101PointsBtn, &QPushButton::clicked,
+            this, &MainWindow::onSortIec101PointsClicked);
     connect(m_iec101PointsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onIec101PointItemChanged);
     connect(m_iec101PointFilterTabBar, &QTabBar::currentChanged,
