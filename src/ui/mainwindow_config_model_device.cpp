@@ -483,7 +483,7 @@ void MainWindow::navigateToConfigIssue(int row)
         return;
     } else if (targetType == QStringLiteral("iec101")) {
         if (m_iec101ConfigPage) {
-            m_mainTabWidget->setCurrentWidget(m_iec101ConfigPage);
+            showNorthConfigPage(m_iec101ConfigPage);
             statusBar()->showMessage(QStringLiteral("已进入 IEC101 配置页面，请检查点表地址。"), 5000);
             return;
         }

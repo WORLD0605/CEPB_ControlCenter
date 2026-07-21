@@ -2277,15 +2277,42 @@ MainWindow::MainWindow(QWidget *parent)
     onIec101CommModeChanged(1);
     setupIec104ConfigPage();
 
+    // ============================================================
+    // 北向配置总页面
+    // ============================================================
+    m_northConfigPage = new QWidget(this);
+    auto *northConfigLayout = new QVBoxLayout(m_northConfigPage);
+    northConfigLayout->setContentsMargins(0, 0, 0, 0);
+    northConfigLayout->setSpacing(0);
+
+    m_northConfigTabWidget = new QTabWidget(m_northConfigPage);
+    m_northConfigTabWidget->setDocumentMode(true);
+    m_northConfigTabWidget->setUsesScrollButtons(false);
+    m_northConfigTabWidget->tabBar()->setExpanding(false);
+    m_northConfigTabWidget->addTab(m_northCepConfigPage, QStringLiteral("CEP"));
+    m_northConfigTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101"));
+    m_northConfigTabWidget->addTab(m_iec104ConfigPage, QStringLiteral("IEC104"));
+    northConfigLayout->addWidget(m_northConfigTabWidget, 1);
+
+    {
+        QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+        const int lastNorthConfigTab = settings.value(QStringLiteral("ui/lastNorthConfigTab"), 0).toInt();
+        if (lastNorthConfigTab >= 0 && lastNorthConfigTab < m_northConfigTabWidget->count()) {
+            m_northConfigTabWidget->setCurrentIndex(lastNorthConfigTab);
+        }
+    }
+    connect(m_northConfigTabWidget, &QTabWidget::currentChanged, this, [](int index) {
+        QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+        settings.setValue(QStringLiteral("ui/lastNorthConfigTab"), index);
+    });
+
     setupNetworkPage();
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("APP管理"));
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
-    m_mainTabWidget->addTab(m_northCepConfigPage, QStringLiteral("CEP配置"));
-    m_mainTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101配置"));
-    m_mainTabWidget->addTab(m_iec104ConfigPage, QStringLiteral("IEC104配置"));
+    m_mainTabWidget->addTab(m_northConfigPage, QStringLiteral("北向配置"));
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
     m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");
@@ -2739,6 +2766,21 @@ MainWindow::~MainWindow()
     closeProgramControlShell();
     qDeleteAll(m_debugSessions);
     m_debugSessions.clear();
+}
+
+void MainWindow::showNorthConfigPage(QWidget *page)
+{
+    if (!m_mainTabWidget || !m_northConfigPage || !m_northConfigTabWidget || !page) {
+        return;
+    }
+
+    const int pageIndex = m_northConfigTabWidget->indexOf(page);
+    if (pageIndex < 0) {
+        return;
+    }
+
+    m_northConfigTabWidget->setCurrentIndex(pageIndex);
+    m_mainTabWidget->setCurrentWidget(m_northConfigPage);
 }
 
 MainWindow::ThemeMode MainWindow::loadThemeMode() const

@@ -237,6 +237,7 @@ private:
     void applyNavigationState(const QPair<int, int> &state);
     void navigateBack();
     void navigateForward();
+    void showNorthConfigPage(QWidget *page);
     AppConfig currentAppConfig() const;
     AppConfig appConfigForSession(const DebugAppSession *session) const;
     DebugAppSession *currentDebugSession() const;
@@ -571,6 +572,7 @@ private:
     QTableWidget *m_modelPointsTable = nullptr;
     QTableWidget *m_deviceBindingsTable = nullptr;
     QTabWidget *m_mainTabWidget = nullptr;
+    QTabWidget *m_northConfigTabWidget = nullptr;
     QTabBar *m_modelPointFilterTabBar = nullptr;
     QTabBar *m_deviceBindingFilterTabBar = nullptr;
     QLineEdit *m_modelPointDataRefFilterEdit = nullptr;
@@ -586,6 +588,7 @@ private:
     QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_programControlPage = nullptr;
     QWidget *m_networkConfigPage = nullptr;
+    QWidget *m_northConfigPage = nullptr;
     QWidget *m_northCepConfigPage = nullptr;
     QWidget *m_iec101ConfigPage = nullptr;
     QWidget *m_iec104ConfigPage = nullptr;

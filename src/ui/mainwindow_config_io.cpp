@@ -389,9 +389,7 @@ void MainWindow::onExportIec104ConfigClicked()
 
     QString northCepError;
     if (!validateNorthCepConfig(&northCepError)) {
-        if (m_mainTabWidget && m_northCepConfigPage) {
-            m_mainTabWidget->setCurrentWidget(m_northCepConfigPage);
-        }
+        showNorthConfigPage(m_northCepConfigPage);
         QMessageBox::warning(this, QStringLiteral("CEP配置"), northCepError);
         statusBar()->showMessage(QStringLiteral("CEP 配置校验失败"), 5000);
         return;
