@@ -1803,6 +1803,9 @@ void MainWindow::refreshLogicControlTargetTable()
         };
         for (int column = 0; column < values.size(); ++column) {
             auto *item = new QTableWidgetItem(values.at(column));
+            if (column == LogicControlTargetColumnType) {
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            }
             if (column == LogicControlTargetColumnPreview) {
                 item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             }
@@ -1819,6 +1822,60 @@ void MainWindow::refreshLogicControlTargetTable()
             }
             m_logicControlTargetTable->setItem(row, column, item);
         }
+
+        auto *typeCombo = new QComboBox(m_logicControlTargetTable);
+        typeCombo->setObjectName(QStringLiteral("logicControlTargetTypeCombo"));
+        configureTableCellCombo(typeCombo, this);
+        typeCombo->addItem(QStringLiteral("ctrlcmd"), QStringLiteral("ctrlcmd"));
+        typeCombo->addItem(QStringLiteral("datawrite"), QStringLiteral("data_write"));
+        typeCombo->setPlaceholderText(QStringLiteral("请选择"));
+        QString typeToolTip = QStringLiteral("ctrlcmd：生成控制命令\ndatawrite：生成内部 DataWrite（配置值 data_write）");
+        if (isLogicControlTotalTarget(target)) {
+            typeToolTip += QStringLiteral("\n该目标会进入 AGC/AVC 总控分配逻辑。");
+        }
+        typeCombo->setToolTip(typeToolTip);
+        typeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+
+        const QString configuredType = targetType;
+        int typeIndex = typeCombo->findData(configuredType);
+        if (typeIndex < 0 && configuredType == QStringLiteral("datawrite")) {
+            typeIndex = typeCombo->findData(QStringLiteral("data_write"));
+        }
+        typeCombo->setCurrentIndex(typeIndex);
+
+        connect(typeCombo,
+                qOverload<int>(&QComboBox::currentIndexChanged),
+                this,
+                [this, typeCombo, ruleIndex, row](int index) {
+                    if (m_updatingLogicControlRulePage || m_restoringConfigUndo || index < 0) {
+                        return;
+                    }
+
+                    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+                    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
+                        || row < 0 || row >= logic.controlRules.at(ruleIndex).targets.size()) {
+                        return;
+                    }
+
+                    const QString selectedType = typeCombo->itemData(index).toString();
+                    configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
+                    if (target.targetType == selectedType) {
+                        return;
+                    }
+
+                    pushConfigUndoSnapshot();
+                    target.targetType = selectedType;
+                    refreshLogicCenterOverview();
+                    refreshLogicControlRulePage();
+                    m_logicControlRuleTable->selectRow(ruleIndex);
+                    if (row < m_logicControlTargetTable->rowCount()) {
+                        m_logicControlTargetTable->selectRow(row);
+                        m_logicControlTargetTable->setCurrentCell(row, LogicControlTargetColumnType);
+                    }
+                });
+
+        hideComboBackedItemText(m_logicControlTargetTable->item(row, LogicControlTargetColumnType));
+        m_logicControlTargetTable->setCellWidget(row, LogicControlTargetColumnType, typeCombo);
     }
     m_updatingLogicControlRulePage = false;
     refreshLogicControlPreview();
@@ -1982,9 +2039,7 @@ void MainWindow::onLogicControlTargetItemChanged(QTableWidgetItem *item)
     pushConfigUndoSnapshot();
     configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
     const QString text = item->text().trimmed();
-    if (column == LogicControlTargetColumnType) {
-        target.targetType = text.isEmpty() ? QStringLiteral("ctrlcmd") : text.toLower();
-    } else if (column == LogicControlTargetColumnDevice) {
+    if (column == LogicControlTargetColumnDevice) {
         target.deviceId = text;
     } else if (column == LogicControlTargetColumnPoint) {
         target.dataRef = text;
