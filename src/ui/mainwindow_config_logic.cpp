@@ -2,6 +2,127 @@
 
 using namespace cepb_config_helpers;
 
+namespace {
+
+constexpr int LogicPointDataRefRole = Qt::UserRole + 20;
+
+class LogicPointDisplayResolver
+{
+public:
+    explicit LogicPointDisplayResolver(const configtool::ConfigProject &project)
+    {
+        QHash<QString, const configtool::ModelTemplate *> models;
+        for (const configtool::ModelTemplate &model : project.models) {
+            models.insert(model.modelId.trimmed(), &model);
+        }
+
+        for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+            const QString deviceId = device.deviceId.trimmed();
+            QHash<QString, QString> &descriptions = m_descriptionsByDevice[deviceId];
+            const configtool::ModelTemplate *model = models.value(device.modelId.trimmed(), nullptr);
+            if (model) {
+                for (const configtool::ServiceTemplate &service : model->services) {
+                    for (const configtool::PointTemplate &point : service.points) {
+                        const QString dataRef = point.dataRef().trimmed();
+                        if (!dataRef.isEmpty()) {
+                            descriptions.insert(dataRef, point.description.trimmed());
+                        }
+                    }
+                }
+            }
+
+            for (const configtool::PointBinding &binding : device.bindings) {
+                const QString dataRef = binding.dataRef.trimmed();
+                if (dataRef.isEmpty()) {
+                    continue;
+                }
+                const QString overrideDescription = binding.descriptionOverride.trimmed();
+                if (!overrideDescription.isEmpty() || !descriptions.contains(dataRef)) {
+                    descriptions.insert(dataRef, overrideDescription);
+                }
+            }
+        }
+
+        for (const configtool::LogicComputationPoint &point : project.logicCenter.computationPoints) {
+            const QString deviceId = point.deviceId.trimmed();
+            const QString dataRef = point.dataRef.trimmed();
+            if (dataRef.isEmpty()) {
+                continue;
+            }
+            QHash<QString, QString> &descriptions = m_descriptionsByDevice[deviceId];
+            if (descriptions.value(dataRef).trimmed().isEmpty()) {
+                descriptions.insert(dataRef, point.description.trimmed());
+            }
+        }
+    }
+
+    QString displayText(const QString &deviceId, const QString &dataRef) const
+    {
+        const QString normalizedDeviceId = deviceId.trimmed();
+        const QString normalizedDataRef = dataRef.trimmed();
+        const auto deviceIt = m_descriptionsByDevice.constFind(normalizedDeviceId);
+        if (deviceIt == m_descriptionsByDevice.constEnd()) {
+            return normalizedDataRef;
+        }
+        const QHash<QString, QString> &descriptions = deviceIt.value();
+        const QString description = descriptions.value(normalizedDataRef).trimmed();
+        if (description.isEmpty()) {
+            return normalizedDataRef;
+        }
+
+        QStringList duplicateRefs;
+        for (auto it = descriptions.constBegin(); it != descriptions.constEnd(); ++it) {
+            if (it.value().trimmed() == description) {
+                duplicateRefs.append(it.key());
+            }
+        }
+        if (duplicateRefs.size() <= 1) {
+            return description;
+        }
+
+        const QString shortRef = normalizedDataRef.section(QLatin1Char('.'), -1);
+        int sameShortRefCount = 0;
+        for (const QString &duplicateRef : duplicateRefs) {
+            if (duplicateRef.section(QLatin1Char('.'), -1) == shortRef) {
+                ++sameShortRefCount;
+            }
+        }
+        return sameShortRefCount <= 1
+            ? QStringLiteral("%1（%2）").arg(description, shortRef)
+            : QStringLiteral("%1（%2）").arg(description, normalizedDataRef);
+    }
+
+private:
+    QHash<QString, QHash<QString, QString>> m_descriptionsByDevice;
+};
+
+QString logicPointToolTip(const QString &deviceId, const QString &dataRef)
+{
+    return QStringLiteral("点位标识：%1#%2").arg(deviceId.trimmed(), dataRef.trimmed());
+}
+
+void updateLogicPointButton(QPushButton *button,
+                            const QString &title,
+                            const configtool::LogicOperand &point,
+                            const LogicPointDisplayResolver &displayResolver)
+{
+    if (!button) {
+        return;
+    }
+    if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
+        button->setText(QStringLiteral("%1\n点击选择").arg(title));
+        button->setToolTip({});
+        return;
+    }
+    button->setText(QStringLiteral("%1\n%2\n%3")
+                        .arg(title,
+                             point.deviceId,
+                             displayResolver.displayText(point.deviceId, point.dataRef)));
+    button->setToolTip(logicPointToolTip(point.deviceId, point.dataRef));
+}
+
+} // namespace
+
 void MainWindow::refreshLogicCenterOverview()
 {
 }
@@ -96,20 +217,37 @@ void MainWindow::refreshLogicComputationPointPage()
     const QList<configtool::LogicComputationPoint> &points =
         m_configProjectManager.project().logicCenter.computationPoints;
     m_logicComputationPointTable->setRowCount(points.size());
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const LogicPointDisplayResolver displayResolver(project);
     for (int row = 0; row < points.size(); ++row) {
         const configtool::LogicComputationPoint &point = points.at(row);
         QStringList operands;
-        for (const configtool::LogicOperand &operand : point.operands) {
-            operands.append(QStringLiteral("%1#%2").arg(operand.deviceId, operand.dataRef));
+        QStringList operandDataRefs;
+        QStringList operandToolTips;
+        for (int index = 0; index < point.operands.size(); ++index) {
+            const configtool::LogicOperand &operand = point.operands.at(index);
+            operands.append(QStringLiteral("{%1} %2")
+                                .arg(index + 1)
+                                .arg(displayResolver.displayText(operand.deviceId, operand.dataRef)));
+            operandDataRefs.append(operand.dataRef);
+            operandToolTips.append(QStringLiteral("{%1} %2")
+                                       .arg(index + 1)
+                                       .arg(logicPointToolTip(operand.deviceId, operand.dataRef)));
         }
 
         auto *handleItem = new QTableWidgetItem(QStringLiteral("\u22EE"));
         auto *deviceItem = new QTableWidgetItem(point.deviceId);
-        auto *dataRefItem = new QTableWidgetItem(point.dataRef);
+        auto *dataRefItem = new QTableWidgetItem(
+            displayResolver.displayText(point.deviceId, point.dataRef));
         auto *formulaItem = new QTableWidgetItem(point.formula);
         auto *dropItem = new QTableWidgetItem();
         auto *operandsItem = new QTableWidgetItem(operands.join(QStringLiteral("; ")));
         auto *descriptionItem = new QTableWidgetItem(point.description);
+
+        dataRefItem->setData(LogicPointDataRefRole, point.dataRef);
+        dataRefItem->setToolTip(logicPointToolTip(point.deviceId, point.dataRef));
+        operandsItem->setData(LogicPointDataRefRole, operandDataRefs);
+        operandsItem->setToolTip(operandToolTips.join(QLatin1Char('\n')));
 
         handleItem->setTextAlignment(Qt::AlignCenter);
         handleItem->setToolTip(QStringLiteral("拖动调整顺序"));
@@ -249,13 +387,7 @@ void MainWindow::generateLogicSinglePointTemplateVisual()
 
     configtool::LogicOperand inputPoint;
     configtool::LogicOperand outputPoint;
-
-    auto pointText = [](const QString &title, const configtool::LogicOperand &point) {
-        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
-            return QStringLiteral("%1\n点击选择").arg(title);
-        }
-        return QStringLiteral("%1\n%2\n%3").arg(title, point.deviceId, point.dataRef);
-    };
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     auto selectMeasurementPoint = [this](const QString &title, configtool::LogicOperand &point) {
         PointSelectorDialog selector(this);
@@ -325,10 +457,10 @@ void MainWindow::generateLogicSinglePointTemplateVisual()
     mainLayout->addLayout(sceneLayout, 1);
 
     auto updateInput = [&]() {
-        inputBtn->setText(pointText(QStringLiteral("输入点"), inputPoint));
+        updateLogicPointButton(inputBtn, QStringLiteral("输入点"), inputPoint, displayResolver);
     };
     auto updateOutput = [&]() {
-        outputBtn->setText(pointText(QStringLiteral("输出点"), outputPoint));
+        updateLogicPointButton(outputBtn, QStringLiteral("输出点"), outputPoint, displayResolver);
     };
     connect(inputBtn, &QPushButton::clicked, &dialog, [&]() {
         if (selectMeasurementPoint(QStringLiteral("选择输入点"), inputPoint)) {
@@ -393,13 +525,7 @@ void MainWindow::generateLogicSourcePointScaleTemplateVisual()
     dialog.resize(620, 300);
 
     configtool::LogicOperand pointRef;
-
-    auto pointText = [](const configtool::LogicOperand &point) {
-        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
-            return QStringLiteral("原点\n点击选择");
-        }
-        return QStringLiteral("原点\n%1\n%2").arg(point.deviceId, point.dataRef);
-    };
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     auto selectMeasurementPoint = [this](configtool::LogicOperand &point) {
         PointSelectorDialog selector(this);
@@ -464,7 +590,7 @@ void MainWindow::generateLogicSourcePointScaleTemplateVisual()
     mainLayout->addLayout(sceneLayout, 1);
 
     auto updatePoint = [&]() {
-        pointBtn->setText(pointText(pointRef));
+        updateLogicPointButton(pointBtn, QStringLiteral("原点"), pointRef, displayResolver);
     };
     connect(pointBtn, &QPushButton::clicked, &dialog, [&]() {
         if (selectMeasurementPoint(pointRef)) {
@@ -538,13 +664,7 @@ void MainWindow::generateLogicMultiPointSumTemplateVisual()
         inputPoints.append(configtool::LogicOperand());
     }
     configtool::LogicOperand outputPoint;
-
-    auto pointText = [](const QString &title, const configtool::LogicOperand &point) {
-        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
-            return QStringLiteral("%1\n点击选择").arg(title);
-        }
-        return QStringLiteral("%1\n%2\n%3").arg(title, point.deviceId, point.dataRef);
-    };
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     auto selectMeasurementPoint = [this](const QString &title, configtool::LogicOperand &point) {
         PointSelectorDialog selector(this);
@@ -615,7 +735,7 @@ void MainWindow::generateLogicMultiPointSumTemplateVisual()
 
     std::function<void()> rebuildInputs;
     auto updateOutput = [&]() {
-        outputBtn->setText(pointText(QStringLiteral("输出点"), outputPoint));
+        updateLogicPointButton(outputBtn, QStringLiteral("输出点"), outputPoint, displayResolver);
     };
 
     rebuildInputs = [&]() {
@@ -640,7 +760,11 @@ void MainWindow::generateLogicMultiPointSumTemplateVisual()
                 plusLabel->setMinimumWidth(28);
                 inputLayout->addWidget(plusLabel, row, columnInRow * 2 - 1);
             }
-            auto *button = new QPushButton(pointText(QStringLiteral("输入点 %1").arg(index + 1), inputPoints.at(index)), &dialog);
+            auto *button = new QPushButton(&dialog);
+            updateLogicPointButton(button,
+                                   QStringLiteral("输入点 %1").arg(index + 1),
+                                   inputPoints.at(index),
+                                   displayResolver);
             button->setMinimumSize(150, 90);
             button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
             inputLayout->addWidget(button, row, columnInRow * 2);
@@ -723,13 +847,7 @@ void MainWindow::generateLogicPowerFactorTemplateVisual()
         qPoints.append(configtool::LogicOperand());
     }
     configtool::LogicOperand outputPoint;
-
-    auto pointText = [](const QString &title, const configtool::LogicOperand &point) {
-        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
-            return QStringLiteral("%1\n点击选择").arg(title);
-        }
-        return QStringLiteral("%1\n%2\n%3").arg(title, point.deviceId, point.dataRef);
-    };
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     auto selectMeasurementPoint = [this](const QString &title, configtool::LogicOperand &point) {
         PointSelectorDialog selector(this);
@@ -829,9 +947,11 @@ void MainWindow::generateLogicPowerFactorTemplateVisual()
                     plusLabel->setMinimumWidth(28);
                     rowLayout->addWidget(plusLabel, row, columnInRow * 2 - 1);
                 }
-                auto *button = new QPushButton(pointText(QStringLiteral("%1%2").arg(pointPrefix).arg(index + 1),
-                                                         pointsRef->at(index)),
-                                               &dialog);
+                auto *button = new QPushButton(&dialog);
+                updateLogicPointButton(button,
+                                       QStringLiteral("%1%2").arg(pointPrefix).arg(index + 1),
+                                       pointsRef->at(index),
+                                       displayResolver);
                 button->setMinimumSize(150, 90);
                 button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
                 rowLayout->addWidget(button, row, columnInRow * 2);
@@ -885,7 +1005,10 @@ void MainWindow::generateLogicPowerFactorTemplateVisual()
     mainLayout->addLayout(selectionLayout, 1);
 
     auto updateOutput = [&]() {
-        outputBtn->setText(pointText(QStringLiteral("功率因数输出点"), outputPoint));
+        updateLogicPointButton(outputBtn,
+                               QStringLiteral("功率因数输出点"),
+                               outputPoint,
+                               displayResolver);
     };
     connect(outputBtn, &QPushButton::clicked, &dialog, [&]() {
         if (selectMeasurementPoint(QStringLiteral("选择功率因数输出点"), outputPoint)) {
@@ -975,13 +1098,7 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
         inputPoints.append(configtool::LogicOperand());
     }
     configtool::LogicOperand outputPoint;
-
-    auto pointText = [](const QString &title, const configtool::LogicOperand &point) {
-        if (point.deviceId.trimmed().isEmpty() || point.dataRef.trimmed().isEmpty()) {
-            return QStringLiteral("%1\n点击选择").arg(title);
-        }
-        return QStringLiteral("%1\n%2\n%3").arg(title, point.deviceId, point.dataRef);
-    };
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     auto selectStatusPoint = [this](const QString &title, configtool::LogicOperand &point) {
         PointSelectorDialog selector(this);
@@ -1052,7 +1169,7 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
 
     std::function<void()> rebuildInputs;
     auto updateOutput = [&]() {
-        outputBtn->setText(pointText(QStringLiteral("输出点"), outputPoint));
+        updateLogicPointButton(outputBtn, QStringLiteral("输出点"), outputPoint, displayResolver);
     };
 
     rebuildInputs = [&]() {
@@ -1077,7 +1194,11 @@ void MainWindow::generateLogicStatusTemplateVisual(configtool::LogicComputationT
                 orLabel->setMinimumWidth(28);
                 inputLayout->addWidget(orLabel, row, columnInRow * 2 - 1);
             }
-            auto *button = new QPushButton(pointText(QStringLiteral("输入点 %1").arg(index + 1), inputPoints.at(index)), &dialog);
+            auto *button = new QPushButton(&dialog);
+            updateLogicPointButton(button,
+                                   QStringLiteral("输入点 %1").arg(index + 1),
+                                   inputPoints.at(index),
+                                   displayResolver);
             button->setMinimumSize(150, 90);
             button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
             inputLayout->addWidget(button, row, columnInRow * 2);
@@ -1197,12 +1318,18 @@ bool MainWindow::editLogicComputationOperands(const QString &title,
     table->setColumnWidth(0, 90);
     table->setColumnWidth(1, 160);
     mainLayout->addWidget(table, 1);
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     auto refreshRow = [&](int row) {
         const configtool::LogicOperand &operand = operands.at(row);
         auto *placeholderItem = new QTableWidgetItem(QStringLiteral("{%1}").arg(row + 1));
         auto *deviceItem = new QTableWidgetItem(operand.deviceId);
-        auto *dataRefItem = new QTableWidgetItem(operand.dataRef);
+        auto *dataRefItem = new QTableWidgetItem(
+            displayResolver.displayText(operand.deviceId, operand.dataRef));
+        dataRefItem->setData(LogicPointDataRefRole, operand.dataRef);
+        if (!operand.deviceId.trimmed().isEmpty() && !operand.dataRef.trimmed().isEmpty()) {
+            dataRefItem->setToolTip(logicPointToolTip(operand.deviceId, operand.dataRef));
+        }
         placeholderItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
         deviceItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
         dataRefItem->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
@@ -1601,6 +1728,7 @@ void MainWindow::refreshLogicControlRulePage()
     const int previousRow = currentLogicControlRuleIndex();
     const QList<configtool::LogicControlRule> &rules =
         m_configProjectManager.project().logicCenter.controlRules;
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     m_updatingLogicControlRulePage = true;
     m_logicControlRuleTable->setRowCount(rules.size());
@@ -1608,13 +1736,18 @@ void MainWindow::refreshLogicControlRulePage()
         const configtool::LogicControlRule &rule = rules.at(row);
         const QStringList values = {
             rule.matchDeviceId,
-            rule.matchDataRef,
+            displayResolver.displayText(rule.matchDeviceId, rule.matchDataRef),
             QString::number(rule.targets.size()),
             rule.description
         };
         for (int column = 0; column < values.size(); ++column) {
             auto *item = new QTableWidgetItem(values.at(column));
             if (column == LogicControlRuleColumnTargetCount) {
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            }
+            if (column == LogicControlRuleColumnPoint) {
+                item->setData(LogicPointDataRefRole, rule.matchDataRef);
+                item->setToolTip(logicPointToolTip(rule.matchDeviceId, rule.matchDataRef));
                 item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             }
             m_logicControlRuleTable->setItem(row, column, item);
@@ -1641,6 +1774,7 @@ void MainWindow::refreshLogicControlTargetTable()
     const int ruleIndex = currentLogicControlRuleIndex();
     const QList<configtool::LogicControlRule> &rules =
         m_configProjectManager.project().logicCenter.controlRules;
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
     m_updatingLogicControlRulePage = true;
     if (ruleIndex < 0 || ruleIndex >= rules.size()) {
@@ -1663,7 +1797,7 @@ void MainWindow::refreshLogicControlTargetTable()
         const QStringList values = {
             targetType,
             target.deviceId,
-            target.dataRef,
+            displayResolver.displayText(target.deviceId, target.dataRef),
             target.expr,
             preview
         };
@@ -1672,8 +1806,16 @@ void MainWindow::refreshLogicControlTargetTable()
             if (column == LogicControlTargetColumnPreview) {
                 item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             }
+            if (column == LogicControlTargetColumnPoint) {
+                item->setData(LogicPointDataRefRole, target.dataRef);
+                item->setToolTip(logicPointToolTip(target.deviceId, target.dataRef));
+                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            }
             if (isLogicControlTotalTarget(target)) {
-                item->setToolTip(QStringLiteral("该目标会进入 AGC/AVC 总控分配逻辑。"));
+                const QString totalTargetTip = QStringLiteral("该目标会进入 AGC/AVC 总控分配逻辑。");
+                item->setToolTip(item->toolTip().isEmpty()
+                    ? totalTargetTip
+                    : item->toolTip() + QLatin1Char('\n') + totalTargetTip);
             }
             m_logicControlTargetTable->setItem(row, column, item);
         }

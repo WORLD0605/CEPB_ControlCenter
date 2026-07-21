@@ -195,6 +195,13 @@ QList<PointSelectorDialog::PointRow> PointSelectorDialog::collectPointRows() con
 
     QSet<QString> seenKeys;
     for (const configtool::ProtocolDeviceInstance &device : m_project->devices) {
+        QHash<QString, QString> descriptionOverrides;
+        for (const configtool::PointBinding &binding : device.bindings) {
+            if (!binding.descriptionOverride.trimmed().isEmpty()) {
+                descriptionOverrides.insert(binding.dataRef.trimmed(),
+                                            binding.descriptionOverride.trimmed());
+            }
+        }
         const configtool::ModelTemplate *model = findModelById(device.modelId);
         if (model) {
             for (const configtool::ServiceTemplate &service : model->services) {
@@ -208,7 +215,7 @@ QList<PointSelectorDialog::PointRow> PointSelectorDialog::collectPointRows() con
                     row.deviceDesc = device.deviceDesc;
                     row.modelId = device.modelId;
                     row.dataRef = dataRef;
-                    row.description = point.description;
+                    row.description = descriptionOverrides.value(dataRef, point.description).trimmed();
                     row.serviceType = service.type;
                     row.hasServiceType = true;
                     rows.append(row);
