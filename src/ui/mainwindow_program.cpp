@@ -163,7 +163,8 @@ QString programStatusScanCommand(const QString &baseDir, const QStringList &appN
             "pid=$(systemctl show \"$service\" -p MainPID --value --no-page 2>/dev/null || true); "
             "restarts=$(systemctl show \"$service\" -p NRestarts --value --no-page 2>/dev/null || true); "
             "enabled=$(systemctl is-enabled \"$service\" 2>/dev/null || true); "
-            "echo \"$app|$service|${active:-unknown}|${sub:-unknown}|${pid:-0}|${restarts:-unknown}|${enabled:-unknown}\"; ")
+            "load=$(systemctl show \"$service\" -p LoadState --value --no-page 2>/dev/null || true); "
+            "echo \"$app|$service|${active:-unknown}|${sub:-unknown}|${pid:-0}|${restarts:-unknown}|${enabled:-unknown}|${load:-unknown}\"; ")
             .arg(remoteProgramShellQuote(service), remoteProgramShellQuote(appName));
     }
     return command;
@@ -740,6 +741,7 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         QString autostart = QStringLiteral("unknown");
         QString pids;
         QString restarts = QStringLiteral("unknown");
+        QString loadState = QStringLiteral("unknown");
     };
 
     QHash<QString, ProgramStatus> statusByApp;
@@ -763,6 +765,9 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         if (parts.size() >= 7) {
             status.restarts = parts.value(5).trimmed();
             status.autostart = parts.value(6).trimmed();
+            if (parts.size() >= 8) {
+                status.loadState = parts.value(7).trimmed();
+            }
         } else {
             status.autostart = parts.value(5).trimmed();
         }
@@ -801,10 +806,13 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
             status.pids = QStringLiteral("0");
             status.restarts = QStringLiteral("unknown");
             status.autostart = QStringLiteral("unknown");
+            status.loadState = QStringLiteral("unknown");
         }
         const bool running = status.state == QStringLiteral("active");
+        const bool installed = status.loadState != QStringLiteral("not-found");
         const bool enabled = status.autostart == QStringLiteral("enabled");
-        const QString statusText = running ? QStringLiteral("● 运行中")
+        const QString statusText = !installed ? QStringLiteral("● 未安装")
+            : running ? QStringLiteral("● 运行中")
             : status.state == QStringLiteral("inactive") ? QStringLiteral("● 未运行")
             : status.state == QStringLiteral("failed") ? QStringLiteral("● 失败")
             : QStringLiteral("● %1").arg(status.state);
@@ -817,7 +825,8 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         QFont statusFont = statusItem->font();
         statusFont.setBold(true);
         statusItem->setFont(statusFont);
-        statusItem->setToolTip(QStringLiteral("ActiveState=%1\nSubState=%2").arg(status.state, status.subState));
+        statusItem->setToolTip(QStringLiteral("LoadState=%1\nActiveState=%2\nSubState=%3")
+                                   .arg(status.loadState, status.state, status.subState));
 
         m_programControlTable->setItem(row, ProgramColumnStatus, statusItem);
         auto *appItem = makeProgramItem(appName);
