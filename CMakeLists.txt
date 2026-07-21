@@ -43,6 +43,7 @@ set(SOURCES
     src/ui/mainwindow_config_model_device.cpp
     src/ui/mainwindow_config_logic.cpp
     src/ui/mainwindow_config_iec101.cpp
+    src/ui/mainwindow_config_iec104.cpp
     src/ui/mainwindow_program.cpp
     src/ui/mainwindow_network.cpp
     src/ui/program_control_ssh_worker.cpp

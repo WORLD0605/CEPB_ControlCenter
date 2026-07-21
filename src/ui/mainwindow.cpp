@@ -1006,7 +1006,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *importRow = new QHBoxLayout();
     importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
-    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_CEP、North_101 的目录");
+    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_CEP、North_101、North_104 的目录");
     {
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         const QString lastDir = settings.value(QStringLiteral("config/lastBrowseDir")).toString().trimmed();
@@ -2275,6 +2275,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 初始化连接参数显隐（默认选中 TCP=index 1）
     m_iec101CommModeCombo->setCurrentIndex(1);
     onIec101CommModeChanged(1);
+    setupIec104ConfigPage();
 
     setupNetworkPage();
     m_mainTabWidget->addTab(debugPage, "调试控制");
@@ -2284,6 +2285,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
     m_mainTabWidget->addTab(m_northCepConfigPage, QStringLiteral("CEP配置"));
     m_mainTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101配置"));
+    m_mainTabWidget->addTab(m_iec104ConfigPage, QStringLiteral("IEC104配置"));
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");
     m_mainTabWidget->addTab(m_logicControlRulePage, "控制转换");
@@ -2628,12 +2630,16 @@ MainWindow::MainWindow(QWidget *parent)
                          [this]() { pasteClipboardIntoDeviceBindingsTable(); });
     connectTableShortcut(QKeySequence(QKeySequence::Paste), m_iec101PointsTable,
                          [this]() { pasteClipboardIntoIec101PointsTable(); });
+    connectTableShortcut(QKeySequence(QKeySequence::Paste), m_iec104PointsTable,
+                         [this]() { pasteClipboardIntoIec104PointsTable(); });
     connectTableShortcut(QKeySequence(QKeySequence::Copy), m_modelPointsTable,
                          [this]() { copySelectedTableCells(m_modelPointsTable); });
     connectTableShortcut(QKeySequence(QKeySequence::Copy), m_deviceBindingsTable,
                          [this]() { copySelectedTableCells(m_deviceBindingsTable); });
     connectTableShortcut(QKeySequence(QKeySequence::Copy), m_iec101PointsTable,
                          [this]() { copySelectedTableCells(m_iec101PointsTable); });
+    connectTableShortcut(QKeySequence(QKeySequence::Copy), m_iec104PointsTable,
+                         [this]() { copySelectedTableCells(m_iec104PointsTable); });
     connectTableShortcut(QKeySequence(QKeySequence::Copy), m_logicAgcAvcDeviceTable,
                          [this]() { copySelectedTableCells(m_logicAgcAvcDeviceTable); });
     connectTableShortcut(QKeySequence(QKeySequence::Copy), m_logicComputationPointTable,
@@ -2648,9 +2654,12 @@ MainWindow::MainWindow(QWidget *parent)
                          [this]() { undoLastConfigEdit(); });
     connectTableShortcut(QKeySequence(QKeySequence::Undo), m_iec101PointsTable,
                          [this]() { undoIec101PointsLastEdit(); });
+    connectTableShortcut(QKeySequence(QKeySequence::Undo), m_iec104PointsTable,
+                         [this]() { undoIec104PointsLastEdit(); });
     connectTableClearShortcut(m_modelPointsTable, [this]() { clearSelectedModelPointCells(); });
     connectTableClearShortcut(m_deviceBindingsTable, [this]() { clearSelectedDeviceBindingCells(); });
     connectTableClearShortcut(m_iec101PointsTable, [this]() { clearSelectedIec101PointCells(); });
+    connectTableClearShortcut(m_iec104PointsTable, [this]() { clearSelectedIec104PointCells(); });
     connectTableClearShortcut(m_logicAgcAvcDeviceTable,
                               [this]() { clearSelectedEditableTableCells(m_logicAgcAvcDeviceTable); });
     connectTableClearShortcut(m_logicComputationPointTable,

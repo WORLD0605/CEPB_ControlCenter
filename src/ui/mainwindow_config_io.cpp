@@ -289,8 +289,11 @@ void MainWindow::onImportIec104ConfigClicked()
     const QString dlt645AppDir = resolveDlt645AppDir(projectRoot);
     const QString logicCenterAppDir = resolveLogicCenterAppDir(projectRoot);
     const QString northCepAppDir = resolveNorthCepAppDir(projectRoot);
+    const QString iec101AppDir = resolveIec101ServiceChannelAppDir(projectRoot);
+    const QString iec104NorthAppDir = resolveIec104ServiceChannelAppDir(projectRoot);
     if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty()
-        && logicCenterAppDir.isEmpty() && northCepAppDir.isEmpty()) {
+        && logicCenterAppDir.isEmpty() && northCepAppDir.isEmpty()
+        && iec101AppDir.isEmpty() && iec104NorthAppDir.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到可导入的 APP 配置目录"));
         return;
     }
@@ -338,7 +341,6 @@ void MainWindow::onImportIec104ConfigClicked()
         clearNorthCepConfigPage();
     }
     // ---- IEC101 配置（可选） ----
-    const QString iec101AppDir = resolveIec101ServiceChannelAppDir(projectRoot);
     if (!iec101AppDir.isEmpty()) {
         const QString iec101ConfigPath = QDir(iec101AppDir)
             .filePath(QStringLiteral("config/localhost.json"));
@@ -350,6 +352,19 @@ void MainWindow::onImportIec104ConfigClicked()
         }
     } else {
         clearIec101ConfigPage();
+    }
+    // ---- 北向 IEC104 配置（可选） ----
+    if (!iec104NorthAppDir.isEmpty()) {
+        const QString iec104ConfigPath = QDir(iec104NorthAppDir)
+            .filePath(QStringLiteral("config/localhost.json"));
+        if (QFileInfo::exists(iec104ConfigPath)) {
+            loadIec104LocalhostConfigFromFile(iec104ConfigPath);
+        } else {
+            clearIec104ConfigPage();
+            refreshIec104PointsFromDevices();
+        }
+    } else {
+        clearIec104ConfigPage();
     }
 
     refreshConfigImportSummary(report);
@@ -426,6 +441,27 @@ void MainWindow::onExportIec104ConfigClicked()
             ok = false;
         } else {
             file.write(QJsonDocument(iec101Config).toJson(QJsonDocument::Indented));
+            file.close();
+        }
+    }
+
+    // ---- 北向 IEC104 配置导出 ----
+    const QString iec104NorthConfigDir = QDir(projectRoot).filePath(QStringLiteral("North_104/config"));
+    const QString iec104NorthConfigPath = QDir(iec104NorthConfigDir).filePath(QStringLiteral("localhost.json"));
+    if (!QDir().mkpath(iec104NorthConfigDir)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        iec104NorthConfigPath,
+                        QStringLiteral("无法创建北向 IEC104 配置目录: %1").arg(iec104NorthConfigDir));
+        ok = false;
+    } else {
+        QFile file(iec104NorthConfigPath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            report.addIssue(configtool::ImportIssueSeverity::Error,
+                            iec104NorthConfigPath,
+                            QStringLiteral("无法写入北向 IEC104 配置文件: %1").arg(file.errorString()));
+            ok = false;
+        } else {
+            file.write(QJsonDocument(serializeIec104LocalhostConfig()).toJson(QJsonDocument::Indented));
             file.close();
         }
     }
@@ -783,6 +819,26 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         }
     }
 
+    // 北向 IEC104 点表地址检查（重复 + 范围）
+    if (m_iec104PointsTable && m_iec104PointsTable->rowCount() > 0) {
+        const QString appDir = resolveIec104ServiceChannelAppDir(projectPath);
+        const QString filePath = appDir.isEmpty()
+            ? projectPath
+            : QDir(appDir).filePath(QStringLiteral("config/localhost.json"));
+        const QSet<QString> duplicates = checkIec104DuplicateAddresses();
+        if (!duplicates.isEmpty()) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("北向 IEC104 点表中存在重复地址：%1")
+                            .arg(QStringList(duplicates.begin(), duplicates.end()).join(QStringLiteral("，"))));
+        }
+        for (const QString &err : checkIec104AddressRangeErrors()) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("北向 IEC104 %1").arg(err));
+        }
+    }
+
     const QList<configtool::ConfigIssue> logicIssues =
         configtool::validateLogicCenterConfig(project.logicCenter, &project);
     for (const configtool::ConfigIssue &issue : logicIssues) {
@@ -861,6 +917,7 @@ bool MainWindow::clearLocalConfigTransferPaths(const QString &projectRoot, QStri
     for (const QStringList &candidateGroup : configDownloadPathCandidateGroups()) {
         cleanupRelativePaths.append(candidateGroup);
     }
+
     cleanupRelativePaths.removeDuplicates();
 
     for (const QString &relativePath : cleanupRelativePaths) {
@@ -1287,6 +1344,14 @@ QString MainWindow::resolveIec101ServiceChannelAppDir(const QString &projectRoot
     return resolveAppDirByNames(projectRoot, {
         QStringLiteral("North_101"),
         QStringLiteral("IEC101ServiceChannel")
+    });
+}
+
+QString MainWindow::resolveIec104ServiceChannelAppDir(const QString &projectRoot) const
+{
+    return resolveAppDirByNames(projectRoot, {
+        QStringLiteral("North_104"),
+        QStringLiteral("IEC104ServiceChannel")
     });
 }
 
