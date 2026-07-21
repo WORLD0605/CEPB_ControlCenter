@@ -1006,7 +1006,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *importRow = new QHBoxLayout();
     importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
-    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_101 的目录");
+    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_CEP、North_101 的目录");
     {
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         const QString lastDir = settings.value(QStringLiteral("config/lastBrowseDir")).toString().trimmed();
@@ -1972,6 +1972,40 @@ MainWindow::MainWindow(QWidget *parent)
     programControlLayout->addWidget(m_programControlTable, 1);
 
     // ============================================================
+    // North_CEP 配置页面
+    // ============================================================
+    m_northCepConfigPage = new QWidget(this);
+    auto *northCepLayout = new QVBoxLayout(m_northCepConfigPage);
+    northCepLayout->setContentsMargins(0, 0, 0, 0);
+    northCepLayout->setSpacing(8);
+
+    auto *northCepFrame = new QFrame(this);
+    northCepFrame->setFrameShape(QFrame::StyledPanel);
+    auto *northCepForm = new QFormLayout(northCepFrame);
+    northCepForm->setContentsMargins(12, 10, 12, 10);
+    northCepForm->setHorizontalSpacing(24);
+    northCepForm->setVerticalSpacing(10);
+
+    m_northCepManagementPortEdit = new QLineEdit(QStringLiteral("9901"), this);
+    m_northCepManagementPortEdit->setValidator(new QIntValidator(1, 65535, m_northCepManagementPortEdit));
+    m_northCepManagementPortEdit->setMaximumWidth(240);
+    northCepForm->addRow(QStringLiteral("管理通道端口:"), m_northCepManagementPortEdit);
+
+    m_northCepDataPortEdit = new QLineEdit(QStringLiteral("9902"), this);
+    m_northCepDataPortEdit->setValidator(new QIntValidator(1, 65535, m_northCepDataPortEdit));
+    m_northCepDataPortEdit->setMaximumWidth(240);
+    northCepForm->addRow(QStringLiteral("数据通道端口:"), m_northCepDataPortEdit);
+
+    auto *northCepHintLabel = new QLabel(
+        QStringLiteral("监听地址及允许接入地址使用系统默认值。上传修改后需重启 North_CEP 生效。"),
+        this);
+    northCepHintLabel->setWordWrap(true);
+    northCepForm->addRow(QString(), northCepHintLabel);
+
+    northCepLayout->addWidget(northCepFrame);
+    northCepLayout->addStretch();
+
+    // ============================================================
     // IEC101 配置页面
     // ============================================================
     m_iec101ConfigPage = new QWidget(this);
@@ -2244,6 +2278,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainTabWidget->addTab(m_configPage, "配置概览");
     m_mainTabWidget->addTab(m_modelEditorPage, "模型编辑器");
     m_mainTabWidget->addTab(m_deviceEditorPage, "设备编辑器");
+    m_mainTabWidget->addTab(m_northCepConfigPage, QStringLiteral("CEP配置"));
     m_mainTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101配置"));
     m_mainTabWidget->addTab(m_logicAgcAvcPage, "AGC/AVC");
     m_mainTabWidget->addTab(m_logicComputationPointPage, "计算点");

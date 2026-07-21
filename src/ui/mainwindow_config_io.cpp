@@ -90,7 +90,10 @@ bool migrateLegacyConfigAppDirs(const QString &projectRoot, configtool::ExportRe
     return ok;
 }
 
-bool writeDefaultNorthCepMainstationConfig(const QString &projectRoot, configtool::ExportReport &report)
+bool writeNorthCepMainstationConfig(const QString &projectRoot,
+                                    const QString &managementPort,
+                                    const QString &dataPort,
+                                    configtool::ExportReport &report)
 {
     const QString etcDirPath = QDir(projectRoot).filePath(QStringLiteral("North_CEP/etc"));
     const QString filePath = QDir(etcDirPath).filePath(QStringLiteral("mainstation.json"));
@@ -107,8 +110,8 @@ bool writeDefaultNorthCepMainstationConfig(const QString &projectRoot, configtoo
     station.insert(QStringLiteral("ms2_ip"), QStringLiteral("0.0.0.0"));
     station.insert(QStringLiteral("ms3_ip"), QStringLiteral("0.0.0.0"));
     station.insert(QStringLiteral("ms4_ip"), QStringLiteral("0.0.0.0"));
-    station.insert(QStringLiteral("port1"), QStringLiteral("9901"));
-    station.insert(QStringLiteral("port2"), QStringLiteral("9902"));
+    station.insert(QStringLiteral("port1"), managementPort);
+    station.insert(QStringLiteral("port2"), dataPort);
 
     QJsonObject root;
     root.insert(QStringLiteral("mainstation"), QJsonArray{station});
@@ -137,6 +140,102 @@ QStringList configAppFolderNames()
 }
 
 } // namespace
+
+void MainWindow::clearNorthCepConfigPage()
+{
+    if (m_northCepManagementPortEdit) {
+        m_northCepManagementPortEdit->setText(QStringLiteral("9901"));
+    }
+    if (m_northCepDataPortEdit) {
+        m_northCepDataPortEdit->setText(QStringLiteral("9902"));
+    }
+}
+
+void MainWindow::loadNorthCepMainstationConfig(const QString &filePath, configtool::ImportReport &report)
+{
+    clearNorthCepConfigPage();
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("无法读取 North_CEP 主站配置，已使用默认端口: %1").arg(file.errorString()));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    const QJsonArray stations = document.isObject()
+        ? document.object().value(QStringLiteral("mainstation")).toArray()
+        : QJsonArray();
+    if (parseError.error != QJsonParseError::NoError || stations.isEmpty() || !stations.first().isObject()) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_CEP mainstation.json 格式无效，已使用默认端口"));
+        return;
+    }
+
+    const QJsonObject station = stations.first().toObject();
+    const auto portText = [&station](const QString &key) {
+        const QJsonValue value = station.value(key);
+        return value.isDouble() ? QString::number(value.toInt()) : value.toString().trimmed();
+    };
+    const auto isValidPort = [](const QString &text) {
+        bool ok = false;
+        const int port = text.toInt(&ok);
+        return ok && port >= 1 && port <= 65535;
+    };
+
+    const QString managementPort = portText(QStringLiteral("port1"));
+    const QString dataPort = portText(QStringLiteral("port2"));
+    if (isValidPort(managementPort)) {
+        m_northCepManagementPortEdit->setText(managementPort);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_CEP 管理通道端口无效，已使用默认值 9901"));
+    }
+    if (isValidPort(dataPort)) {
+        m_northCepDataPortEdit->setText(dataPort);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_CEP 数据通道端口无效，已使用默认值 9902"));
+    }
+}
+
+bool MainWindow::validateNorthCepConfig(QString *errorMessage) const
+{
+    const QString managementPortText = m_northCepManagementPortEdit
+        ? m_northCepManagementPortEdit->text().trimmed()
+        : QString();
+    const QString dataPortText = m_northCepDataPortEdit
+        ? m_northCepDataPortEdit->text().trimmed()
+        : QString();
+    bool managementOk = false;
+    bool dataOk = false;
+    const int managementPort = managementPortText.toInt(&managementOk);
+    const int dataPort = dataPortText.toInt(&dataOk);
+    if (!managementOk || managementPort < 1 || managementPort > 65535) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("管理通道端口必须是 1～65535 之间的整数。");
+        }
+        return false;
+    }
+    if (!dataOk || dataPort < 1 || dataPort > 65535) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("数据通道端口必须是 1～65535 之间的整数。");
+        }
+        return false;
+    }
+    if (managementPort == dataPort) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("管理通道端口和数据通道端口不能相同。");
+        }
+        return false;
+    }
+    return true;
+}
 
 void MainWindow::onBrowseConfigImportDirClicked()
 {
@@ -189,8 +288,10 @@ void MainWindow::onImportIec104ConfigClicked()
     const QString modbusAppDir = resolveModbusAppDir(projectRoot);
     const QString dlt645AppDir = resolveDlt645AppDir(projectRoot);
     const QString logicCenterAppDir = resolveLogicCenterAppDir(projectRoot);
-    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty() && logicCenterAppDir.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到 South_104、South_Modbus、South_645 或 LogicCenter 子目录"));
+    const QString northCepAppDir = resolveNorthCepAppDir(projectRoot);
+    if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty()
+        && logicCenterAppDir.isEmpty() && northCepAppDir.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到可导入的 APP 配置目录"));
         return;
     }
 
@@ -223,6 +324,18 @@ void MainWindow::onImportIec104ConfigClicked()
                             logicConfigPath,
                             QStringLiteral("未找到 LogicCenter_Config.json，已跳过 LogicCenter 配置导入"));
         }
+    }
+    // ---- North_CEP 配置（可选） ----
+    if (!northCepAppDir.isEmpty()) {
+        const QString mainstationPath = QDir(northCepAppDir)
+            .filePath(QStringLiteral("etc/mainstation.json"));
+        if (QFileInfo::exists(mainstationPath)) {
+            loadNorthCepMainstationConfig(mainstationPath, report);
+        } else {
+            clearNorthCepConfigPage();
+        }
+    } else {
+        clearNorthCepConfigPage();
     }
     // ---- IEC101 配置（可选） ----
     const QString iec101AppDir = resolveIec101ServiceChannelAppDir(projectRoot);
@@ -259,6 +372,16 @@ void MainWindow::onExportIec104ConfigClicked()
         return;
     }
 
+    QString northCepError;
+    if (!validateNorthCepConfig(&northCepError)) {
+        if (m_mainTabWidget && m_northCepConfigPage) {
+            m_mainTabWidget->setCurrentWidget(m_northCepConfigPage);
+        }
+        QMessageBox::warning(this, QStringLiteral("CEP配置"), northCepError);
+        statusBar()->showMessage(QStringLiteral("CEP 配置校验失败"), 5000);
+        return;
+    }
+
     configtool::ExportReport report;
     bool ok = migrateLegacyConfigAppDirs(projectRoot, report);
 
@@ -279,7 +402,10 @@ void MainWindow::onExportIec104ConfigClicked()
     ok = m_configProjectManager.exportLogicCenterConfigFile(
         QDir(logicCenterAppDir).filePath(QStringLiteral("etc/LogicCenter_Config.json")),
         report) && ok;
-    ok = writeDefaultNorthCepMainstationConfig(projectRoot, report) && ok;
+    ok = writeNorthCepMainstationConfig(projectRoot,
+                                        m_northCepManagementPortEdit->text().trimmed(),
+                                        m_northCepDataPortEdit->text().trimmed(),
+                                        report) && ok;
 
     // ---- IEC101 配置导出 ----
     const QString iec101ExportDir = QDir(projectRoot).filePath(QStringLiteral("North_101"));
@@ -475,6 +601,13 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         appendIssue(configtool::ImportIssueSeverity::Error,
                     projectPath,
                     QStringLiteral("当前没有可检查的配置工程"));
+    }
+
+    QString northCepError;
+    if (!validateNorthCepConfig(&northCepError)) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    QDir(projectPath).filePath(QStringLiteral("North_CEP/etc/mainstation.json")),
+                    QStringLiteral("North_CEP 配置：%1").arg(northCepError));
     }
 
     QSet<QString> seenModelIds;
@@ -1107,6 +1240,14 @@ static QString resolveAppDirByNames(const QString &projectRoot, const QStringLis
     }
 
     return QString();
+}
+
+QString MainWindow::resolveNorthCepAppDir(const QString &projectRoot) const
+{
+    return resolveAppDirByNames(projectRoot, {
+        QStringLiteral("North_CEP"),
+        QStringLiteral("ServiceChannel")
+    });
 }
 
 QString MainWindow::resolveIec104AppDir(const QString &projectRoot) const

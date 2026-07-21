@@ -301,11 +301,15 @@ private:
     void undoLastConfigEdit();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
+    QString resolveNorthCepAppDir(const QString &projectRoot) const;
     QString resolveIec104AppDir(const QString &projectRoot) const;
     QString resolveModbusAppDir(const QString &projectRoot) const;
     QString resolveDlt645AppDir(const QString &projectRoot) const;
     QString resolveLogicCenterAppDir(const QString &projectRoot) const;
     QString resolveIec101ServiceChannelAppDir(const QString &projectRoot) const;
+    void clearNorthCepConfigPage();
+    void loadNorthCepMainstationConfig(const QString &filePath, configtool::ImportReport &report);
+    bool validateNorthCepConfig(QString *errorMessage = nullptr) const;
     QJsonObject serializeIec101LocalhostConfig() const;
     void loadIec101LocalhostConfigFromFile(const QString &filePath);
     void loadIec101LocalhostConfigFromJson(const QJsonObject &root);
@@ -554,6 +558,7 @@ private:
     QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_programControlPage = nullptr;
     QWidget *m_networkConfigPage = nullptr;
+    QWidget *m_northCepConfigPage = nullptr;
     QWidget *m_iec101ConfigPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
     QWidget *m_deviceEditorPage = nullptr;
@@ -673,6 +678,9 @@ private:
     QLineEdit *m_dlt645UserIdEdit = nullptr;
     QLineEdit *m_dlt645PasswordEdit = nullptr;
     QGroupBox *m_dlt645ParamsGroupBox = nullptr;
+    // North_CEP 配置页面控件
+    QLineEdit *m_northCepManagementPortEdit = nullptr;
+    QLineEdit *m_northCepDataPortEdit = nullptr;
     // IEC101 配置页面控件
     QComboBox *m_iec101CommModeCombo = nullptr;
     QLineEdit *m_iec101ComAddrEdit = nullptr;
