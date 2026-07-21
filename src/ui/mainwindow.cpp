@@ -2353,6 +2353,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!m_networkConfigPage) {
             return;
         }
+        loadNetworkProjectIfAvailable();
         m_networkConfigPage->show();
         m_networkConfigPage->raise();
         m_networkConfigPage->activateWindow();

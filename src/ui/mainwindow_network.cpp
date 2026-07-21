@@ -17,6 +17,7 @@
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTemporaryFile>
@@ -54,13 +55,9 @@ void MainWindow::setupNetworkPage()
 
     auto *toolbar = new QHBoxLayout();
     toolbar->addWidget(new QLabel(QStringLiteral("SSH: root@设备IP:10022"), m_networkConfigPage));
-    m_readNetworkConfigBtn = new QPushButton(QStringLiteral("读取设备状态"), m_networkConfigPage);
-    m_loadNetworkConfigBtn = new QPushButton(QStringLiteral("从项目加载"), m_networkConfigPage);
-    m_saveNetworkConfigBtn = new QPushButton(QStringLiteral("保存到项目"), m_networkConfigPage);
-    m_applyNetworkConfigBtn = new QPushButton(QStringLiteral("校验并应用到设备"), m_networkConfigPage);
+    m_readNetworkConfigBtn = new QPushButton(QStringLiteral("读取网络配置"), m_networkConfigPage);
+    m_applyNetworkConfigBtn = new QPushButton(QStringLiteral("应用网络配置"), m_networkConfigPage);
     toolbar->addWidget(m_readNetworkConfigBtn);
-    toolbar->addWidget(m_loadNetworkConfigBtn);
-    toolbar->addWidget(m_saveNetworkConfigBtn);
     toolbar->addWidget(m_applyNetworkConfigBtn);
     toolbar->addStretch();
     layout->addLayout(toolbar);
@@ -132,8 +129,6 @@ void MainWindow::setupNetworkPage()
     layout->addWidget(m_networkRouteTable, 1);
 
     connect(m_readNetworkConfigBtn, &QPushButton::clicked, this, &MainWindow::onReadNetworkConfigClicked);
-    connect(m_loadNetworkConfigBtn, &QPushButton::clicked, this, &MainWindow::onLoadNetworkConfigClicked);
-    connect(m_saveNetworkConfigBtn, &QPushButton::clicked, this, &MainWindow::onSaveNetworkConfigClicked);
     connect(m_applyNetworkConfigBtn, &QPushButton::clicked, this, &MainWindow::onApplyNetworkConfigClicked);
     connect(m_addNetworkRouteBtn, &QPushButton::clicked, this, &MainWindow::onAddNetworkRouteClicked);
     connect(m_deleteNetworkRouteBtn, &QPushButton::clicked, this, &MainWindow::onDeleteNetworkRouteClicked);
@@ -314,13 +309,21 @@ void MainWindow::onReadNetworkConfigClicked()
         "for d in eth0 eth1 eth2 eth3 eth4 eth5 eth6 eth7; do [ -e /sys/class/net/$d ] || continue; "
         "s=$(cat /sys/class/net/$d/operstate 2>/dev/null); m=$(cat /sys/class/net/$d/address 2>/dev/null); "
         "a=$(ip -o -4 addr show dev $d scope global 2>/dev/null | awk 'NR==1 {print $4}'); "
-        "printf 'IF|%s|%s|%s|%s\\n' \"$d\" \"$s\" \"$m\" \"$a\"; done");
+        "printf 'IF|%s|%s|%s|%s\\n' \"$d\" \"$s\" \"$m\" \"$a\"; done; "
+        "if [ -r /etc/cepb/network.conf ]; then while IFS= read -r line || [ -n \"$line\" ]; do "
+        "printf 'CF|%s\\n' \"$line\"; done < /etc/cepb/network.conf; fi");
     const auto result = SshClient::execCommand(connection, command, 30000);
     if (!result.ok) {
         QMessageBox::warning(this, QStringLiteral("读取网络配置"), result.error);
         return;
     }
+    QByteArray persistentConfig;
     for (const QString &line : result.output.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+        if (line.startsWith(QStringLiteral("CF|"))) {
+            persistentConfig += line.mid(3).toUtf8();
+            persistentConfig += '\n';
+            continue;
+        }
         const QStringList fields = line.split(QLatin1Char('|'));
         if (fields.size() < 5 || fields.value(0) != QStringLiteral("IF")) continue;
         bool rowOk = false;
@@ -336,48 +339,59 @@ void MainWindow::onReadNetworkConfigClicked()
             m_networkInterfaceTable->item(row, IfPrefix)->setText(cidr.mid(slash + 1));
         }
     }
-    statusBar()->showMessage(QStringLiteral("设备网络状态读取完成"), 5000);
+    if (!persistentConfig.isEmpty()) {
+        QString configError;
+        if (!loadNetworkConfigData(persistentConfig, &configError) || !validateNetworkConfig(&configError)) {
+            QMessageBox::warning(m_networkConfigPage,
+                                 QStringLiteral("读取网络配置"),
+                                 QStringLiteral("实时网络状态已读取，但设备持久化配置无效：\n%1").arg(configError));
+            return;
+        }
+    } else {
+        m_networkRouteTable->setRowCount(0);
+    }
+    statusBar()->showMessage(QStringLiteral("设备实时状态和持久化网络配置读取完成"), 5000);
 }
 
-void MainWindow::onSaveNetworkConfigClicked()
+bool MainWindow::saveNetworkConfigToProject(QString *errorMessage) const
 {
-    QString error;
-    if (!validateNetworkConfig(&error)) {
-        QMessageBox::warning(this, QStringLiteral("保存网络配置"), error);
-        return;
-    }
     const QString root = m_configImportDirEdit ? m_configImportDirEdit->text().trimmed() : QString();
     if (root.isEmpty() || !QFileInfo(root).isDir()) {
-        QMessageBox::warning(this, QStringLiteral("保存网络配置"), QStringLiteral("请先在配置概览选择有效的工程目录。"));
-        return;
+        if (errorMessage) *errorMessage = QStringLiteral("请先在配置概览选择有效的工程目录。");
+        return false;
     }
     QDir dir(root);
     if (!dir.mkpath(QStringLiteral("Network"))) {
-        QMessageBox::warning(this, QStringLiteral("保存网络配置"), QStringLiteral("无法创建 Network 目录。"));
-        return;
+        if (errorMessage) *errorMessage = QStringLiteral("无法创建项目 Network 目录。");
+        return false;
     }
-    QFile file(dir.filePath(QStringLiteral("Network/network.conf")));
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(serializeNetworkConfig()) < 0) {
-        QMessageBox::warning(this, QStringLiteral("保存网络配置"), file.errorString());
-        return;
+    QSaveFile file(dir.filePath(QStringLiteral("Network/network.conf")));
+    if (!file.open(QIODevice::WriteOnly) || file.write(serializeNetworkConfig()) < 0 || !file.commit()) {
+        if (errorMessage) *errorMessage = QStringLiteral("保存项目网络配置失败：%1").arg(file.errorString());
+        return false;
     }
-    statusBar()->showMessage(QStringLiteral("网络配置已保存到项目 Network/network.conf"), 5000);
+    return true;
 }
 
-void MainWindow::onLoadNetworkConfigClicked()
+void MainWindow::loadNetworkProjectIfAvailable()
 {
     const QString root = m_configImportDirEdit ? m_configImportDirEdit->text().trimmed() : QString();
+    if (root.isEmpty() || root == m_loadedNetworkProjectRoot) {
+        return;
+    }
+    m_loadedNetworkProjectRoot = root;
     QFile file(QDir(root).filePath(QStringLiteral("Network/network.conf")));
     if (!file.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, QStringLiteral("加载网络配置"), QStringLiteral("无法读取 %1").arg(file.fileName()));
         return;
     }
     QString error;
     if (!loadNetworkConfigData(file.readAll(), &error) || !validateNetworkConfig(&error)) {
-        QMessageBox::warning(this, QStringLiteral("加载网络配置"), error);
+        QMessageBox::warning(m_networkConfigPage,
+                             QStringLiteral("加载项目网络配置"),
+                             QStringLiteral("当前项目的 Network/network.conf 无效：\n%1").arg(error));
         return;
     }
-    statusBar()->showMessage(QStringLiteral("项目网络配置已加载"), 5000);
+    statusBar()->showMessage(QStringLiteral("已加载当前项目的网络配置"), 4000);
 }
 
 QString MainWindow::localNetworkSupportFile(const QString &relativePath) const
@@ -395,6 +409,14 @@ void MainWindow::onApplyNetworkConfigClicked()
     QString error;
     if (!validateNetworkConfig(&error)) {
         QMessageBox::warning(this, QStringLiteral("应用网络配置"), error);
+        return;
+    }
+    const QString projectRoot = m_configImportDirEdit ? m_configImportDirEdit->text().trimmed() : QString();
+    if (projectRoot.isEmpty() || !QFileInfo(projectRoot).isDir()
+        || !QDir(projectRoot).mkpath(QStringLiteral("Network"))) {
+        QMessageBox::warning(this,
+                             QStringLiteral("应用网络配置"),
+                             QStringLiteral("请先在配置概览选择可写的工程目录。应用成功后会自动保存项目网络配置。"));
         return;
     }
     QString helper = localNetworkSupportFile(QStringLiteral("scripts/device/cepb-network-apply"));
@@ -453,9 +475,24 @@ void MainWindow::onApplyNetworkConfigClicked()
         QMessageBox::warning(this, QStringLiteral("应用网络配置"), QStringLiteral("网络配置下发失败：\n%1").arg(output));
         return;
     }
+    QString saveError;
+    const bool projectSaved = saveNetworkConfigToProject(&saveError);
+    if (projectSaved) {
+        m_loadedNetworkProjectRoot = projectRoot;
+    }
     if (newHost != oldHost && m_ipEdit) m_ipEdit->setText(newHost);
-    statusBar()->showMessage(QStringLiteral("网络配置已通过校验并提交设备应用"), 8000);
+    statusBar()->showMessage(projectSaved
+                                 ? QStringLiteral("网络配置已提交设备应用，并保存到当前项目")
+                                 : QStringLiteral("网络配置已提交设备应用，但项目保存失败"),
+                             8000);
+    if (!projectSaved) {
+        QMessageBox::warning(this,
+                             QStringLiteral("应用网络配置"),
+                             QStringLiteral("设备已经接受网络配置，但自动保存到当前项目失败：\n%1").arg(saveError));
+        return;
+    }
     QMessageBox::information(this, QStringLiteral("应用网络配置"),
-                             newHost == oldHost ? QStringLiteral("网络配置已提交设备应用，请稍后重新读取状态确认。")
-                                                : QStringLiteral("网络配置已提交，请等待设备应用后使用 %1 重新读取状态。").arg(newHost));
+                             newHost == oldHost
+                                 ? QStringLiteral("网络配置已提交设备应用并保存到当前项目，请稍后重新读取确认。")
+                                 : QStringLiteral("网络配置已提交并保存到当前项目，请等待设备应用后使用 %1 重新读取。").arg(newHost));
 }

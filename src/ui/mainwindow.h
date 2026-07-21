@@ -209,8 +209,6 @@ private slots:
     void onIec101PointFilterTextChanged();
     void onOpenRawFrameLogClicked();
     void onReadNetworkConfigClicked();
-    void onSaveNetworkConfigClicked();
-    void onLoadNetworkConfigClicked();
     void onApplyNetworkConfigClicked();
     void onAddNetworkRouteClicked();
     void onDeleteNetworkRouteClicked();
@@ -449,6 +447,8 @@ private:
     bool validateNetworkConfig(QString *errorMessage = nullptr) const;
     QByteArray serializeNetworkConfig() const;
     bool loadNetworkConfigData(const QByteArray &data, QString *errorMessage = nullptr);
+    bool saveNetworkConfigToProject(QString *errorMessage = nullptr) const;
+    void loadNetworkProjectIfAvailable();
     QString localNetworkSupportFile(const QString &relativePath) const;
     QColor serviceChannelDefaultTextColor() const;
     QColor serviceChannelChangedTextColor() const;
@@ -595,14 +595,13 @@ private:
     QTableWidget *m_networkInterfaceTable = nullptr;
     QTableWidget *m_networkRouteTable = nullptr;
     QPushButton *m_readNetworkConfigBtn = nullptr;
-    QPushButton *m_saveNetworkConfigBtn = nullptr;
-    QPushButton *m_loadNetworkConfigBtn = nullptr;
     QPushButton *m_applyNetworkConfigBtn = nullptr;
     QPushButton *m_addNetworkRouteBtn = nullptr;
     QPushButton *m_deleteNetworkRouteBtn = nullptr;
     QLineEdit *m_networkPingTargetEdit = nullptr;
     QPushButton *m_networkPingBtn = nullptr;
     QTextEdit *m_networkPingOutput = nullptr;
+    QString m_loadedNetworkProjectRoot;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;
