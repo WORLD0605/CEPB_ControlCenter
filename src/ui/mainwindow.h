@@ -47,6 +47,16 @@ struct AppConfig {
     AppViewMode viewMode = AppViewMode::Terminal;
 };
 
+struct DeviceLogFileInfo {
+    QString appName;
+    QString logType;
+    QString remotePath;
+    QString fileName;
+    QString logDate;
+    QString modifiedTime;
+    qint64 sizeBytes = 0;
+};
+
 struct ServiceChannelDataItem {
     QString deviceId;
     QString dataRef;
@@ -491,6 +501,12 @@ private:
     bool loadLogRetentionConfigFromProject(const QString &projectRoot,
                                            QString *errorMessage = nullptr);
     bool saveLogRetentionConfigToProject(QString *errorMessage = nullptr);
+    void clearDeviceLogFileList(const QString &summaryText = QString());
+    void queryDeviceLogFiles();
+    void refreshDeviceLogDateFilter();
+    void refreshDeviceLogFileTable();
+    void chooseLogDownloadDirectory();
+    void downloadDeviceLogFiles(bool selectedOnly);
     QColor serviceChannelDefaultTextColor() const;
     QColor serviceChannelChangedTextColor() const;
 
@@ -659,6 +675,17 @@ private:
     QPushButton *m_saveLogRetentionBtn = nullptr;
     QLabel *m_logRetentionProjectLabel = nullptr;
     QString m_loadedLogRetentionProjectRoot;
+    QComboBox *m_logDownloadAppCombo = nullptr;
+    QComboBox *m_logDownloadDateCombo = nullptr;
+    QComboBox *m_logDownloadTypeCombo = nullptr;
+    QLineEdit *m_logDownloadDirectoryEdit = nullptr;
+    QPushButton *m_queryDeviceLogsBtn = nullptr;
+    QPushButton *m_downloadSelectedLogsBtn = nullptr;
+    QPushButton *m_downloadVisibleLogsBtn = nullptr;
+    QTableWidget *m_deviceLogFileTable = nullptr;
+    QLabel *m_logDownloadSummaryLabel = nullptr;
+    QList<DeviceLogFileInfo> m_deviceLogFiles;
+    bool m_deviceLogFilesLoaded = false;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

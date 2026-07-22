@@ -2473,9 +2473,17 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
         const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
-        QString errorMessage;
-        if (!loadLogRetentionConfigFromProject(projectRoot, &errorMessage) && !errorMessage.isEmpty()) {
-            QMessageBox::warning(this, QStringLiteral("日志管理"), errorMessage);
+        if (projectRoot.isEmpty()) {
+            resetLogRetentionDays();
+            m_loadedLogRetentionProjectRoot.clear();
+            if (m_logRetentionProjectLabel) {
+                m_logRetentionProjectLabel->setText(QStringLiteral("当前工程：未选择（日志下载不受影响）"));
+            }
+        } else {
+            QString errorMessage;
+            if (!loadLogRetentionConfigFromProject(projectRoot, &errorMessage) && !errorMessage.isEmpty()) {
+                QMessageBox::warning(this, QStringLiteral("日志管理"), errorMessage);
+            }
         }
         m_logManagementPage->show();
         m_logManagementPage->raise();

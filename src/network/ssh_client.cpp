@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QMutex>
 #include <QNetworkProxy>
+#include <QSaveFile>
 #include <QtGlobal>
 #include <QTcpSocket>
 
@@ -480,6 +481,114 @@ bool uploadFileScpOnSession(SshSession &ssh,
     return true;
 }
 
+bool downloadFileScpOnSession(SshSession &ssh,
+                              const QString &remotePath,
+                              const QString &localPath,
+                              QString *error,
+                              const std::function<bool(qint64, qint64)> &progressCallback,
+                              int openTimeoutMs)
+{
+    if (!ssh.isConnected()) {
+        if (error) {
+            *error = QStringLiteral("SSH session 未连接");
+        }
+        return false;
+    }
+
+    const QByteArray remote = remotePath.toUtf8();
+    libssh2_struct_stat fileInfo;
+    LIBSSH2_CHANNEL *channel = nullptr;
+    QElapsedTimer timer;
+    timer.start();
+    while (!channel) {
+        channel = libssh2_scp_recv2(ssh.raw(), remote.constData(), &fileInfo);
+        if (channel) {
+            break;
+        }
+        const int rc = libssh2_session_last_errno(ssh.raw());
+        if (rc != LIBSSH2_ERROR_EAGAIN) {
+            if (error) {
+                *error = sessionLastError(ssh.raw(), QStringLiteral("打开远程 SCP 读取通道失败"));
+            }
+            return false;
+        }
+        if (timer.elapsed() >= openTimeoutMs) {
+            if (error) {
+                *error = QStringLiteral("打开远程 SCP 读取通道超时");
+            }
+            return false;
+        }
+        waitSocket(ssh.tcpSocket(), ssh.raw(), 10000);
+    }
+
+    const qint64 totalSize = qint64(fileInfo.st_size);
+    if (progressCallback && !progressCallback(0, totalSize)) {
+        if (error) {
+            *error = QStringLiteral("SCP download canceled");
+        }
+        libssh2_channel_free(channel);
+        return false;
+    }
+
+    QSaveFile file(localPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (error) {
+            *error = QStringLiteral("无法创建本地文件 %1：%2").arg(localPath, file.errorString());
+        }
+        libssh2_channel_free(channel);
+        return false;
+    }
+
+    qint64 received = 0;
+    char buffer[64 * 1024];
+    while (received < totalSize) {
+        const ssize_t read = libssh2_channel_read(channel, buffer, sizeof(buffer));
+        if (read > 0) {
+            if (file.write(buffer, read) != read) {
+                if (error) {
+                    *error = QStringLiteral("写入本地文件失败：%1").arg(file.errorString());
+                }
+                file.cancelWriting();
+                libssh2_channel_free(channel);
+                return false;
+            }
+            received += qint64(read);
+            if (progressCallback && !progressCallback(received, totalSize)) {
+                if (error) {
+                    *error = QStringLiteral("SCP download canceled");
+                }
+                file.cancelWriting();
+                libssh2_channel_free(channel);
+                return false;
+            }
+            continue;
+        }
+        if (read == LIBSSH2_ERROR_EAGAIN) {
+            waitSocket(ssh.tcpSocket(), ssh.raw(), 10000);
+            continue;
+        }
+        if (error) {
+            *error = sessionLastError(ssh.raw(), QStringLiteral("读取远程文件失败"));
+        }
+        file.cancelWriting();
+        libssh2_channel_free(channel);
+        return false;
+    }
+
+    runLibssh2([&]() { return libssh2_channel_send_eof(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
+    runLibssh2([&]() { return libssh2_channel_wait_eof(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
+    runLibssh2([&]() { return libssh2_channel_wait_closed(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
+    libssh2_channel_free(channel);
+
+    if (!file.commit()) {
+        if (error) {
+            *error = QStringLiteral("提交本地文件失败：%1").arg(file.errorString());
+        }
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 class SshClient::Session::Impl
@@ -547,6 +656,26 @@ bool SshClient::Session::uploadFileScp(const QString &localPath,
     return uploadFileScpOnSession(*d->ssh, localPath, remotePath, error, progressCallback, d->connection.timeoutMs);
 }
 
+bool SshClient::Session::downloadFileScp(
+    const QString &remotePath,
+    const QString &localPath,
+    QString *error,
+    const std::function<bool(qint64, qint64)> &progressCallback)
+{
+    if (!d->ssh) {
+        if (error) {
+            *error = QStringLiteral("SSH session 未连接");
+        }
+        return false;
+    }
+    return downloadFileScpOnSession(*d->ssh,
+                                    remotePath,
+                                    localPath,
+                                    error,
+                                    progressCallback,
+                                    d->connection.timeoutMs);
+}
+
 SshClient::CommandResult SshClient::execCommand(const Connection &connection,
                                                 const QString &command,
                                                 int timeoutMs)
@@ -580,77 +709,17 @@ bool SshClient::uploadFileScp(const Connection &connection,
 bool SshClient::downloadFileScp(const Connection &connection,
                                 const QString &remotePath,
                                 const QString &localPath,
-                                QString *error)
+                                QString *error,
+                                const std::function<bool(qint64, qint64)> &progressCallback)
 {
     SshSession ssh;
     if (!ssh.connect(connection, error)) {
         return false;
     }
-
-    const QByteArray remote = remotePath.toUtf8();
-    libssh2_struct_stat fileInfo;
-    LIBSSH2_CHANNEL *channel = nullptr;
-    QElapsedTimer timer;
-    timer.start();
-    while (!channel) {
-        channel = libssh2_scp_recv2(ssh.raw(), remote.constData(), &fileInfo);
-        if (channel) {
-            break;
-        }
-        const int rc = libssh2_session_last_errno(ssh.raw());
-        if (rc != LIBSSH2_ERROR_EAGAIN) {
-            if (error) {
-                *error = sessionLastError(ssh.raw(), QStringLiteral("打开远程 SCP 读取通道失败"));
-            }
-            return false;
-        }
-        if (timer.elapsed() >= connection.timeoutMs) {
-            if (error) {
-                *error = QStringLiteral("打开远程 SCP 读取通道超时");
-            }
-            return false;
-        }
-        waitSocket(ssh.tcpSocket(), ssh.raw(), 10000);
-    }
-
-    QFile file(localPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        if (error) {
-            *error = QStringLiteral("无法创建本地文件 %1：%2").arg(localPath, file.errorString());
-        }
-        libssh2_channel_free(channel);
-        return false;
-    }
-
-    libssh2_uint64_t received = 0;
-    char buffer[64 * 1024];
-    while (received < libssh2_uint64_t(fileInfo.st_size)) {
-        const ssize_t read = libssh2_channel_read(channel, buffer, sizeof(buffer));
-        if (read > 0) {
-            if (file.write(buffer, read) != read) {
-                if (error) {
-                    *error = QStringLiteral("写入本地文件失败：%1").arg(file.errorString());
-                }
-                libssh2_channel_free(channel);
-                return false;
-            }
-            received += libssh2_uint64_t(read);
-            continue;
-        }
-        if (read == LIBSSH2_ERROR_EAGAIN) {
-            waitSocket(ssh.tcpSocket(), ssh.raw(), 10000);
-            continue;
-        }
-        if (error) {
-            *error = sessionLastError(ssh.raw(), QStringLiteral("读取远程文件失败"));
-        }
-        libssh2_channel_free(channel);
-        return false;
-    }
-
-    runLibssh2([&]() { return libssh2_channel_send_eof(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
-    runLibssh2([&]() { return libssh2_channel_wait_eof(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
-    runLibssh2([&]() { return libssh2_channel_wait_closed(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);
-    libssh2_channel_free(channel);
-    return true;
+    return downloadFileScpOnSession(ssh,
+                                    remotePath,
+                                    localPath,
+                                    error,
+                                    progressCallback,
+                                    connection.timeoutMs);
 }

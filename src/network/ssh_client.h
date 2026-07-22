@@ -42,6 +42,10 @@ public:
                            const QString &remotePath,
                            QString *error = nullptr,
                            const std::function<bool(qint64, qint64)> &progressCallback = {});
+        bool downloadFileScp(const QString &remotePath,
+                             const QString &localPath,
+                             QString *error = nullptr,
+                             const std::function<bool(qint64, qint64)> &progressCallback = {});
 
     private:
         class Impl;
@@ -59,7 +63,8 @@ public:
     static bool downloadFileScp(const Connection &connection,
                                 const QString &remotePath,
                                 const QString &localPath,
-                                QString *error = nullptr);
+                                QString *error = nullptr,
+                                const std::function<bool(qint64, qint64)> &progressCallback = {});
 
 private:
     SshClient() = default;
