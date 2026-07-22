@@ -68,7 +68,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             s.deviceaddr = pt.value(QStringLiteral("deviceaddr")).toString();
             s.deathzoneType = pt.value(QStringLiteral("deathzone_type")).toString(QStringLiteral("0"));
             s.deathzone = pt.value(QStringLiteral("deathzone")).toString(QStringLiteral("0.2"));
-            s.enabled = true;
+            s.enabled = pt.value(QStringLiteral("enabled")).toBool(true);
             existingSettings[it.key()] = s;
         }
     }
@@ -608,14 +608,11 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
 
     // ---- 点表 meas_points ----
     QJsonArray pointsArray;
+    // North_101 只读取 meas_points。禁用点单独保存为编辑器元数据，
+    // 避免旧版运行程序忽略 enabled=false 后仍将禁用点加入点表。
+    QJsonArray disabledPointsArray;
     if (m_iec101PointsTable) {
         for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
-            // 检查启用标志
-            QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
-            if (checkItem && checkItem->checkState() != Qt::Checked) {
-                continue;
-            }
-
             const QString deviceId = m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)
                 ? m_iec101PointsTable->item(row, Iec101PointColumnDeviceId)->text().trimmed() : QString();
             const QString dataRef = m_iec101PointsTable->item(row, Iec101PointColumnDataRef)
@@ -625,7 +622,7 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
             const QString deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
                 ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed() : QString();
 
-            if (dataRef.isEmpty() || deviceaddr.isEmpty()) {
+            if (dataRef.isEmpty()) {
                 continue;
             }
 
@@ -650,10 +647,22 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
             point[QStringLiteral("deathzone_type")] = deathzoneType;
             point[QStringLiteral("deathzone")] = deathzone;
 
+            QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+            if (checkItem && checkItem->checkState() != Qt::Checked) {
+                point[QStringLiteral("enabled")] = false;
+                point[QStringLiteral("order")] = row;
+                disabledPointsArray.append(point);
+                continue;
+            }
+
+            if (deviceaddr.isEmpty()) {
+                continue;
+            }
             pointsArray.append(point);
         }
     }
     root[QStringLiteral("meas_points")] = pointsArray;
+    root[QStringLiteral("disabled_points")] = disabledPointsArray;
 
     return root;
 }
@@ -770,17 +779,21 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
     // ---- 点表：收集 JSON 中的已保存配置，再从设备刷新 ----
     QHash<QString, QJsonObject> savedSettings;
     QStringList savedPointOrder;
+    auto pointIdentity = [](const QJsonObject &pt) {
+        QString deviceId = pt.value(QStringLiteral("deviceId")).toString();
+        if (deviceId.isEmpty()) {
+            deviceId = pt.value(QStringLiteral("datafrom")).toString();
+        }
+        const QString dataRef = pt.value(QStringLiteral("dataRef")).toString();
+        return QPair<QString, QString>(deviceId, dataRef);
+    };
     const QJsonArray pointsArray = root.value(QStringLiteral("meas_points")).toArray();
     for (const QJsonValue &pointVal : pointsArray) {
         if (!pointVal.isObject()) {
             continue;
         }
         const QJsonObject pt = pointVal.toObject();
-        QString deviceId = pt.value(QStringLiteral("deviceId")).toString();
-        if (deviceId.isEmpty()) {
-            deviceId = pt.value(QStringLiteral("datafrom")).toString();
-        }
-        const QString dataRef = pt.value(QStringLiteral("dataRef")).toString();
+        const auto [deviceId, dataRef] = pointIdentity(pt);
         if (dataRef.isEmpty()) {
             continue;
         }
@@ -791,6 +804,41 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
         savedSettings[key] = pt;
         savedPointOrder.append(key);
     }
+
+    // disabled_points 是 ControlCenter 的编辑器元数据；旧配置不含该字段时保持原有行为。
+    // order 用于把禁用点放回原行位，避免导入后破坏用户手动排序。
+    QList<QPair<int, QString>> orderedDisabledPoints;
+    QStringList unorderedDisabledPoints;
+    const QJsonArray disabledPointsArray = root.value(QStringLiteral("disabled_points")).toArray();
+    for (const QJsonValue &pointVal : disabledPointsArray) {
+        if (!pointVal.isObject()) {
+            continue;
+        }
+        QJsonObject pt = pointVal.toObject();
+        const auto [deviceId, dataRef] = pointIdentity(pt);
+        if (dataRef.isEmpty()) {
+            continue;
+        }
+        const QString key = deviceId.isEmpty()
+            ? (QStringLiteral("|") + dataRef)
+            : (deviceId + QStringLiteral("|") + dataRef);
+        pt[QStringLiteral("enabled")] = false;
+        savedSettings[key] = pt;
+        savedPointOrder.removeAll(key);
+
+        const QJsonValue orderValue = pt.value(QStringLiteral("order"));
+        if (orderValue.isDouble() && orderValue.toInt() >= 0) {
+            orderedDisabledPoints.append(qMakePair(orderValue.toInt(), key));
+        } else {
+            unorderedDisabledPoints.append(key);
+        }
+    }
+    std::stable_sort(orderedDisabledPoints.begin(), orderedDisabledPoints.end(),
+                     [](const auto &left, const auto &right) { return left.first < right.first; });
+    for (const auto &entry : orderedDisabledPoints) {
+        savedPointOrder.insert(qBound(0, entry.first, savedPointOrder.size()), entry.second);
+    }
+    savedPointOrder.append(unorderedDisabledPoints);
 
     // 清空后从设备重建（JSON 中保存的设置会被合并）
     m_iec101PointsTable->setRowCount(0);
