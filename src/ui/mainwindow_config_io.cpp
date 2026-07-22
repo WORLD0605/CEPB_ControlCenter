@@ -389,6 +389,12 @@ void MainWindow::onImportIec104ConfigClicked()
         : QFileInfo(projectRoot).fileName();
     m_configProjectManager.createEmptyProject(projectName, projectRoot);
     bool ok = true;
+    QString logRetentionError;
+    if (!loadLogRetentionConfigFromProject(projectRoot, &logRetentionError)) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        QDir(projectRoot).filePath(QStringLiteral("etc/system.json")),
+                        logRetentionError);
+    }
     if (!iec104AppDir.isEmpty()) {
         ok = m_configProjectManager.importIec104AppDirectory(iec104AppDir, report) && ok;
     }
@@ -477,6 +483,14 @@ void MainWindow::onExportIec104ConfigClicked()
 
     configtool::ExportReport report;
     bool ok = migrateLegacyConfigAppDirs(projectRoot, report);
+
+    QString logRetentionError;
+    if (!saveLogRetentionConfigToProject(&logRetentionError)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        QDir(projectRoot).filePath(QStringLiteral("etc/system.json")),
+                        logRetentionError);
+        ok = false;
+    }
 
     const QString iec104AppDir = QDir(projectRoot).filePath(QStringLiteral("South_104"));
     const QString modbusAppDir = QDir(projectRoot).filePath(QStringLiteral("South_Modbus"));

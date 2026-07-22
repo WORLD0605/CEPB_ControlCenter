@@ -24,6 +24,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPalette>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
 #include <QShortcut>
@@ -429,6 +430,20 @@ QString themeStyleSheet(bool darkMode)
             "}"
             "QPushButton#programControlCellButton[autostartState=\"disabled\"]:hover { background-color: #793a40; border-color: #ef8188; }"
             "QPushButton#programControlCellButton[autostartState=\"disabled\"]:pressed { background-color: #53282d; border-color: #b9555c; }"
+            "QFrame#deviceStorageSummary {"
+            "  background-color: #272d36;"
+            "  border: 1px solid #3b424d;"
+            "  border-radius: 4px;"
+            "}"
+            "QProgressBar#deviceStorageProgress {"
+            "  background-color: #151a20;"
+            "  border: 1px solid #566171;"
+            "  border-radius: 4px;"
+            "}"
+            "QProgressBar#deviceStorageProgress::chunk { background-color: #6c757d; border-radius: 3px; }"
+            "QProgressBar#deviceStorageProgress[storageLevel=\"normal\"]::chunk { background-color: #36a866; }"
+            "QProgressBar#deviceStorageProgress[storageLevel=\"warning\"]::chunk { background-color: #d6a11d; }"
+            "QProgressBar#deviceStorageProgress[storageLevel=\"critical\"]::chunk { background-color: #d6534d; }"
             "QCheckBox::indicator:unchecked {"
             "  width: 15px;"
             "  height: 15px;"
@@ -677,6 +692,20 @@ QString themeStyleSheet(bool darkMode)
         "}"
         "QPushButton#programControlCellButton[autostartState=\"disabled\"]:hover { background-color: #fbd2d5; border-color: #be3f47; }"
         "QPushButton#programControlCellButton[autostartState=\"disabled\"]:pressed { background-color: #f5bec3; border-color: #9f343b; }"
+        "QFrame#deviceStorageSummary {"
+        "  background-color: #f8fafc;"
+        "  border: 1px solid #c7d2de;"
+        "  border-radius: 4px;"
+        "}"
+        "QProgressBar#deviceStorageProgress {"
+        "  background-color: #e2e8ef;"
+        "  border: 1px solid #aebdcb;"
+        "  border-radius: 4px;"
+        "}"
+        "QProgressBar#deviceStorageProgress::chunk { background-color: #7d8996; border-radius: 3px; }"
+        "QProgressBar#deviceStorageProgress[storageLevel=\"normal\"]::chunk { background-color: #35a85f; }"
+        "QProgressBar#deviceStorageProgress[storageLevel=\"warning\"]::chunk { background-color: #d9a514; }"
+        "QProgressBar#deviceStorageProgress[storageLevel=\"critical\"]::chunk { background-color: #d94a45; }"
         "QCheckBox::indicator:unchecked {"
         "  width: 15px;"
         "  height: 15px;"
@@ -1034,9 +1063,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_downloadConfigBtn = new QPushButton(QStringLiteral("从设备下载"), this);
     m_openNetworkConfigBtn = new QPushButton(QStringLiteral("网络配置..."), this);
     m_openNetworkConfigBtn->setToolTip(QStringLiteral("配置设备网口 IP、静态路由并测试网络连通性"));
+    m_openLogManagementBtn = new QPushButton(QStringLiteral("日志管理..."), this);
+    m_openLogManagementBtn->setToolTip(QStringLiteral("配置各 APP 的日志和消息保留天数"));
     transferRow->addWidget(m_uploadConfigBtn);
     transferRow->addWidget(m_downloadConfigBtn);
     transferRow->addWidget(m_openNetworkConfigBtn);
+    transferRow->addWidget(m_openLogManagementBtn);
     configLayout->addLayout(transferRow);
 
     auto *summaryFrame = new QFrame(this);
@@ -1936,7 +1968,51 @@ MainWindow::MainWindow(QWidget *parent)
     m_refreshProgramStatusBtn->setEnabled(false);
     programConnectionRow->addWidget(m_refreshProgramStatusBtn);
 
-    programConnectionRow->addStretch();
+    auto *storageSummaryFrame = new QFrame(m_programControlPage);
+    storageSummaryFrame->setObjectName(QStringLiteral("deviceStorageSummary"));
+    storageSummaryFrame->setFrameShape(QFrame::StyledPanel);
+    auto *storageSummaryLayout = new QHBoxLayout(storageSummaryFrame);
+    storageSummaryLayout->setContentsMargins(10, 4, 10, 4);
+    storageSummaryLayout->setSpacing(8);
+
+    auto addStorageItem = [storageSummaryFrame, storageSummaryLayout](
+                              const QString &title,
+                              QProgressBar **progressBar,
+                              QLabel **valueLabel) {
+        auto *titleLabel = new QLabel(title, storageSummaryFrame);
+        QFont titleFont = titleLabel->font();
+        titleFont.setBold(true);
+        titleLabel->setFont(titleFont);
+        storageSummaryLayout->addWidget(titleLabel);
+
+        *progressBar = new QProgressBar(storageSummaryFrame);
+        (*progressBar)->setObjectName(QStringLiteral("deviceStorageProgress"));
+        (*progressBar)->setRange(0, 100);
+        (*progressBar)->setValue(0);
+        (*progressBar)->setTextVisible(false);
+        (*progressBar)->setFixedHeight(12);
+        (*progressBar)->setMinimumWidth(110);
+        (*progressBar)->setProperty("storageLevel", QStringLiteral("unavailable"));
+        storageSummaryLayout->addWidget(*progressBar, 1);
+
+        *valueLabel = new QLabel(QStringLiteral("未连接"), storageSummaryFrame);
+        (*valueLabel)->setMinimumWidth(165);
+        storageSummaryLayout->addWidget(*valueLabel);
+    };
+
+    addStorageItem(QStringLiteral("系统 /"),
+                   &m_systemStorageProgress,
+                   &m_systemStorageValueLabel);
+    auto *storageSeparator = new QFrame(storageSummaryFrame);
+    storageSeparator->setFrameShape(QFrame::VLine);
+    storageSeparator->setFrameShadow(QFrame::Sunken);
+    storageSummaryLayout->addWidget(storageSeparator);
+    addStorageItem(QStringLiteral("APP /home"),
+                   &m_appStorageProgress,
+                   &m_appStorageValueLabel);
+
+    programConnectionRow->addSpacing(8);
+    programConnectionRow->addWidget(storageSummaryFrame, 1);
     programControlLayout->addLayout(programConnectionRow);
 
     m_programControlTable = new QTableWidget(0, 10, this);
@@ -2307,6 +2383,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     setupNetworkPage();
+    setupLogManagementPage();
     m_mainTabWidget->addTab(debugPage, "调试控制");
     m_mainTabWidget->addTab(m_programControlPage, QStringLiteral("APP管理"));
     m_mainTabWidget->addTab(m_configPage, "配置概览");
@@ -2390,6 +2467,19 @@ MainWindow::MainWindow(QWidget *parent)
         m_networkConfigPage->show();
         m_networkConfigPage->raise();
         m_networkConfigPage->activateWindow();
+    });
+    connect(m_openLogManagementBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_logManagementPage) {
+            return;
+        }
+        const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
+        QString errorMessage;
+        if (!loadLogRetentionConfigFromProject(projectRoot, &errorMessage) && !errorMessage.isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("日志管理"), errorMessage);
+        }
+        m_logManagementPage->show();
+        m_logManagementPage->raise();
+        m_logManagementPage->activateWindow();
     });
     connect(m_connectProgramControlBtn, &QPushButton::clicked,
             this, &MainWindow::onConnectProgramControlClicked);

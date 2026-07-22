@@ -30,6 +30,7 @@ class QSplitter;
 class QEvent;
 class QFrame;
 class QProgressDialog;
+class QProgressBar;
 class QWidget;
 class ProgramControlSshWorker;
 
@@ -464,6 +465,15 @@ private:
     void updateProgramControlBusyUi(bool busy);
     void startProgramStatusRefresh();
     void refreshProgramControlTable(const QString &statusOutput);
+    void setDeviceStorageQueryState(const QString &statusText);
+    void updateDeviceStorageDisplay(QProgressBar *progressBar,
+                                    QLabel *valueLabel,
+                                    const QString &fileSystem,
+                                    const QString &mountPoint,
+                                    qint64 totalBytes,
+                                    qint64 usedBytes,
+                                    qint64 availableBytes,
+                                    int usedPercent);
     void setProgramControlRowPending(const QString &appName, const QString &statusText);
     ThemeMode loadThemeMode() const;
     void saveThemeMode(ThemeMode mode) const;
@@ -476,6 +486,11 @@ private:
     bool saveNetworkConfigToProject(QString *errorMessage = nullptr) const;
     void loadNetworkProjectIfAvailable();
     QString localNetworkSupportFile(const QString &relativePath) const;
+    void setupLogManagementPage();
+    void resetLogRetentionDays();
+    bool loadLogRetentionConfigFromProject(const QString &projectRoot,
+                                           QString *errorMessage = nullptr);
+    bool saveLogRetentionConfigToProject(QString *errorMessage = nullptr);
     QColor serviceChannelDefaultTextColor() const;
     QColor serviceChannelChangedTextColor() const;
 
@@ -539,6 +554,7 @@ private:
     QPushButton *m_uploadConfigBtn = nullptr;
     QPushButton *m_downloadConfigBtn = nullptr;
     QPushButton *m_openNetworkConfigBtn = nullptr;
+    QPushButton *m_openLogManagementBtn = nullptr;
     QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceBtn = nullptr;
@@ -588,6 +604,7 @@ private:
     QWidget *m_logicControlRulePage = nullptr;
     QWidget *m_programControlPage = nullptr;
     QWidget *m_networkConfigPage = nullptr;
+    QWidget *m_logManagementPage = nullptr;
     QWidget *m_northConfigPage = nullptr;
     QWidget *m_northCepConfigPage = nullptr;
     QWidget *m_iec101ConfigPage = nullptr;
@@ -623,6 +640,10 @@ private:
     QPushButton *m_refreshProgramStatusBtn = nullptr;
     QPushButton *m_connectProgramControlBtn = nullptr;
     QPushButton *m_disconnectProgramControlBtn = nullptr;
+    QProgressBar *m_systemStorageProgress = nullptr;
+    QLabel *m_systemStorageValueLabel = nullptr;
+    QProgressBar *m_appStorageProgress = nullptr;
+    QLabel *m_appStorageValueLabel = nullptr;
     QTableWidget *m_programControlTable = nullptr;
     QTableWidget *m_networkInterfaceTable = nullptr;
     QTableWidget *m_networkRouteTable = nullptr;
@@ -634,6 +655,10 @@ private:
     QPushButton *m_networkPingBtn = nullptr;
     QTextEdit *m_networkPingOutput = nullptr;
     QString m_loadedNetworkProjectRoot;
+    QTableWidget *m_logRetentionTable = nullptr;
+    QPushButton *m_saveLogRetentionBtn = nullptr;
+    QLabel *m_logRetentionProjectLabel = nullptr;
+    QString m_loadedLogRetentionProjectRoot;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

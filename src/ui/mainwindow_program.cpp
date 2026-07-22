@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QPointer>
 #include <QSpinBox>
@@ -22,6 +23,7 @@
 #include <QTableWidgetItem>
 #include <QThread>
 #include <QTimer>
+#include <QStyle>
 
 #include <memory>
 
@@ -152,8 +154,14 @@ QString localServicePathForApp(const QString &serviceName)
 
 QString programStatusScanCommand(const QString &baseDir, const QStringList &appNames)
 {
-    Q_UNUSED(baseDir);
-    QString command;
+    QString command = QStringLiteral(
+        "df -P -B1 / 2>/dev/null | "
+        "awk 'NR == 2 { percent=$5; sub(/%$/, \"\", percent); "
+        "print \"__CEPB_STORAGE__|system|\" $1 \"|\" $6 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" percent }'; "
+        "df -P -B1 %1 2>/dev/null | "
+        "awk 'NR == 2 { percent=$5; sub(/%$/, \"\", percent); "
+        "print \"__CEPB_STORAGE__|app|\" $1 \"|\" $6 \"|\" $2 \"|\" $3 \"|\" $4 \"|\" percent }'; ")
+        .arg(remoteProgramShellQuote(baseDir));
     for (const QString &appName : appNames) {
         const QString service = programServiceNameForApp(appName);
         command += QStringLiteral(
@@ -362,6 +370,7 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
             statusBar()->showMessage(QStringLiteral("APP管理 SSH 连接失败"), 5000);
             break;
         case ProgramControlCommandKind::RefreshStatus:
+            setDeviceStorageQueryState(QStringLiteral("查询失败"));
             QMessageBox::warning(this,
                                  QStringLiteral("APP管理"),
                                  QStringLiteral("刷新程序状态失败。\n\n%1").arg(output));
@@ -490,6 +499,7 @@ void MainWindow::closeProgramControlShell()
     m_programControlShellKey.clear();
     clearProgramControlCommandState();
     updateProgramControlConnectionUi(false);
+    setDeviceStorageQueryState(QStringLiteral("未连接"));
 }
 
 QString MainWindow::programControlShellKey() const
@@ -727,9 +737,11 @@ void MainWindow::startProgramStatusRefresh()
 {
     const QString baseDir = trimRemoteBaseDir(configRemoteBaseDir());
     const QStringList appNames = managedProgramAppNames();
-    startProgramControlCommand(programStatusScanCommand(baseDir, appNames),
-                               QStringLiteral("刷新程序状态"),
-                               ProgramControlCommandKind::RefreshStatus);
+    if (startProgramControlCommand(programStatusScanCommand(baseDir, appNames),
+                                   QStringLiteral("刷新程序状态"),
+                                   ProgramControlCommandKind::RefreshStatus)) {
+        setDeviceStorageQueryState(QStringLiteral("查询中..."));
+    }
 }
 
 void MainWindow::refreshProgramControlTable(const QString &statusOutput)
@@ -743,8 +755,19 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         QString restarts = QStringLiteral("unknown");
         QString loadState = QStringLiteral("unknown");
     };
+    struct StorageStatus {
+        QString fileSystem;
+        QString mountPoint;
+        qint64 totalBytes = 0;
+        qint64 usedBytes = 0;
+        qint64 availableBytes = 0;
+        int usedPercent = 0;
+        bool valid = false;
+    };
 
     QHash<QString, ProgramStatus> statusByApp;
+    StorageStatus systemStorage;
+    StorageStatus appStorage;
     for (const QString &rawLine : statusOutput.split(QLatin1Char('\n'))) {
         const QString line = rawLine.trimmed();
         if (line.isEmpty()) {
@@ -752,6 +775,29 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
         }
 
         const QStringList parts = line.split(QLatin1Char('|'));
+        if (parts.value(0) == QStringLiteral("__CEPB_STORAGE__")) {
+            if (parts.size() >= 8) {
+                bool totalOk = false;
+                bool usedOk = false;
+                bool availableOk = false;
+                bool percentOk = false;
+                StorageStatus storage;
+                storage.fileSystem = parts.value(2).trimmed();
+                storage.mountPoint = parts.value(3).trimmed();
+                storage.totalBytes = parts.value(4).trimmed().toLongLong(&totalOk);
+                storage.usedBytes = parts.value(5).trimmed().toLongLong(&usedOk);
+                storage.availableBytes = parts.value(6).trimmed().toLongLong(&availableOk);
+                storage.usedPercent = parts.value(7).trimmed().toInt(&percentOk);
+                storage.valid = totalOk && usedOk && availableOk && percentOk
+                    && storage.totalBytes > 0;
+                if (parts.value(1) == QStringLiteral("system")) {
+                    systemStorage = storage;
+                } else if (parts.value(1) == QStringLiteral("app")) {
+                    appStorage = storage;
+                }
+            }
+            continue;
+        }
         if (parts.size() < 6) {
             continue;
         }
@@ -772,6 +818,46 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
             status.autostart = parts.value(5).trimmed();
         }
         statusByApp.insert(appName, status);
+    }
+
+    auto showStorageUnavailable = [this](QProgressBar *progressBar, QLabel *valueLabel) {
+        if (progressBar) {
+            progressBar->setValue(0);
+            progressBar->setProperty("storageLevel", QStringLiteral("unavailable"));
+            progressBar->setToolTip(QString());
+            progressBar->style()->unpolish(progressBar);
+            progressBar->style()->polish(progressBar);
+            progressBar->update();
+        }
+        if (valueLabel) {
+            valueLabel->setText(m_programControlConnected ? QStringLiteral("未获取")
+                                                          : QStringLiteral("未连接"));
+            valueLabel->setToolTip(QString());
+        }
+    };
+    if (systemStorage.valid) {
+        updateDeviceStorageDisplay(m_systemStorageProgress,
+                                   m_systemStorageValueLabel,
+                                   systemStorage.fileSystem,
+                                   systemStorage.mountPoint,
+                                   systemStorage.totalBytes,
+                                   systemStorage.usedBytes,
+                                   systemStorage.availableBytes,
+                                   systemStorage.usedPercent);
+    } else {
+        showStorageUnavailable(m_systemStorageProgress, m_systemStorageValueLabel);
+    }
+    if (appStorage.valid) {
+        updateDeviceStorageDisplay(m_appStorageProgress,
+                                   m_appStorageValueLabel,
+                                   appStorage.fileSystem,
+                                   appStorage.mountPoint,
+                                   appStorage.totalBytes,
+                                   appStorage.usedBytes,
+                                   appStorage.availableBytes,
+                                   appStorage.usedPercent);
+    } else {
+        showStorageUnavailable(m_appStorageProgress, m_appStorageValueLabel);
     }
     if (statusByApp.isEmpty() && !statusOutput.trimmed().isEmpty()) {
         QMessageBox::warning(this,
@@ -897,6 +983,72 @@ void MainWindow::refreshProgramControlTable(const QString &statusOutput)
     }
 
     m_programControlTable->resizeRowsToContents();
+}
+
+void MainWindow::setDeviceStorageQueryState(const QString &statusText)
+{
+    const QList<QPair<QProgressBar *, QLabel *>> storageWidgets = {
+        {m_systemStorageProgress, m_systemStorageValueLabel},
+        {m_appStorageProgress, m_appStorageValueLabel}
+    };
+    for (const auto &storageWidget : storageWidgets) {
+        QProgressBar *progressBar = storageWidget.first;
+        QLabel *valueLabel = storageWidget.second;
+        if (progressBar) {
+            progressBar->setValue(0);
+            progressBar->setProperty("storageLevel", QStringLiteral("unavailable"));
+            progressBar->setToolTip(QString());
+            progressBar->style()->unpolish(progressBar);
+            progressBar->style()->polish(progressBar);
+            progressBar->update();
+        }
+        if (valueLabel) {
+            valueLabel->setText(statusText);
+            valueLabel->setToolTip(QString());
+        }
+    }
+}
+
+void MainWindow::updateDeviceStorageDisplay(QProgressBar *progressBar,
+                                            QLabel *valueLabel,
+                                            const QString &fileSystem,
+                                            const QString &mountPoint,
+                                            qint64 totalBytes,
+                                            qint64 usedBytes,
+                                            qint64 availableBytes,
+                                            int usedPercent)
+{
+    if (!progressBar || !valueLabel || totalBytes <= 0) {
+        return;
+    }
+
+    constexpr qint64 bytesPerMiB = 1024 * 1024;
+    const qint64 totalMiB = (totalBytes + bytesPerMiB / 2) / bytesPerMiB;
+    const qint64 availableMiB = (availableBytes + bytesPerMiB / 2) / bytesPerMiB;
+    const qint64 usedMiB = (usedBytes + bytesPerMiB / 2) / bytesPerMiB;
+    const int boundedPercent = qBound(0, usedPercent, 100);
+    const QString storageLevel = boundedPercent >= 90 ? QStringLiteral("critical")
+        : boundedPercent >= 75 ? QStringLiteral("warning")
+        : QStringLiteral("normal");
+    const QString valueText = QStringLiteral("可用 %1 MB / %2 MB")
+                                  .arg(availableMiB)
+                                  .arg(totalMiB);
+    const QString toolTip = QStringLiteral(
+        "文件系统：%1\n挂载点：%2\n已用：%3 MB（%4%）\n可用：%5 MB\n总计：%6 MB")
+                                .arg(fileSystem, mountPoint)
+                                .arg(usedMiB)
+                                .arg(boundedPercent)
+                                .arg(availableMiB)
+                                .arg(totalMiB);
+
+    progressBar->setValue(boundedPercent);
+    progressBar->setProperty("storageLevel", storageLevel);
+    progressBar->setToolTip(toolTip);
+    progressBar->style()->unpolish(progressBar);
+    progressBar->style()->polish(progressBar);
+    progressBar->update();
+    valueLabel->setText(valueText);
+    valueLabel->setToolTip(toolTip);
 }
 
 void MainWindow::setProgramControlRowPending(const QString &appName, const QString &statusText)
