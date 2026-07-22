@@ -90,6 +90,87 @@ bool migrateLegacyConfigAppDirs(const QString &projectRoot, configtool::ExportRe
     return ok;
 }
 
+QString findIec101LocalhostConfig(const QString &projectRoot, configtool::ImportReport &report)
+{
+    const QDir rootDir(projectRoot);
+    const QStringList appDirNames = {
+        QStringLiteral("North_101"),
+        QStringLiteral("IEC101ServiceChannel")
+    };
+
+    // 优先使用约定的标准文件名，即使新旧 APP 目录同时存在。
+    for (const QString &appDirName : appDirNames) {
+        const QString filePath = rootDir.filePath(
+            QStringLiteral("%1/config/localhost.json").arg(appDirName));
+        if (QFileInfo(filePath).isFile()) {
+            return filePath;
+        }
+    }
+
+    // 兼容旧设备使用 localhost-55.json 等带后缀的文件名。
+    for (const QString &appDirName : appDirNames) {
+        const QString configDirPath = rootDir.filePath(
+            QStringLiteral("%1/config").arg(appDirName));
+        QDir configDir(configDirPath);
+        if (!configDir.exists()) {
+            continue;
+        }
+
+        const QStringList matchingFiles = configDir.entryList(
+            {QStringLiteral("localhost*.json")},
+            QDir::Files | QDir::Readable,
+            QDir::Name | QDir::IgnoreCase);
+        if (matchingFiles.isEmpty()) {
+            continue;
+        }
+
+        const QString selectedPath = configDir.filePath(matchingFiles.first());
+        const QString detail = matchingFiles.size() == 1
+            ? QStringLiteral("未找到 localhost.json，已兼容读取旧文件名 %1；下次保存将统一为 localhost.json")
+                  .arg(matchingFiles.first())
+            : QStringLiteral("未找到 localhost.json，发现多个兼容文件（%1），已按文件名顺序读取 %2；下次保存将统一为 localhost.json")
+                  .arg(matchingFiles.join(QStringLiteral("，")), matchingFiles.first());
+        report.addIssue(configtool::ImportIssueSeverity::Warning, selectedPath, detail);
+        return selectedPath;
+    }
+
+    return QString();
+}
+
+bool removeAlternateIec101LocalhostConfigs(const QString &configDirPath,
+                                           configtool::ExportReport &report)
+{
+    QDir configDir(configDirPath);
+    const QStringList matchingFiles = configDir.entryList(
+        {QStringLiteral("localhost*.json")},
+        QDir::Files,
+        QDir::Name | QDir::IgnoreCase);
+
+    QStringList removedFiles;
+    for (const QString &fileName : matchingFiles) {
+        if (fileName == QStringLiteral("localhost.json")) {
+            continue;
+        }
+
+        const QString filePath = configDir.filePath(fileName);
+        if (!QFile::remove(filePath)) {
+            report.addIssue(configtool::ImportIssueSeverity::Error,
+                            filePath,
+                            QStringLiteral("无法清理旧 IEC101 配置文件；为避免多个配置文件竞争，本次保存已取消"));
+            return false;
+        }
+        removedFiles.append(fileName);
+    }
+
+    if (!removedFiles.isEmpty()) {
+        report.addIssue(configtool::ImportIssueSeverity::Info,
+                        configDirPath,
+                        QStringLiteral("已将 IEC101 配置统一为 localhost.json，并清理旧文件：%1")
+                            .arg(removedFiles.join(QStringLiteral("，"))));
+    }
+    return true;
+}
+
 bool writeNorthCepMainstationConfig(const QString &projectRoot,
                                     const QString &managementPort,
                                     const QString &dataPort,
@@ -342,9 +423,8 @@ void MainWindow::onImportIec104ConfigClicked()
     }
     // ---- IEC101 配置（可选） ----
     if (!iec101AppDir.isEmpty()) {
-        const QString iec101ConfigPath = QDir(iec101AppDir)
-            .filePath(QStringLiteral("config/localhost.json"));
-        if (QFileInfo::exists(iec101ConfigPath)) {
+        const QString iec101ConfigPath = findIec101LocalhostConfig(projectRoot, report);
+        if (!iec101ConfigPath.isEmpty()) {
             loadIec101LocalhostConfigFromFile(iec101ConfigPath);
         } else {
             clearIec101ConfigPage();
@@ -440,6 +520,7 @@ void MainWindow::onExportIec104ConfigClicked()
         } else {
             file.write(QJsonDocument(iec101Config).toJson(QJsonDocument::Indented));
             file.close();
+            ok = removeAlternateIec101LocalhostConfigs(iec101ConfigDir, report) && ok;
         }
     }
 
