@@ -23,8 +23,8 @@ set_target_properties(libssh2_static PROPERTIES
 )
 
 # Qt6 优先，回退到 Qt5
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Network Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Network Widgets)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Network Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Concurrent Network Widgets)
 
 set(SOURCES
     src/main.cpp
@@ -82,6 +82,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Concurrent
     Qt${QT_VERSION_MAJOR}::Network
     Qt${QT_VERSION_MAJOR}::Widgets
     libssh2_static

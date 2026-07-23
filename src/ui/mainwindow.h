@@ -508,6 +508,13 @@ private:
     bool saveLogRetentionConfigToProject(QString *errorMessage = nullptr);
     void clearDeviceLogFileList(const QString &summaryText = QString());
     void queryDeviceLogFiles();
+    void startDeviceLogFileQuery(bool automatic);
+    void finishDeviceLogFileQuery(quint64 queryId,
+                                  const QString &queriedHost,
+                                  bool automatic,
+                                  bool ok,
+                                  const QString &output,
+                                  const QString &error);
     void refreshDeviceLogDateFilter();
     void refreshDeviceLogFileTable();
     void chooseLogDownloadDirectory();
@@ -693,6 +700,8 @@ private:
     QLabel *m_logDownloadSummaryLabel = nullptr;
     QList<DeviceLogFileInfo> m_deviceLogFiles;
     bool m_deviceLogFilesLoaded = false;
+    bool m_deviceLogQueryInProgress = false;
+    quint64 m_deviceLogQueryId = 0;
     QLineEdit *m_logicAgcAvcGroupIdEdit = nullptr;
     QLineEdit *m_logicAgcAvcVirtualDeviceIdEdit = nullptr;
     QDoubleSpinBox *m_logicMeasurementTotalPEdit = nullptr;

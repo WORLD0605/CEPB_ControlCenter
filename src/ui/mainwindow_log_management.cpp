@@ -11,8 +11,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFutureWatcher>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -29,6 +31,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <QtConcurrentRun>
 
 #include <algorithm>
 #include <utility>
@@ -306,7 +309,7 @@ void MainWindow::setupLogManagementPage()
             this, [this]() { downloadDeviceLogFiles(false); });
     connect(tabs, &QTabWidget::currentChanged, this, [this, tabs, downloadPage](int index) {
         if (tabs->widget(index) == downloadPage && !m_deviceLogFilesLoaded) {
-            queryDeviceLogFiles();
+            startDeviceLogFileQuery(true);
         }
     });
     connect(closeButton, &QPushButton::clicked, dialog, &QDialog::close);
@@ -339,33 +342,41 @@ void MainWindow::clearDeviceLogFileList(const QString &summaryText)
 
 void MainWindow::queryDeviceLogFiles()
 {
+    startDeviceLogFileQuery(false);
+}
+
+void MainWindow::startDeviceLogFileQuery(bool automatic)
+{
     if (!m_logDownloadAppCombo || !m_deviceLogFileTable) {
+        return;
+    }
+    if (m_deviceLogQueryInProgress) {
         return;
     }
 
     const QStringList appNames = logManagedAppNames();
     const QString host = deviceHost().trimmed();
-    if (host.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("日志下载"), QStringLiteral("请先填写设备 IP。"));
+    QHostAddress hostAddress;
+    if (host.isEmpty() || !hostAddress.setAddress(host)) {
+        m_deviceLogFilesLoaded = true;
+        clearDeviceLogFileList(QStringLiteral("请先在右上角填写有效的设备 IP，再点击“刷新设备日志”。"));
+        if (!automatic) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("日志下载"),
+                                 QStringLiteral("请先在右上角填写有效的设备 IP。"));
+        }
         return;
     }
 
+    const quint64 queryId = ++m_deviceLogQueryId;
+    m_deviceLogQueryInProgress = true;
     m_deviceLogFilesLoaded = false;
-    clearDeviceLogFileList(QStringLiteral("正在查询全部 APP 的设备日志..."));
+    clearDeviceLogFileList(
+        QStringLiteral("正在后台查询 %1 上全部 APP 的设备日志，界面可继续操作...").arg(host));
     if (m_queryDeviceLogsBtn) {
         m_queryDeviceLogsBtn->setEnabled(false);
+        m_queryDeviceLogsBtn->setText(QStringLiteral("正在查询..."));
     }
-    QProgressDialog progress(QStringLiteral("正在查询全部 APP 的设备日志..."),
-                             QString(),
-                             0,
-                             0,
-                             m_logManagementPage);
-    progress.setWindowTitle(QStringLiteral("日志下载"));
-    progress.setWindowModality(Qt::ApplicationModal);
-    progress.setMinimumDuration(0);
-    progress.setCancelButton(nullptr);
-    progress.show();
-    QApplication::processEvents();
 
     const QString baseDir = normalizedRemoteLogBaseDir(configRemoteBaseDir());
     QString command;
@@ -390,33 +401,66 @@ void MainWindow::queryDeviceLogFiles()
                                            fixedRemoteSshPort().toUShort(),
                                            fixedRemoteUser(),
                                            fixedRemotePassword(),
-                                           10000};
-    SshClient::Session session(connection);
-    QString errorMessage;
-    if (!session.connect(&errorMessage)) {
-        progress.close();
-        m_queryDeviceLogsBtn->setEnabled(true);
-        clearDeviceLogFileList(QStringLiteral("查询失败：无法连接设备。"));
-        QMessageBox::warning(this,
-                             QStringLiteral("日志下载"),
-                             QStringLiteral("连接设备失败：\n%1").arg(errorMessage));
+                                           3000};
+    auto *watcher = new QFutureWatcher<SshClient::CommandResult>(this);
+    connect(watcher, &QFutureWatcher<SshClient::CommandResult>::finished, this,
+            [this, watcher, queryId, host, automatic]() {
+        const SshClient::CommandResult result = watcher->result();
+        watcher->deleteLater();
+        finishDeviceLogFileQuery(queryId,
+                                 host,
+                                 automatic,
+                                 result.ok,
+                                 result.output,
+                                 result.error);
+    });
+    watcher->setFuture(QtConcurrent::run([connection, command]() {
+        return SshClient::execCommand(connection, command, 10000);
+    }));
+}
+
+void MainWindow::finishDeviceLogFileQuery(quint64 queryId,
+                                          const QString &queriedHost,
+                                          bool automatic,
+                                          bool ok,
+                                          const QString &output,
+                                          const QString &error)
+{
+    if (queryId != m_deviceLogQueryId) {
         return;
     }
 
-    const SshClient::CommandResult result = session.execCommand(command, 30000);
-    progress.close();
-    m_queryDeviceLogsBtn->setEnabled(true);
-    if (!result.ok) {
-        clearDeviceLogFileList(QStringLiteral("查询设备日志失败。"));
-        QMessageBox::warning(this,
-                             QStringLiteral("日志下载"),
-                             QStringLiteral("查询设备日志失败：\n%1")
-                                 .arg(result.error.isEmpty() ? result.output : result.error));
+    m_deviceLogQueryInProgress = false;
+    if (m_queryDeviceLogsBtn) {
+        m_queryDeviceLogsBtn->setEnabled(true);
+        m_queryDeviceLogsBtn->setText(QStringLiteral("刷新设备日志"));
+    }
+
+    if (queriedHost != deviceHost().trimmed()) {
+        m_deviceLogFilesLoaded = false;
+        clearDeviceLogFileList(
+            QStringLiteral("查询期间设备 IP 已改变，请点击“刷新设备日志”查询新设备。"));
+        return;
+    }
+
+    if (!ok) {
+        m_deviceLogFilesLoaded = true;
+        const QString detail = error.isEmpty() ? output : error;
+        clearDeviceLogFileList(
+            QStringLiteral("未能连接 %1。请确认右上角设备 IP 和网线连接后，再点击“刷新设备日志”。")
+                .arg(queriedHost));
+        statusBar()->showMessage(QStringLiteral("设备日志自动查询失败：%1").arg(queriedHost), 5000);
+        if (!automatic) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("日志下载"),
+                                 QStringLiteral("查询设备日志失败：\n%1").arg(detail));
+        }
         return;
     }
 
     QSet<QString> remotePaths;
-    for (const QString &rawLine : result.output.split(QLatin1Char('\n'))) {
+    const QStringList appNames = logManagedAppNames();
+    for (const QString &rawLine : output.split(QLatin1Char('\n'))) {
         const QString line = rawLine.trimmed();
         if (!line.startsWith(QStringLiteral("__CEPB_LOG_FILE__|"))) {
             continue;
