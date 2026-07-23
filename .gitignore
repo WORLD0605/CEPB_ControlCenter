@@ -30,6 +30,7 @@ CPackConfig.cmake
 CPackSourceConfig.cmake
 *.zip
 /app_binaries/
+/docs
 
 # Tools
 .claude/
