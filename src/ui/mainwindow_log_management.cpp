@@ -882,8 +882,11 @@ bool MainWindow::saveLogRetentionConfigToProject(QString *errorMessage)
             }
             return false;
         }
+        const QByteArray existingData = existing.readAll();
+        existing.close();
+
         QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(existing.readAll(), &parseError);
+        const QJsonDocument document = QJsonDocument::fromJson(existingData, &parseError);
         if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
             if (errorMessage) {
                 *errorMessage = QStringLiteral("现有日志配置格式无效，已停止覆盖：%1").arg(filePath);
@@ -918,7 +921,14 @@ bool MainWindow::saveLogRetentionConfigToProject(QString *errorMessage)
         }
         return false;
     }
-    output.write(QJsonDocument(rootObject).toJson(QJsonDocument::Indented));
+    const QByteArray outputData = QJsonDocument(rootObject).toJson(QJsonDocument::Indented);
+    if (output.write(outputData) != outputData.size()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("写入日志配置失败：%1").arg(output.errorString());
+        }
+        output.cancelWriting();
+        return false;
+    }
     if (!output.commit()) {
         if (errorMessage) {
             *errorMessage = QStringLiteral("提交日志配置失败：%1").arg(output.errorString());
