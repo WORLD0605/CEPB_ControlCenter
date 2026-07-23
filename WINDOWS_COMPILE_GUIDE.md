@@ -148,7 +148,7 @@ Get-Process CEPB_ControlCenter -ErrorAction SilentlyContinue
 
 源码不完整。重新克隆仓库，或重新取得完整源码包；无需从网上单独下载另一份 libssh2。
 
-### 可执行文件在同事电脑上提示缺少 DLL 或 `qwindows.dll`
+### 可执行文件提示缺少 DLL 或 `qwindows.dll`
 
 这是部署问题，不是编译问题。不要只复制构建目录中的 exe，使用 `scripts\package.bat` 生成发布 ZIP。
 

@@ -863,7 +863,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
     topLayout->addWidget(m_appTabBar, 1);
 
-    m_northConnectionStatusBtn = new QPushButton(QStringLiteral("主站连接：未查询"));
+    m_northConnectionStatusBtn = new QPushButton(QStringLiteral("主站状态：未查询"));
     m_northConnectionStatusBtn->setMinimumWidth(150);
     m_northConnectionStatusBtn->setCursor(Qt::PointingHandCursor);
     m_northConnectionStatusBtn->setToolTip(QStringLiteral("点击查询当前北向 APP 与主站的协议连接状态"));

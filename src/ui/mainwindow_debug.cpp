@@ -1133,20 +1133,20 @@ void MainWindow::updateNorthConnectionStatusUi()
     const bool connected = client && client->isConnected();
     m_northConnectionStatusBtn->setEnabled(connected && !client->isExecutingCommand());
 
-    QString text = QStringLiteral("主站连接：调试未连接");
+    QString text = QStringLiteral("主站状态：调试未连接");
     QString tooltip = QStringLiteral("连接当前 APP 的调试端口后，将自动查询主站协议连接状态");
     QString foreground = QStringLiteral("#667085");
     QString background = QStringLiteral("#f2f4f7");
     QString border = QStringLiteral("#d0d5dd");
 
     if (connected && session->pendingDataTableCommand == QStringLiteral("northconn")) {
-        text = QStringLiteral("主站连接：查询中...");
+        text = QStringLiteral("主站状态：查询中...");
         tooltip = QStringLiteral("正在执行 northconn 查询");
         foreground = QStringLiteral("#175cd3");
         background = QStringLiteral("#eff8ff");
         border = QStringLiteral("#84caff");
     } else if (connected && session && !session->northConnectionStatusError.isEmpty()) {
-        text = QStringLiteral("主站连接：查询失败");
+        text = QStringLiteral("主站状态：查询失败");
         tooltip = QStringLiteral("northconn 查询失败：%1\n点击重试").arg(session->northConnectionStatusError);
         foreground = QStringLiteral("#b42318");
         background = QStringLiteral("#fef3f2");
@@ -1158,32 +1158,32 @@ void MainWindow::updateNorthConnectionStatusUi()
         const int onlineCount = status.value(QStringLiteral("protocol_online_connections")).toInt();
 
         if (state == QStringLiteral("online")) {
-            text = QStringLiteral("主站连接：在线（%1）").arg(onlineCount);
+            text = QStringLiteral("主站状态：在线（%1）").arg(onlineCount);
             foreground = QStringLiteral("#027a48");
             background = QStringLiteral("#ecfdf3");
             border = QStringLiteral("#6ce9a6");
         } else if (state == QStringLiteral("partial")) {
-            text = QStringLiteral("主站连接：部分在线（%1/%2）").arg(onlineCount).arg(transportCount);
+            text = QStringLiteral("主站状态：部分在线（%1/%2）").arg(onlineCount).arg(transportCount);
             foreground = QStringLiteral("#b54708");
             background = QStringLiteral("#fffaeb");
             border = QStringLiteral("#fec84b");
         } else if (state == QStringLiteral("connecting")) {
-            text = QStringLiteral("主站连接：协议连接中");
+            text = QStringLiteral("主站状态：协议连接中");
             foreground = QStringLiteral("#175cd3");
             background = QStringLiteral("#eff8ff");
             border = QStringLiteral("#84caff");
         } else if (state == QStringLiteral("not_listening")) {
-            text = QStringLiteral("主站连接：未监听");
+            text = QStringLiteral("主站状态：未监听");
             foreground = QStringLiteral("#b42318");
             background = QStringLiteral("#fef3f2");
             border = QStringLiteral("#fda29b");
         } else if (state == QStringLiteral("offline")) {
-            text = QStringLiteral("主站连接：离线");
+            text = QStringLiteral("主站状态：离线");
             foreground = QStringLiteral("#b42318");
             background = QStringLiteral("#fef3f2");
             border = QStringLiteral("#fda29b");
         } else {
-            text = QStringLiteral("主站连接：未知状态");
+            text = QStringLiteral("主站状态：未知状态");
             foreground = QStringLiteral("#667085");
             background = QStringLiteral("#f2f4f7");
             border = QStringLiteral("#d0d5dd");
@@ -1216,7 +1216,7 @@ void MainWindow::updateNorthConnectionStatusUi()
         details << QStringLiteral("点击立即刷新");
         tooltip = details.join(QLatin1Char('\n'));
     } else if (connected) {
-        text = QStringLiteral("主站连接：未查询");
+        text = QStringLiteral("主站状态：未查询");
         tooltip = QStringLiteral("点击查询当前北向 APP 与主站的协议连接状态");
     }
 
