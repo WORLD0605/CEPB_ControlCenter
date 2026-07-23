@@ -12,6 +12,9 @@
 #include <QGridLayout>
 #include <QHash>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QLayout>
@@ -89,6 +92,13 @@ bool isServiceChannelApp(const AppConfig &appConfig)
            appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0 ||
            appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0 ||
            appConfig.name.compare(QStringLiteral("North_Mqtt"), Qt::CaseInsensitive) == 0;
+}
+
+bool supportsNorthConnectionStatus(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("North_CEP"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0;
 }
 
 bool isModbusApp(const AppConfig &appConfig)
@@ -628,9 +638,15 @@ void MainWindow::onConnected()
         m_dataRefFilterEdit->setEnabled(dataTableApp);
         m_autoRefreshCombo->setEnabled(true);
         updateControlCommandUi();
-        requestServiceChannelData(false);
+        if (supportsNorthConnectionStatus(appConfig)) {
+            requestNorthConnectionStatus(session);
+        } else {
+            requestServiceChannelData(false);
+        }
         updateAutoRefreshTimer();
     }
+    updateNorthConnectionStatusUi();
+    updateNorthConnectionStatusTimer();
 }
 
 void MainWindow::onDisconnected()
@@ -652,6 +668,8 @@ void MainWindow::onDisconnected()
     session->logicAgcAvcItems.clear();
     session->serviceChannelDataFrozen = false;
     session->pendingDataFreezeMode.clear();
+    session->northConnectionStatus = QJsonObject();
+    session->northConnectionStatusError.clear();
 
     if (session != currentDebugSession()) {
         appendSystem(QStringLiteral("%1 disconnected").arg(appConfig.name), "#ff4500");
@@ -659,11 +677,13 @@ void MainWindow::onDisconnected()
     }
 
     m_autoRefreshTimer->stop();
+    m_northConnectionStatusTimer->stop();
     m_highlightRefreshTimer->stop();
     m_controlResponseTimer->stop();
     updateUIState(false);
     appendSystem(QStringLiteral("已断开"), "#ff4500");
     m_statusLabel->setText(QStringLiteral("未连接"));
+    updateNorthConnectionStatusUi();
 
     if (isDataViewApp(currentAppConfig())) {
         refreshDeviceFilterOptions();
@@ -696,10 +716,12 @@ void MainWindow::onError(const QString &err)
     appendSystem(QStringLiteral("错误: ") + err, "#ff4444");
     if (session == currentDebugSession()) {
         m_autoRefreshTimer->stop();
+        m_northConnectionStatusTimer->stop();
         m_highlightRefreshTimer->stop();
         m_controlResponseTimer->stop();
         updateUIState(false);
         m_statusLabel->setText(QStringLiteral("连接错误"));
+        updateNorthConnectionStatusUi();
     }
 }
 
@@ -733,6 +755,37 @@ void MainWindow::onCommandReply(const QString &reply)
     const QString appName = appConfig.name;
     const QString pendingCommand = session->pendingDataTableCommand;
     session->pendingDataTableCommand.clear();
+
+    if (pendingCommand == QStringLiteral("northconn")) {
+        QString jsonText;
+        for (const QString &rawLine : reply.split(QLatin1Char('\n'))) {
+            const QString line = rawLine.trimmed();
+            if (line.startsWith(QStringLiteral("RESULT "))) {
+                jsonText = line.mid(7).trimmed();
+                break;
+            }
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(jsonText.toUtf8(), &parseError);
+        if (!jsonText.isEmpty() && parseError.error == QJsonParseError::NoError && document.isObject()) {
+            session->northConnectionStatus = document.object();
+            session->northConnectionStatusError.clear();
+        } else {
+            session->northConnectionStatus = QJsonObject();
+            session->northConnectionStatusError = jsonText.isEmpty()
+                ? (reply.trimmed().isEmpty() ? QStringLiteral("未收到 RESULT JSON") : reply.trimmed())
+                : parseError.errorString();
+        }
+
+        if (isCurrentSession) {
+            updateNorthConnectionStatusUi();
+            if (session->serviceChannelItems.isEmpty()) {
+                requestServiceChannelData(false);
+            }
+        }
+        return;
+    }
 
     if (appConfig.viewMode == AppViewMode::LogicAgcAvcTable) {
         if (pendingCommand == QStringLiteral("datawrite")) {
@@ -1013,11 +1066,14 @@ void MainWindow::applyCurrentAppView()
         updateUIState(false);
         m_autoRefreshTimer->stop();
         m_highlightRefreshTimer->stop();
+        m_northConnectionStatusTimer->stop();
     } else {
         updateUIState(true);
         updateAutoRefreshTimer();
         updateHighlightRefreshTimer();
     }
+    updateNorthConnectionStatusUi();
+    updateNorthConnectionStatusTimer();
     updateControlCommandUi();
 }
 
@@ -1033,6 +1089,157 @@ AppConfig MainWindow::currentAppConfig() const
     }
 
     return AppConfig{};
+}
+
+void MainWindow::requestNorthConnectionStatus(DebugAppSession *session, bool logRequest)
+{
+    if (!session) {
+        session = currentDebugSession();
+    }
+    const AppConfig appConfig = appConfigForSession(session);
+    if (!session || !supportsNorthConnectionStatus(appConfig)) {
+        return;
+    }
+
+    DebugConsoleClient *client = session->client;
+    if (!client || !client->isConnected() || client->isExecutingCommand()) {
+        updateNorthConnectionStatusUi();
+        return;
+    }
+
+    if (logRequest && session == currentDebugSession()) {
+        appendSystem(QStringLiteral("=> northconn"), "#aaaaaa");
+    }
+    session->pendingDataTableCommand = QStringLiteral("northconn");
+    client->sendCommand(QStringLiteral("northconn"));
+    updateNorthConnectionStatusUi();
+}
+
+void MainWindow::updateNorthConnectionStatusUi()
+{
+    if (!m_northConnectionStatusBtn) {
+        return;
+    }
+
+    const AppConfig appConfig = currentAppConfig();
+    const bool supported = supportsNorthConnectionStatus(appConfig);
+    m_northConnectionStatusBtn->setVisible(supported);
+    if (!supported) {
+        return;
+    }
+
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    const bool connected = client && client->isConnected();
+    m_northConnectionStatusBtn->setEnabled(connected && !client->isExecutingCommand());
+
+    QString text = QStringLiteral("主站连接：调试未连接");
+    QString tooltip = QStringLiteral("连接当前 APP 的调试端口后，将自动查询主站协议连接状态");
+    QString foreground = QStringLiteral("#667085");
+    QString background = QStringLiteral("#f2f4f7");
+    QString border = QStringLiteral("#d0d5dd");
+
+    if (connected && session->pendingDataTableCommand == QStringLiteral("northconn")) {
+        text = QStringLiteral("主站连接：查询中...");
+        tooltip = QStringLiteral("正在执行 northconn 查询");
+        foreground = QStringLiteral("#175cd3");
+        background = QStringLiteral("#eff8ff");
+        border = QStringLiteral("#84caff");
+    } else if (connected && session && !session->northConnectionStatusError.isEmpty()) {
+        text = QStringLiteral("主站连接：查询失败");
+        tooltip = QStringLiteral("northconn 查询失败：%1\n点击重试").arg(session->northConnectionStatusError);
+        foreground = QStringLiteral("#b42318");
+        background = QStringLiteral("#fef3f2");
+        border = QStringLiteral("#fda29b");
+    } else if (connected && session && !session->northConnectionStatus.isEmpty()) {
+        const QJsonObject status = session->northConnectionStatus;
+        const QString state = status.value(QStringLiteral("state")).toString();
+        const int transportCount = status.value(QStringLiteral("transport_connections")).toInt();
+        const int onlineCount = status.value(QStringLiteral("protocol_online_connections")).toInt();
+
+        if (state == QStringLiteral("online")) {
+            text = QStringLiteral("主站连接：在线（%1）").arg(onlineCount);
+            foreground = QStringLiteral("#027a48");
+            background = QStringLiteral("#ecfdf3");
+            border = QStringLiteral("#6ce9a6");
+        } else if (state == QStringLiteral("partial")) {
+            text = QStringLiteral("主站连接：部分在线（%1/%2）").arg(onlineCount).arg(transportCount);
+            foreground = QStringLiteral("#b54708");
+            background = QStringLiteral("#fffaeb");
+            border = QStringLiteral("#fec84b");
+        } else if (state == QStringLiteral("connecting")) {
+            text = QStringLiteral("主站连接：协议连接中");
+            foreground = QStringLiteral("#175cd3");
+            background = QStringLiteral("#eff8ff");
+            border = QStringLiteral("#84caff");
+        } else if (state == QStringLiteral("not_listening")) {
+            text = QStringLiteral("主站连接：未监听");
+            foreground = QStringLiteral("#b42318");
+            background = QStringLiteral("#fef3f2");
+            border = QStringLiteral("#fda29b");
+        } else if (state == QStringLiteral("offline")) {
+            text = QStringLiteral("主站连接：离线");
+            foreground = QStringLiteral("#b42318");
+            background = QStringLiteral("#fef3f2");
+            border = QStringLiteral("#fda29b");
+        } else {
+            text = QStringLiteral("主站连接：未知状态");
+            foreground = QStringLiteral("#667085");
+            background = QStringLiteral("#f2f4f7");
+            border = QStringLiteral("#d0d5dd");
+        }
+
+        QStringList details;
+        details << QStringLiteral("APP：%1").arg(status.value(QStringLiteral("app")).toString(appConfig.name));
+        details << QStringLiteral("协议：%1").arg(status.value(QStringLiteral("protocol")).toString());
+        details << QStringLiteral("状态：%1").arg(state);
+        details << QStringLiteral("监听：%1").arg(status.value(QStringLiteral("listening")).toBool()
+                                                     ? QStringLiteral("是") : QStringLiteral("否"));
+        details << QStringLiteral("传输连接：%1，协议在线：%2").arg(transportCount).arg(onlineCount);
+        const QString checkedAt = status.value(QStringLiteral("checked_at")).toString();
+        if (!checkedAt.isEmpty()) {
+            details << QStringLiteral("查询时间：%1").arg(checkedAt);
+        }
+
+        const QJsonArray connections = status.value(QStringLiteral("connections")).toArray();
+        for (const QJsonValue &value : connections) {
+            const QJsonObject connection = value.toObject();
+            QString connectionText = QStringLiteral("- %1：%2")
+                .arg(connection.value(QStringLiteral("peer")).toString(QStringLiteral("unknown")),
+                     connection.value(QStringLiteral("protocol")).toString(QStringLiteral("unknown")));
+            const QString channel = connection.value(QStringLiteral("channel")).toString();
+            if (!channel.isEmpty()) {
+                connectionText += QStringLiteral("，通道=%1").arg(channel);
+            }
+            details << connectionText;
+        }
+        details << QStringLiteral("点击立即刷新");
+        tooltip = details.join(QLatin1Char('\n'));
+    } else if (connected) {
+        text = QStringLiteral("主站连接：未查询");
+        tooltip = QStringLiteral("点击查询当前北向 APP 与主站的协议连接状态");
+    }
+
+    m_northConnectionStatusBtn->setText(text);
+    m_northConnectionStatusBtn->setToolTip(tooltip);
+    m_northConnectionStatusBtn->setStyleSheet(QStringLiteral(
+        "QPushButton { color: %1; background-color: %2; border: 1px solid %3; "
+        "border-radius: 4px; padding: 4px 10px; font-weight: 600; }"
+        "QPushButton:hover { border-width: 2px; }"
+        "QPushButton:disabled { color: %1; background-color: %2; }")
+        .arg(foreground, background, border));
+}
+
+void MainWindow::updateNorthConnectionStatusTimer()
+{
+    DebugAppSession *session = currentDebugSession();
+    const AppConfig appConfig = appConfigForSession(session);
+    if (session && supportsNorthConnectionStatus(appConfig) &&
+        session->client && session->client->isConnected()) {
+        m_northConnectionStatusTimer->start();
+    } else {
+        m_northConnectionStatusTimer->stop();
+    }
 }
 
 void MainWindow::requestServiceChannelData(bool logRequest)

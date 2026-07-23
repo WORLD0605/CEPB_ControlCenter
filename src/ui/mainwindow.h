@@ -103,6 +103,8 @@ struct DebugAppSession {
     QString pendingDataWriteQuality;
     QString pendingDataFreezeMode;
     bool serviceChannelDataFrozen = false;
+    QJsonObject northConnectionStatus;
+    QString northConnectionStatusError;
 };
 
 class MainWindow : public QMainWindow
@@ -257,6 +259,9 @@ private:
     DebugConsoleClient *currentDebugClient() const;
     bool anyDebugClientConnected() const;
     void updateDebugAppTabText(DebugAppSession *session);
+    void requestNorthConnectionStatus(DebugAppSession *session = nullptr, bool logRequest = false);
+    void updateNorthConnectionStatusUi();
+    void updateNorthConnectionStatusTimer();
     void requestServiceChannelData(bool logRequest = true);
     QList<LogicAgcAvcStatusItem> parseLogicAgcAvcReply(const QString &reply) const;
     void populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &items);
@@ -513,6 +518,7 @@ private:
     QHash<QString, DebugAppSession *> m_debugSessions;
     configtool::ConfigProjectManager m_configProjectManager;
     QTimer *m_autoRefreshTimer = nullptr;
+    QTimer *m_northConnectionStatusTimer = nullptr;
     QTimer *m_highlightRefreshTimer = nullptr;
     QTimer *m_controlResponseTimer = nullptr;
     QList<AppConfig> m_appConfigs;
@@ -562,6 +568,7 @@ private:
     QTabBar *m_appTabBar = nullptr;
     QPushButton *m_connectBtn = nullptr;
     QPushButton *m_disconnectBtn = nullptr;
+    QPushButton *m_northConnectionStatusBtn = nullptr;
     QPushButton *m_selectConfigImportDirBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_openConfigDirBtn = nullptr;

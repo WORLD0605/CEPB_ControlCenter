@@ -781,6 +781,7 @@ QString themeStyleSheet(bool darkMode)
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_autoRefreshTimer(new QTimer(this))
+    , m_northConnectionStatusTimer(new QTimer(this))
     , m_highlightRefreshTimer(new QTimer(this))
     , m_controlResponseTimer(new QTimer(this))
 {
@@ -861,6 +862,13 @@ MainWindow::MainWindow(QWidget *parent)
         m_appTabBar->setTabData(tabIndex, index);
     }
     topLayout->addWidget(m_appTabBar, 1);
+
+    m_northConnectionStatusBtn = new QPushButton(QStringLiteral("主站连接：未查询"));
+    m_northConnectionStatusBtn->setMinimumWidth(150);
+    m_northConnectionStatusBtn->setCursor(Qt::PointingHandCursor);
+    m_northConnectionStatusBtn->setToolTip(QStringLiteral("点击查询当前北向 APP 与主站的协议连接状态"));
+    m_northConnectionStatusBtn->setVisible(false);
+    topLayout->addWidget(m_northConnectionStatusBtn);
 
     m_connectBtn = new QPushButton("连接");
     m_disconnectBtn = new QPushButton("断开");
@@ -2418,6 +2426,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConnectClicked);
     connect(m_disconnectBtn, &QPushButton::clicked,
             this, &MainWindow::onDisconnectClicked);
+    connect(m_northConnectionStatusBtn, &QPushButton::clicked,
+            this, [this]() { requestNorthConnectionStatus(nullptr, true); });
     connect(m_themeToggleBtn, &QPushButton::clicked,
             this, &MainWindow::onThemeToggleClicked);
     connect(m_appTabBar, &QTabBar::currentChanged,
@@ -2719,6 +2729,11 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceBindingItemChanged);
     connect(m_autoRefreshTimer, &QTimer::timeout,
             this, [this]() { requestServiceChannelData(false); });
+    // Deliberately offset from the 1/2/5/10-second data refresh periods so
+    // both commands do not repeatedly contend for the single console request.
+    m_northConnectionStatusTimer->setInterval(4500);
+    connect(m_northConnectionStatusTimer, &QTimer::timeout,
+            this, [this]() { requestNorthConnectionStatus(); });
     connect(m_highlightRefreshTimer, &QTimer::timeout,
             this, [this]() {
                 applyServiceChannelFilter();
