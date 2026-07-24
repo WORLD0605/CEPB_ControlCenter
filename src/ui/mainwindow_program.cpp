@@ -221,6 +221,46 @@ QString programActionAndStatusCommand(const QString &actionCommand,
              programStatusScanCommand(baseDir, appNames));
 }
 
+QString programBulkActionAndStatusCommand(const QString &action,
+                                          const QString &waitActiveState,
+                                          const QString &baseDir,
+                                          const QStringList &appNames)
+{
+    QStringList quotedServices;
+    quotedServices.reserve(appNames.size());
+    for (const QString &appName : appNames) {
+        quotedServices.append(remoteProgramShellQuote(programServiceNameForApp(appName)));
+    }
+
+    const QString services = quotedServices.join(QLatin1Char(' '));
+    return QStringLiteral(
+        "action_rc=0; services=%1; "
+        "for service in $services; do "
+        "load=$(systemctl show \"$service\" -p LoadState --value --no-page 2>/dev/null || true); "
+        "[ \"$load\" = \"not-found\" ] && continue; "
+        "systemctl %2 \"$service\" || action_rc=$?; "
+        "done; "
+        "if [ \"$action_rc\" -eq 0 ]; then "
+        "i=0; while [ \"$i\" -lt 15 ]; do "
+        "all_ready=1; "
+        "for service in $services; do "
+        "load=$(systemctl show \"$service\" -p LoadState --value --no-page 2>/dev/null || true); "
+        "[ \"$load\" = \"not-found\" ] && continue; "
+        "state=$(systemctl show \"$service\" -p ActiveState --value --no-page 2>/dev/null || true); "
+        "[ \"$state\" = %3 ] || all_ready=0; "
+        "done; "
+        "[ \"$all_ready\" -eq 1 ] && break; "
+        "sleep 0.2; i=$((i + 1)); "
+        "done; "
+        "fi; "
+        "%4"
+        "exit \"$action_rc\"")
+        .arg(remoteProgramShellQuote(services),
+             action,
+             remoteProgramShellQuote(waitActiveState),
+             programStatusScanCommand(baseDir, appNames));
+}
+
 QString legacyProgramStatusScanCommand(const QString &baseDir, const QStringList &appNames)
 {
     return QStringLiteral(
@@ -388,6 +428,18 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
                                  QStringLiteral("停止 %1 失败。\n\n%2").arg(appName, output));
             startProgramStatusRefresh();
             break;
+        case ProgramControlCommandKind::StartAll:
+            QMessageBox::warning(this,
+                                 QStringLiteral("APP管理"),
+                                 QStringLiteral("全部启动失败。\n\n%1").arg(output));
+            startProgramStatusRefresh();
+            break;
+        case ProgramControlCommandKind::StopAll:
+            QMessageBox::warning(this,
+                                 QStringLiteral("APP管理"),
+                                 QStringLiteral("全部停止失败。\n\n%1").arg(output));
+            startProgramStatusRefresh();
+            break;
         case ProgramControlCommandKind::ForceStop:
             QMessageBox::warning(this,
                                  QStringLiteral("APP管理"),
@@ -439,6 +491,8 @@ void MainWindow::finishProgramControlCommand(int exitCode, const QString &output
         break;
     case ProgramControlCommandKind::Start:
     case ProgramControlCommandKind::Stop:
+    case ProgramControlCommandKind::StartAll:
+    case ProgramControlCommandKind::StopAll:
     case ProgramControlCommandKind::ForceStop:
     case ProgramControlCommandKind::Restart:
     case ProgramControlCommandKind::EnableAutostart:
@@ -701,12 +755,24 @@ void MainWindow::updateProgramControlConnectionUi(bool connected)
     if (m_refreshProgramStatusBtn) {
         m_refreshProgramStatusBtn->setEnabled(connected && !m_programControlCommandRunning);
     }
+    if (m_startAllProgramsBtn) {
+        m_startAllProgramsBtn->setEnabled(connected && !m_programControlCommandRunning);
+    }
+    if (m_stopAllProgramsBtn) {
+        m_stopAllProgramsBtn->setEnabled(connected && !m_programControlCommandRunning);
+    }
 }
 
 void MainWindow::updateProgramControlBusyUi(bool busy)
 {
     if (m_refreshProgramStatusBtn) {
         m_refreshProgramStatusBtn->setEnabled(!busy && m_programControlConnected);
+    }
+    if (m_startAllProgramsBtn) {
+        m_startAllProgramsBtn->setEnabled(!busy && m_programControlConnected);
+    }
+    if (m_stopAllProgramsBtn) {
+        m_stopAllProgramsBtn->setEnabled(!busy && m_programControlConnected);
     }
     if (m_connectProgramControlBtn) {
         m_connectProgramControlBtn->setEnabled(!busy && !m_programControlConnected);
@@ -1200,6 +1266,52 @@ void MainWindow::onStopProgramClicked()
                                QStringLiteral("停止 %1").arg(appName),
                                ProgramControlCommandKind::Stop,
                                appName);
+}
+
+void MainWindow::onStartAllProgramsClicked()
+{
+    const QStringList appNames = managedProgramAppNames();
+    const QString command = programBulkActionAndStatusCommand(
+        QStringLiteral("start"),
+        QStringLiteral("active"),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        appNames);
+
+    for (const QString &appName : appNames) {
+        setProgramControlRowPending(appName, QStringLiteral("启动中"));
+    }
+    QApplication::processEvents();
+    startProgramControlCommand(command,
+                               QStringLiteral("全部启动"),
+                               ProgramControlCommandKind::StartAll);
+}
+
+void MainWindow::onStopAllProgramsClicked()
+{
+    const QMessageBox::StandardButton confirm = QMessageBox::warning(
+        this,
+        QStringLiteral("全部停止"),
+        QStringLiteral("将停止所有已安装的 APP，是否继续？"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const QStringList appNames = managedProgramAppNames();
+    const QString command = programBulkActionAndStatusCommand(
+        QStringLiteral("stop"),
+        QStringLiteral("inactive"),
+        trimRemoteBaseDir(configRemoteBaseDir()),
+        appNames);
+
+    for (const QString &appName : appNames) {
+        setProgramControlRowPending(appName, QStringLiteral("停止中"));
+    }
+    QApplication::processEvents();
+    startProgramControlCommand(command,
+                               QStringLiteral("全部停止"),
+                               ProgramControlCommandKind::StopAll);
 }
 
 void MainWindow::onForceStopProgramClicked()

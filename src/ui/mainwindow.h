@@ -125,6 +125,8 @@ private:
         RefreshStatus,
         Start,
         Stop,
+        StartAll,
+        StopAll,
         ForceStop,
         Restart,
         EnableAutostart,
@@ -210,6 +212,8 @@ private slots:
     void onDisconnectProgramControlClicked();
     void onStartProgramClicked();
     void onStopProgramClicked();
+    void onStartAllProgramsClicked();
+    void onStopAllProgramsClicked();
     void onForceStopProgramClicked();
     void onRestartProgramClicked();
     void onToggleProgramAutostartClicked();
@@ -682,6 +686,8 @@ private:
     QPushButton *m_refreshProgramStatusBtn = nullptr;
     QPushButton *m_connectProgramControlBtn = nullptr;
     QPushButton *m_disconnectProgramControlBtn = nullptr;
+    QPushButton *m_startAllProgramsBtn = nullptr;
+    QPushButton *m_stopAllProgramsBtn = nullptr;
     QProgressBar *m_systemStorageProgress = nullptr;
     QLabel *m_systemStorageValueLabel = nullptr;
     QProgressBar *m_appStorageProgress = nullptr;

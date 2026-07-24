@@ -1977,6 +1977,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_refreshProgramStatusBtn->setEnabled(false);
     programConnectionRow->addWidget(m_refreshProgramStatusBtn);
 
+    m_startAllProgramsBtn = new QPushButton(QStringLiteral("全部启动"), this);
+    m_startAllProgramsBtn->setEnabled(false);
+    m_startAllProgramsBtn->setToolTip(QStringLiteral("启动所有已安装的 APP"));
+    programConnectionRow->addWidget(m_startAllProgramsBtn);
+
+    m_stopAllProgramsBtn = new QPushButton(QStringLiteral("全部停止"), this);
+    m_stopAllProgramsBtn->setEnabled(false);
+    m_stopAllProgramsBtn->setToolTip(QStringLiteral("停止所有正在运行的 APP"));
+    programConnectionRow->addWidget(m_stopAllProgramsBtn);
+
     auto *storageSummaryFrame = new QFrame(m_programControlPage);
     storageSummaryFrame->setObjectName(QStringLiteral("deviceStorageSummary"));
     storageSummaryFrame->setFrameShape(QFrame::StyledPanel);
@@ -2576,6 +2586,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDisconnectProgramControlClicked);
     connect(m_refreshProgramStatusBtn, &QPushButton::clicked,
             this, &MainWindow::onRefreshProgramStatusClicked);
+    connect(m_startAllProgramsBtn, &QPushButton::clicked,
+            this, &MainWindow::onStartAllProgramsClicked);
+    connect(m_stopAllProgramsBtn, &QPushButton::clicked,
+            this, &MainWindow::onStopAllProgramsClicked);
     for (QLineEdit *edit : {m_logicAgcAvcGroupIdEdit, m_logicAgcAvcVirtualDeviceIdEdit}) {
         connect(edit, &QLineEdit::textEdited,
                 this, &MainWindow::onLogicAgcAvcBasicEdited);
