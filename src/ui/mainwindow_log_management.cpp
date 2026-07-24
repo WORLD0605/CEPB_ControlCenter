@@ -3,6 +3,7 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDate>
 #include <QDialog>
@@ -64,7 +65,12 @@ int positiveDays(const QJsonValue &value, int fallback)
 
 QSpinBox *retentionSpinBox(QTableWidget *table, int row)
 {
-    return table ? qobject_cast<QSpinBox *>(table->cellWidget(row, 1)) : nullptr;
+    return table ? qobject_cast<QSpinBox *>(table->cellWidget(row, 2)) : nullptr;
+}
+
+QCheckBox *retentionOverrideCheckBox(QTableWidget *table, int row)
+{
+    return table ? qobject_cast<QCheckBox *>(table->cellWidget(row, 1)) : nullptr;
 }
 
 QString remoteLogShellQuote(const QString &text)
@@ -143,37 +149,131 @@ void MainWindow::setupLogManagementPage()
     retentionLayout->setSpacing(10);
 
     auto *hint = new QLabel(
-        QStringLiteral("分别设置每个 APP 的日志和消息保留天数。保存后会写入工程 etc/system.json，"
+        QStringLiteral("默认所有 APP 使用全局保留天数。只有在高级设置中明确启用的 APP 才会单独覆盖。"
+                       "保存后会写入工程 etc/system.json，"
                        "随“上传到设备”一并下发；重启对应 APP 后生效。"),
         retentionPage);
     hint->setWordWrap(true);
     retentionLayout->addWidget(hint);
 
+    auto *globalRetentionWidget = new QWidget(retentionPage);
+    auto *globalRetentionForm = new QFormLayout(globalRetentionWidget);
+    globalRetentionForm->setContentsMargins(0, 0, 0, 0);
+    globalRetentionForm->setHorizontalSpacing(20);
+
+    m_globalLogRetentionDaysSpin = new QSpinBox(globalRetentionWidget);
+    m_globalLogRetentionDaysSpin->setRange(1, kMaximumRetentionDays);
+    m_globalLogRetentionDaysSpin->setSuffix(QStringLiteral(" 天"));
+    m_globalLogRetentionDaysSpin->setValue(kDefaultRetentionDays);
+    m_globalLogRetentionDaysSpin->setToolTip(QStringLiteral("写入 system.json 根级 LOGMAX"));
+    globalRetentionForm->addRow(QStringLiteral("全局日志保留天数:"), m_globalLogRetentionDaysSpin);
+
+    m_globalMsgRetentionDaysSpin = new QSpinBox(globalRetentionWidget);
+    m_globalMsgRetentionDaysSpin->setRange(1, kMaximumRetentionDays);
+    m_globalMsgRetentionDaysSpin->setSuffix(QStringLiteral(" 天"));
+    m_globalMsgRetentionDaysSpin->setValue(kDefaultRetentionDays);
+    m_globalMsgRetentionDaysSpin->setToolTip(QStringLiteral("写入 system.json 根级 MSGMAX"));
+    globalRetentionForm->addRow(QStringLiteral("全局消息保留天数:"), m_globalMsgRetentionDaysSpin);
+    retentionLayout->addWidget(globalRetentionWidget);
+
+    m_logAdvancedRetentionBtn = new QPushButton(retentionPage);
+    m_logAdvancedRetentionBtn->setCheckable(true);
+    m_logAdvancedRetentionBtn->setChecked(false);
+    retentionLayout->addWidget(m_logAdvancedRetentionBtn);
+
+    m_logAdvancedRetentionWidget = new QWidget(retentionPage);
+    auto *advancedRetentionLayout = new QVBoxLayout(m_logAdvancedRetentionWidget);
+    advancedRetentionLayout->setContentsMargins(0, 0, 0, 0);
+    advancedRetentionLayout->setSpacing(8);
+
+    auto *advancedHint = new QLabel(
+        QStringLiteral("勾选“启用”后，该 APP 才会写入 APP_LOG_RETENTION；取消勾选后将恢复继承全局设置。"),
+        m_logAdvancedRetentionWidget);
+    advancedHint->setWordWrap(true);
+    advancedRetentionLayout->addWidget(advancedHint);
+
     const QStringList appNames = logManagedAppNames();
-    m_logRetentionTable = new QTableWidget(appNames.size(), 2, retentionPage);
+    m_logRetentionTable = new QTableWidget(appNames.size(), 3, m_logAdvancedRetentionWidget);
     m_logRetentionTable->setHorizontalHeaderLabels(
-        {QStringLiteral("APP"), QStringLiteral("日志/消息保留天数")});
+        {QStringLiteral("APP"), QStringLiteral("启用"), QStringLiteral("日志/消息保留天数")});
     m_logRetentionTable->verticalHeader()->setVisible(false);
     m_logRetentionTable->setAlternatingRowColors(true);
     m_logRetentionTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_logRetentionTable->setFocusPolicy(Qt::NoFocus);
     m_logRetentionTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_logRetentionTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_logRetentionTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
 
     for (int row = 0; row < appNames.size(); ++row) {
         auto *appItem = new QTableWidgetItem(appNames.at(row));
         appItem->setFlags(appItem->flags() & ~Qt::ItemIsEditable);
         m_logRetentionTable->setItem(row, 0, appItem);
 
+        auto *enabledCheck = new QCheckBox(m_logRetentionTable);
+        enabledCheck->setChecked(false);
+        enabledCheck->setToolTip(QStringLiteral("启用后为此 APP 单独写入保留策略"));
+        m_logRetentionTable->setCellWidget(row, 1, enabledCheck);
+
         auto *spin = new QSpinBox(m_logRetentionTable);
         spin->setRange(1, kMaximumRetentionDays);
         spin->setSuffix(QStringLiteral(" 天"));
         spin->setAlignment(Qt::AlignCenter);
         spin->setValue(kDefaultRetentionDays);
+        spin->setEnabled(false);
         spin->setToolTip(QStringLiteral("允许 1～3650 天，默认 7 天"));
-        m_logRetentionTable->setCellWidget(row, 1, spin);
+        m_logRetentionTable->setCellWidget(row, 2, spin);
+
+        connect(enabledCheck, &QCheckBox::toggled, spin, &QSpinBox::setEnabled);
     }
-    retentionLayout->addWidget(m_logRetentionTable, 1);
+    advancedRetentionLayout->addWidget(m_logRetentionTable, 1);
+    m_logAdvancedRetentionWidget->setVisible(false);
+    retentionLayout->addWidget(m_logAdvancedRetentionWidget, 1);
+
+    const auto updateAdvancedButtonText = [this]() {
+        int enabledCount = 0;
+        if (m_logRetentionTable) {
+            for (int row = 0; row < m_logRetentionTable->rowCount(); ++row) {
+                const QCheckBox *check = retentionOverrideCheckBox(m_logRetentionTable, row);
+                if (check && check->isChecked()) {
+                    ++enabledCount;
+                }
+            }
+        }
+        if (m_logAdvancedRetentionBtn) {
+            m_logAdvancedRetentionBtn->setText(
+                QStringLiteral("%1高级设置：按 APP 单独覆盖（已启用 %2 项）")
+                    .arg(m_logAdvancedRetentionBtn->isChecked()
+                             ? QStringLiteral("收起")
+                             : QStringLiteral("展开"),
+                         QString::number(enabledCount)));
+        }
+    };
+    connect(m_logAdvancedRetentionBtn, &QPushButton::toggled,
+            this, [this, updateAdvancedButtonText](bool checked) {
+                if (m_logAdvancedRetentionWidget) {
+                    m_logAdvancedRetentionWidget->setVisible(checked);
+                }
+                updateAdvancedButtonText();
+            });
+    for (int row = 0; row < m_logRetentionTable->rowCount(); ++row) {
+        if (QCheckBox *check = retentionOverrideCheckBox(m_logRetentionTable, row)) {
+            connect(check, &QCheckBox::toggled, this, [updateAdvancedButtonText](bool) {
+                updateAdvancedButtonText();
+            });
+        }
+    }
+    connect(m_globalLogRetentionDaysSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int days) {
+                for (int row = 0; row < m_logRetentionTable->rowCount(); ++row) {
+                    const QCheckBox *check = retentionOverrideCheckBox(m_logRetentionTable, row);
+                    if (!check || !check->isChecked()) {
+                        if (QSpinBox *spin = retentionSpinBox(m_logRetentionTable, row)) {
+                            spin->setValue(days);
+                        }
+                    }
+                }
+            });
+    updateAdvancedButtonText();
 
     auto *retentionButtonRow = new QHBoxLayout();
     retentionButtonRow->addStretch();
@@ -809,12 +909,22 @@ void MainWindow::downloadDeviceLogFiles(bool selectedOnly)
 
 void MainWindow::resetLogRetentionDays()
 {
+    if (m_globalLogRetentionDaysSpin) {
+        m_globalLogRetentionDaysSpin->setValue(kDefaultRetentionDays);
+    }
+    if (m_globalMsgRetentionDaysSpin) {
+        m_globalMsgRetentionDaysSpin->setValue(kDefaultRetentionDays);
+    }
     if (!m_logRetentionTable) {
         return;
     }
     for (int row = 0; row < m_logRetentionTable->rowCount(); ++row) {
+        if (QCheckBox *check = retentionOverrideCheckBox(m_logRetentionTable, row)) {
+            check->setChecked(false);
+        }
         if (QSpinBox *spin = retentionSpinBox(m_logRetentionTable, row)) {
             spin->setValue(kDefaultRetentionDays);
+            spin->setEnabled(false);
         }
     }
 }
@@ -863,15 +973,23 @@ bool MainWindow::loadLogRetentionConfigFromProject(const QString &projectRoot,
     }
 
     const QJsonObject rootObject = document.object();
-    int legacyDays = positiveDays(rootObject.value(QStringLiteral("LOGMAX")), -1);
-    if (legacyDays <= 0) {
-        legacyDays = positiveDays(rootObject.value(QStringLiteral("MSGMAX")), kDefaultRetentionDays);
+    const int globalLogDays =
+        positiveDays(rootObject.value(QStringLiteral("LOGMAX")), kDefaultRetentionDays);
+    const int globalMsgDays =
+        positiveDays(rootObject.value(QStringLiteral("MSGMAX")), kDefaultRetentionDays);
+    if (m_globalLogRetentionDaysSpin) {
+        m_globalLogRetentionDaysSpin->setValue(globalLogDays);
     }
+    if (m_globalMsgRetentionDaysSpin) {
+        m_globalMsgRetentionDaysSpin->setValue(globalMsgDays);
+    }
+    const int legacyDays = globalLogDays;
     const QJsonObject appRetention = rootObject.value(QStringLiteral("APP_LOG_RETENTION")).toObject();
 
     for (int row = 0; row < m_logRetentionTable->rowCount(); ++row) {
         const QString appName = m_logRetentionTable->item(row, 0)->text();
         const QJsonValue appValue = appRetention.value(appName);
+        const bool hasOverride = !appValue.isUndefined();
         int days = legacyDays;
         if (appValue.isObject()) {
             const QJsonObject appObject = appValue.toObject();
@@ -881,6 +999,10 @@ bool MainWindow::loadLogRetentionConfigFromProject(const QString &projectRoot,
         }
         if (QSpinBox *spin = retentionSpinBox(m_logRetentionTable, row)) {
             spin->setValue(days);
+            spin->setEnabled(hasOverride);
+        }
+        if (QCheckBox *check = retentionOverrideCheckBox(m_logRetentionTable, row)) {
+            check->setChecked(hasOverride);
         }
     }
 
@@ -943,20 +1065,31 @@ bool MainWindow::saveLogRetentionConfigToProject(QString *errorMessage)
     QJsonObject appRetention = rootObject.value(QStringLiteral("APP_LOG_RETENTION")).toObject();
     for (int row = 0; row < m_logRetentionTable->rowCount(); ++row) {
         const QString appName = m_logRetentionTable->item(row, 0)->text();
+        appRetention.remove(appName);
+        const QCheckBox *check = retentionOverrideCheckBox(m_logRetentionTable, row);
+        if (!check || !check->isChecked()) {
+            continue;
+        }
         const QSpinBox *spin = retentionSpinBox(m_logRetentionTable, row);
         const int days = spin ? spin->value() : kDefaultRetentionDays;
-        QJsonObject appObject = appRetention.value(appName).toObject();
+        QJsonObject appObject;
         appObject.insert(QStringLiteral("LOGMAX"), days);
         appObject.insert(QStringLiteral("MSGMAX"), days);
         appRetention.insert(appName, appObject);
     }
-    rootObject.insert(QStringLiteral("APP_LOG_RETENTION"), appRetention);
-    if (!rootObject.contains(QStringLiteral("LOGMAX"))) {
-        rootObject.insert(QStringLiteral("LOGMAX"), kDefaultRetentionDays);
+    if (appRetention.isEmpty()) {
+        rootObject.remove(QStringLiteral("APP_LOG_RETENTION"));
+    } else {
+        rootObject.insert(QStringLiteral("APP_LOG_RETENTION"), appRetention);
     }
-    if (!rootObject.contains(QStringLiteral("MSGMAX"))) {
-        rootObject.insert(QStringLiteral("MSGMAX"), kDefaultRetentionDays);
-    }
+    rootObject.insert(QStringLiteral("LOGMAX"),
+                      m_globalLogRetentionDaysSpin
+                          ? m_globalLogRetentionDaysSpin->value()
+                          : kDefaultRetentionDays);
+    rootObject.insert(QStringLiteral("MSGMAX"),
+                      m_globalMsgRetentionDaysSpin
+                          ? m_globalMsgRetentionDaysSpin->value()
+                          : kDefaultRetentionDays);
 
     QSaveFile output(filePath);
     if (!output.open(QIODevice::WriteOnly | QIODevice::Text)) {

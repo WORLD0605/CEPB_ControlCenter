@@ -3,11 +3,15 @@
 
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QSaveFile>
 #include <QUrl>
 
 using namespace cepb_config_helpers;
 
 namespace {
+
+const QString kDefaultGatewayId = QStringLiteral("00010002000300040005032");
+const QString kDefaultGatewayName = QStringLiteral("南网科技边缘网关");
 
 struct ConfigAppDirMigration {
     QString newName;
@@ -224,6 +228,12 @@ QStringList configAppFolderNames()
 
 void MainWindow::clearNorthCepConfigPage()
 {
+    if (m_northCepGatewayIdEdit) {
+        m_northCepGatewayIdEdit->setText(kDefaultGatewayId);
+    }
+    if (m_northCepGatewayNameEdit) {
+        m_northCepGatewayNameEdit->setText(kDefaultGatewayName);
+    }
     if (m_northCepManagementPortEdit) {
         m_northCepManagementPortEdit->setText(QStringLiteral("9901"));
     }
@@ -285,8 +295,89 @@ void MainWindow::loadNorthCepMainstationConfig(const QString &filePath, configto
     }
 }
 
+void MainWindow::loadNorthCepSystemConfig(const QString &filePath,
+                                          configtool::ImportReport &report)
+{
+    if (m_northCepGatewayIdEdit) {
+        m_northCepGatewayIdEdit->setText(kDefaultGatewayId);
+    }
+    if (m_northCepGatewayNameEdit) {
+        m_northCepGatewayNameEdit->setText(kDefaultGatewayName);
+    }
+
+    QFile file(filePath);
+    if (!file.exists()) {
+        return;
+    }
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("无法读取 system.json 中的网关信息，已使用默认值: %1")
+                            .arg(file.errorString()));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("system.json 格式无效，网关 ID 和名称已使用默认值"));
+        return;
+    }
+
+    const QJsonObject root = document.object();
+    const QString gatewayId = root.value(QStringLiteral("gateWayId")).toString().trimmed();
+    const QString gatewayName = root.value(QStringLiteral("gateWayName")).toString().trimmed();
+    if (!gatewayId.isEmpty()) {
+        m_northCepGatewayIdEdit->setText(gatewayId);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("gateWayId 缺失或为空，已使用默认值"));
+    }
+    if (!gatewayName.isEmpty()) {
+        m_northCepGatewayNameEdit->setText(gatewayName);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("gateWayName 缺失或为空，已使用默认值"));
+    }
+}
+
 bool MainWindow::validateNorthCepConfig(QString *errorMessage) const
 {
+    const QString gatewayId = m_northCepGatewayIdEdit
+        ? m_northCepGatewayIdEdit->text().trimmed()
+        : QString();
+    const QString gatewayName = m_northCepGatewayNameEdit
+        ? m_northCepGatewayNameEdit->text().trimmed()
+        : QString();
+    if (gatewayId.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("网关 ID 不能为空。");
+        }
+        return false;
+    }
+    if (gatewayId.toUtf8().size() > 24) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("网关 ID 的 UTF-8 编码长度不能超过 24 字节。");
+        }
+        return false;
+    }
+    if (gatewayName.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("网关名称不能为空。");
+        }
+        return false;
+    }
+    if (gatewayName.toUtf8().size() > 63) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("网关名称的 UTF-8 编码长度不能超过 63 字节。");
+        }
+        return false;
+    }
+
     const QString managementPortText = m_northCepManagementPortEdit
         ? m_northCepManagementPortEdit->text().trimmed()
         : QString();
@@ -313,6 +404,84 @@ bool MainWindow::validateNorthCepConfig(QString *errorMessage) const
         if (errorMessage) {
             *errorMessage = QStringLiteral("管理通道端口和数据通道端口不能相同。");
         }
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::writeNorthCepSystemConfig(const QString &projectRoot,
+                                           configtool::ExportReport &report) const
+{
+    const QString etcDirPath = QDir(projectRoot).filePath(QStringLiteral("etc"));
+    const QString filePath = QDir(etcDirPath).filePath(QStringLiteral("system.json"));
+    if (!QDir().mkpath(etcDirPath)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法创建 system.json 配置目录: %1").arg(etcDirPath));
+        return false;
+    }
+
+    QJsonObject root;
+    QFile existing(filePath);
+    if (existing.exists()) {
+        if (!existing.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            report.addIssue(configtool::ImportIssueSeverity::Error,
+                            filePath,
+                            QStringLiteral("无法读取现有 system.json: %1").arg(existing.errorString()));
+            return false;
+        }
+        const QByteArray existingData = existing.readAll();
+        existing.close();
+
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(existingData, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            report.addIssue(configtool::ImportIssueSeverity::Error,
+                            filePath,
+                            QStringLiteral("现有 system.json 格式无效，已停止覆盖"));
+            return false;
+        }
+        root = document.object();
+    }
+
+    root.insert(QStringLiteral("gateWayId"), m_northCepGatewayIdEdit->text().trimmed());
+    root.insert(QStringLiteral("gateWayName"), m_northCepGatewayNameEdit->text().trimmed());
+
+    // 当前 North_CEP 仍依赖这组兼容字段，但暂不在上位机开放编辑。
+    root.insert(QStringLiteral("sendPriv"),
+                QStringLiteral("116fb2240aecd69a82dee47153abd8e467bba75bc502cf72d05922f6281482d1"));
+    root.insert(QStringLiteral("sendPubX"),
+                QStringLiteral("43ccdb8a0c97bef4c39c29f784cb6a5979449eefa6ba616b512513ebb6993344"));
+    root.insert(QStringLiteral("sendPubY"),
+                QStringLiteral("d37dda9c264909ae165dec4e256d978162165d92a6f9614612801d3469919394"));
+    root.insert(QStringLiteral("recvPubX"),
+                QStringLiteral("9c43b06e168e5bf6e68e4df1d75b54306beb82258aa14ea005f2acba5abfbb08"));
+    root.insert(QStringLiteral("recvPubY"),
+                QStringLiteral("c07bbabb74888422d4ce26142ededd78baa4b63b7fa27775f875c18834d9b7b7"));
+    root.insert(QStringLiteral("baseHostPath"), QStringLiteral("/home/cepgateway/app"));
+    root.insert(QStringLiteral("baseContainerPath"), QStringLiteral("/opt/app"));
+    root.insert(QStringLiteral("baseEnvirPath"), QStringLiteral("/opt/app/lib"));
+    root.insert(QStringLiteral("baseImage"), QStringLiteral("centos:latest"));
+
+    QSaveFile output(filePath);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法写入 system.json: %1").arg(output.errorString()));
+        return false;
+    }
+    const QByteArray outputData = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    if (output.write(outputData) != outputData.size()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("写入 system.json 失败: %1").arg(output.errorString()));
+        output.cancelWriting();
+        return false;
+    }
+    if (!output.commit()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("提交 system.json 失败: %1").arg(output.errorString()));
         return false;
     }
     return true;
@@ -427,6 +596,9 @@ void MainWindow::onImportIec104ConfigClicked()
     } else {
         clearNorthCepConfigPage();
     }
+    loadNorthCepSystemConfig(
+        QDir(projectRoot).filePath(QStringLiteral("etc/system.json")),
+        report);
     // ---- IEC101 配置（可选） ----
     if (!iec101AppDir.isEmpty()) {
         const QString iec101ConfigPath = findIec101LocalhostConfig(projectRoot, report);
@@ -491,6 +663,7 @@ void MainWindow::onExportIec104ConfigClicked()
                         logRetentionError);
         ok = false;
     }
+    ok = writeNorthCepSystemConfig(projectRoot, report) && ok;
 
     const QString iec104AppDir = QDir(projectRoot).filePath(QStringLiteral("South_104"));
     const QString modbusAppDir = QDir(projectRoot).filePath(QStringLiteral("South_Modbus"));

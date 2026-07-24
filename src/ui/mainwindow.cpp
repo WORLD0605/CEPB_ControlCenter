@@ -2070,6 +2070,18 @@ MainWindow::MainWindow(QWidget *parent)
     northCepForm->setHorizontalSpacing(24);
     northCepForm->setVerticalSpacing(10);
 
+    m_northCepGatewayIdEdit = new QLineEdit(QStringLiteral("00010002000300040005032"), this);
+    m_northCepGatewayIdEdit->setMaximumWidth(360);
+    m_northCepGatewayIdEdit->setToolTip(
+        QStringLiteral("写入工程 etc/system.json 的 gateWayId，不能为空且 UTF-8 编码后不能超过 24 字节"));
+    northCepForm->addRow(QStringLiteral("网关 ID:"), m_northCepGatewayIdEdit);
+
+    m_northCepGatewayNameEdit = new QLineEdit(QStringLiteral("南网科技边缘网关"), this);
+    m_northCepGatewayNameEdit->setMaximumWidth(360);
+    m_northCepGatewayNameEdit->setToolTip(
+        QStringLiteral("写入工程 etc/system.json 的 gateWayName，不能为空且 UTF-8 编码后不能超过 63 字节"));
+    northCepForm->addRow(QStringLiteral("网关名称:"), m_northCepGatewayNameEdit);
+
     m_northCepManagementPortEdit = new QLineEdit(QStringLiteral("9901"), this);
     m_northCepManagementPortEdit->setValidator(new QIntValidator(1, 65535, m_northCepManagementPortEdit));
     m_northCepManagementPortEdit->setMaximumWidth(240);
@@ -2081,7 +2093,8 @@ MainWindow::MainWindow(QWidget *parent)
     northCepForm->addRow(QStringLiteral("数据通道端口:"), m_northCepDataPortEdit);
 
     auto *northCepHintLabel = new QLabel(
-        QStringLiteral("监听地址及允许接入地址使用系统默认值。上传修改后需重启 North_CEP 生效。"),
+        QStringLiteral("网关 ID 和名称导出到工程 etc/system.json；端口导出到 North_CEP/etc/mainstation.json。"
+                       "上传修改后需重启 North_CEP 生效。"),
         this);
     northCepHintLabel->setWordWrap(true);
     northCepForm->addRow(QString(), northCepHintLabel);
@@ -2494,6 +2507,9 @@ MainWindow::MainWindow(QWidget *parent)
             if (!loadLogRetentionConfigFromProject(projectRoot, &errorMessage) && !errorMessage.isEmpty()) {
                 QMessageBox::warning(this, QStringLiteral("日志管理"), errorMessage);
             }
+        }
+        if (m_logAdvancedRetentionBtn) {
+            m_logAdvancedRetentionBtn->setChecked(false);
         }
         m_logManagementPage->show();
         m_logManagementPage->raise();

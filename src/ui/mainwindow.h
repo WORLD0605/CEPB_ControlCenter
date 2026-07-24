@@ -335,7 +335,10 @@ private:
     QString resolveIec104ServiceChannelAppDir(const QString &projectRoot) const;
     void clearNorthCepConfigPage();
     void loadNorthCepMainstationConfig(const QString &filePath, configtool::ImportReport &report);
+    void loadNorthCepSystemConfig(const QString &filePath, configtool::ImportReport &report);
     bool validateNorthCepConfig(QString *errorMessage = nullptr) const;
+    bool writeNorthCepSystemConfig(const QString &projectRoot,
+                                   configtool::ExportReport &report) const;
     QJsonObject serializeIec101LocalhostConfig() const;
     void loadIec101LocalhostConfigFromFile(const QString &filePath);
     void loadIec101LocalhostConfigFromJson(const QJsonObject &root);
@@ -686,6 +689,10 @@ private:
     QTextEdit *m_networkPingOutput = nullptr;
     QString m_loadedNetworkProjectRoot;
     QTableWidget *m_logRetentionTable = nullptr;
+    QSpinBox *m_globalLogRetentionDaysSpin = nullptr;
+    QSpinBox *m_globalMsgRetentionDaysSpin = nullptr;
+    QPushButton *m_logAdvancedRetentionBtn = nullptr;
+    QWidget *m_logAdvancedRetentionWidget = nullptr;
     QPushButton *m_saveLogRetentionBtn = nullptr;
     QLabel *m_logRetentionProjectLabel = nullptr;
     QString m_loadedLogRetentionProjectRoot;
@@ -778,6 +785,8 @@ private:
     QLineEdit *m_dlt645PasswordEdit = nullptr;
     QGroupBox *m_dlt645ParamsGroupBox = nullptr;
     // North_CEP 配置页面控件
+    QLineEdit *m_northCepGatewayIdEdit = nullptr;
+    QLineEdit *m_northCepGatewayNameEdit = nullptr;
     QLineEdit *m_northCepManagementPortEdit = nullptr;
     QLineEdit *m_northCepDataPortEdit = nullptr;
     // IEC101 配置页面控件
