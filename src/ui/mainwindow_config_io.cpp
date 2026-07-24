@@ -87,9 +87,9 @@ QString serialPortResourceDisplayName(const QString &resourceKey)
     return displayNames.value(resourceKey, resourceKey);
 }
 
-QString serialPortConflictMessage(const configtool::ConfigProject &project,
-                                  int iec101CommunicationMode,
-                                  const QString &iec101SerialPort)
+QStringList serialPortConflictDescriptions(const configtool::ConfigProject &project,
+                                           int iec101CommunicationMode,
+                                           const QString &iec101SerialPort)
 {
     QMap<QString, QList<SerialPortUse>> usesByResource;
     const auto addUse = [&usesByResource](const QString &appName, const QString &configuredPort) {
@@ -160,17 +160,30 @@ QString serialPortConflictMessage(const configtool::ConfigProject &project,
             appDescriptions.append(QStringLiteral("%1（配置值：%2）")
                                        .arg(appIt.key(), appIt.value().join(QStringLiteral("、"))));
         }
-        conflictLines.append(QStringLiteral("• %1：%2")
+        conflictLines.append(QStringLiteral("%1：%2")
                                  .arg(serialPortResourceDisplayName(it.key()),
                                       appDescriptions.join(QStringLiteral("；"))));
     }
 
+    return conflictLines;
+}
+
+QString serialPortConflictMessage(const configtool::ConfigProject &project,
+                                  int iec101CommunicationMode,
+                                  const QString &iec101SerialPort)
+{
+    const QStringList conflictLines = serialPortConflictDescriptions(
+        project, iec101CommunicationMode, iec101SerialPort);
     if (conflictLines.isEmpty()) {
         return QString();
     }
+    QStringList bulletLines;
+    for (const QString &conflict : conflictLines) {
+        bulletLines.append(QStringLiteral("• %1").arg(conflict));
+    }
     return QStringLiteral("检测到多个 APP 使用了同一个串口，已取消导出：\n\n%1\n\n"
                           "请修改南向 Modbus、南向 645 或北向 101 的串口配置后重试。")
-        .arg(conflictLines.join(QChar('\n')));
+        .arg(bulletLines.join(QChar('\n')));
 }
 
 QList<ConfigAppDirMigration> configAppDirMigrations()
@@ -1111,6 +1124,16 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         appendIssue(configtool::ImportIssueSeverity::Error,
                     QDir(projectPath).filePath(QStringLiteral("North_CEP/etc/mainstation.json")),
                     QStringLiteral("North_CEP 配置：%1").arg(northCepError));
+    }
+
+    const QStringList serialConflicts = serialPortConflictDescriptions(
+        project,
+        m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
+        m_iec101UsartNameEdit ? m_iec101UsartNameEdit->text() : QString());
+    for (const QString &conflict : serialConflicts) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    projectPath,
+                    QStringLiteral("串口被多个 APP 重复占用：%1").arg(conflict));
     }
 
     QSet<QString> seenModelIds;
