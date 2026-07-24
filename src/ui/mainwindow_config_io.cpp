@@ -18,6 +18,161 @@ struct ConfigAppDirMigration {
     QStringList oldNames;
 };
 
+struct SerialPortUse {
+    QString appName;
+    QString configuredPort;
+};
+
+bool isDeviceForSerialCheck(const configtool::ProtocolDeviceInstance &device,
+                            configtool::ProtocolType protocol)
+{
+    if (device.protocol == protocol) {
+        return true;
+    }
+    if (protocol == configtool::ProtocolType::Modbus) {
+        return device.appType.compare(QStringLiteral("South_Modbus"), Qt::CaseInsensitive) == 0
+            || device.appType.compare(QStringLiteral("cepmodbus"), Qt::CaseInsensitive) == 0;
+    }
+    if (protocol == configtool::ProtocolType::Dlt645) {
+        return device.appType.compare(QStringLiteral("South_645"), Qt::CaseInsensitive) == 0
+            || device.appType.compare(QStringLiteral("cepdlt645"), Qt::CaseInsensitive) == 0;
+    }
+    return false;
+}
+
+QString serialPortResourceKey(const QString &configuredPort)
+{
+    const QString port = configuredPort.trimmed();
+    QString alias = port.toUpper();
+    alias.remove(QChar('_'));
+    const QRegularExpressionMatch aliasMatch =
+        QRegularExpression(QStringLiteral("^RS485([1-8])$")).match(alias);
+    if (aliasMatch.hasMatch()) {
+        return QStringLiteral("RS485_%1").arg(aliasMatch.captured(1));
+    }
+
+    const QMap<QString, QString> deviceToResource = {
+        {QStringLiteral("/dev/ttyS13"), QStringLiteral("RS485_1")},
+        {QStringLiteral("/dev/ttyS2"), QStringLiteral("RS485_2")},
+        {QStringLiteral("/dev/ttyS7"), QStringLiteral("RS485_3")},
+        {QStringLiteral("/dev/ttyS10"), QStringLiteral("RS485_4")},
+        {QStringLiteral("/dev/ttyS11"), QStringLiteral("RS485_4")},
+        {QStringLiteral("/dev/ttyS9"), QStringLiteral("RS485_5")},
+        {QStringLiteral("/dev/ttyS14"), QStringLiteral("RS485_6")},
+        {QStringLiteral("/dev/ttyS12"), QStringLiteral("RS485_7")},
+        {QStringLiteral("/dev/ttyS6"), QStringLiteral("RS485_8")}
+    };
+    if (deviceToResource.contains(port)) {
+        return deviceToResource.value(port);
+    }
+    if (port.startsWith(QStringLiteral("ttyS"))) {
+        const QString devicePath = QStringLiteral("/dev/%1").arg(port);
+        return deviceToResource.value(devicePath, devicePath);
+    }
+    return port;
+}
+
+QString serialPortResourceDisplayName(const QString &resourceKey)
+{
+    const QMap<QString, QString> displayNames = {
+        {QStringLiteral("RS485_1"), QStringLiteral("RS485_1（/dev/ttyS13）")},
+        {QStringLiteral("RS485_2"), QStringLiteral("RS485_2（/dev/ttyS2）")},
+        {QStringLiteral("RS485_3"), QStringLiteral("RS485_3（/dev/ttyS7）")},
+        {QStringLiteral("RS485_4"), QStringLiteral("RS485_4（/dev/ttyS10 或 /dev/ttyS11）")},
+        {QStringLiteral("RS485_5"), QStringLiteral("RS485_5（/dev/ttyS9）")},
+        {QStringLiteral("RS485_6"), QStringLiteral("RS485_6（/dev/ttyS14）")},
+        {QStringLiteral("RS485_7"), QStringLiteral("RS485_7（/dev/ttyS12）")},
+        {QStringLiteral("RS485_8"), QStringLiteral("RS485_8（/dev/ttyS6）")}
+    };
+    return displayNames.value(resourceKey, resourceKey);
+}
+
+QString serialPortConflictMessage(const configtool::ConfigProject &project,
+                                  int iec101CommunicationMode,
+                                  const QString &iec101SerialPort)
+{
+    QMap<QString, QList<SerialPortUse>> usesByResource;
+    const auto addUse = [&usesByResource](const QString &appName, const QString &configuredPort) {
+        const QString trimmedPort = configuredPort.trimmed();
+        const QString resourceKey = serialPortResourceKey(trimmedPort);
+        if (trimmedPort.isEmpty() || resourceKey.isEmpty()) {
+            return;
+        }
+
+        QList<SerialPortUse> &uses = usesByResource[resourceKey];
+        for (const SerialPortUse &use : uses) {
+            if (use.appName == appName && use.configuredPort == trimmedPort) {
+                return;
+            }
+        }
+        uses.append({appName, trimmedPort});
+    };
+
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (isDeviceForSerialCheck(device, configtool::ProtocolType::Modbus)) {
+            const QString type = device.transport.protocolOptions
+                                     .value(QStringLiteral("type"))
+                                     .toString(QStringLiteral("TCP"))
+                                     .trimmed()
+                                     .toUpper();
+            if (type == QStringLiteral("RTU")) {
+                addUse(QStringLiteral("南向 Modbus"),
+                       device.transport.serial.value(QStringLiteral("serialPort")).toVariant().toString());
+            }
+            continue;
+        }
+
+        if (isDeviceForSerialCheck(device, configtool::ProtocolType::Dlt645)) {
+            QString port = device.transport.serial
+                               .value(QStringLiteral("serialPort"))
+                               .toVariant()
+                               .toString()
+                               .trimmed();
+            if (port.isEmpty()) {
+                port = project.dlt645.serialPort.trimmed();
+            }
+            if (port.isEmpty()) {
+                port = QStringLiteral("/dev/ttyS1");
+            }
+            addUse(QStringLiteral("南向 645"), port);
+        }
+    }
+
+    if (iec101CommunicationMode == 0 || iec101CommunicationMode == 2) {
+        addUse(QStringLiteral("北向 101"), iec101SerialPort);
+    }
+
+    QStringList conflictLines;
+    for (auto it = usesByResource.cbegin(); it != usesByResource.cend(); ++it) {
+        QMap<QString, QStringList> portsByApp;
+        for (const SerialPortUse &use : it.value()) {
+            QStringList &ports = portsByApp[use.appName];
+            if (!ports.contains(use.configuredPort)) {
+                ports.append(use.configuredPort);
+            }
+        }
+        if (portsByApp.size() < 2) {
+            continue;
+        }
+
+        QStringList appDescriptions;
+        for (auto appIt = portsByApp.cbegin(); appIt != portsByApp.cend(); ++appIt) {
+            appDescriptions.append(QStringLiteral("%1（配置值：%2）")
+                                       .arg(appIt.key(), appIt.value().join(QStringLiteral("、"))));
+        }
+        conflictLines.append(QStringLiteral("• %1：%2")
+                                 .arg(serialPortResourceDisplayName(it.key()),
+                                      appDescriptions.join(QStringLiteral("；"))));
+    }
+
+    if (conflictLines.isEmpty()) {
+        return QString();
+    }
+    return QStringLiteral("检测到多个 APP 使用了同一个串口，已取消导出：\n\n%1\n\n"
+                          "请修改南向 Modbus、南向 645 或北向 101 的串口配置后重试。")
+        .arg(conflictLines.join(QChar('\n')));
+}
+
 QList<ConfigAppDirMigration> configAppDirMigrations()
 {
     return {
@@ -686,6 +841,16 @@ void MainWindow::onExportIec104ConfigClicked()
         showNorthConfigPage(m_northCepConfigPage);
         QMessageBox::warning(this, QStringLiteral("CEP配置"), northCepError);
         statusBar()->showMessage(QStringLiteral("CEP 配置校验失败"), 5000);
+        return;
+    }
+
+    const QString serialConflict = serialPortConflictMessage(
+        m_configProjectManager.project(),
+        m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
+        m_iec101UsartNameEdit ? m_iec101UsartNameEdit->text() : QString());
+    if (!serialConflict.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("串口冲突"), serialConflict);
+        statusBar()->showMessage(QStringLiteral("串口配置冲突，已取消导出"), 5000);
         return;
     }
 
