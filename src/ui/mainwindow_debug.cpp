@@ -1131,7 +1131,9 @@ void MainWindow::updateNorthConnectionStatusUi()
     DebugAppSession *session = currentDebugSession();
     DebugConsoleClient *client = session ? session->client : nullptr;
     const bool connected = client && client->isConnected();
-    m_northConnectionStatusBtn->setEnabled(connected && !client->isExecutingCommand());
+    const bool isQuerying = connected &&
+                            session->pendingDataTableCommand == QStringLiteral("northconn");
+    m_northConnectionStatusBtn->setEnabled(connected);
 
     QString text = QStringLiteral("主站状态：调试未连接");
     QString tooltip = QStringLiteral("连接当前 APP 的调试端口后，将自动查询主站协议连接状态");
@@ -1139,7 +1141,7 @@ void MainWindow::updateNorthConnectionStatusUi()
     QString background = QStringLiteral("#f2f4f7");
     QString border = QStringLiteral("#d0d5dd");
 
-    if (connected && session->pendingDataTableCommand == QStringLiteral("northconn")) {
+    if (isQuerying && session->northConnectionStatus.isEmpty()) {
         text = QStringLiteral("主站状态：查询中...");
         tooltip = QStringLiteral("正在执行 northconn 查询");
         foreground = QStringLiteral("#175cd3");
@@ -1213,7 +1215,8 @@ void MainWindow::updateNorthConnectionStatusUi()
             }
             details << connectionText;
         }
-        details << QStringLiteral("点击立即刷新");
+        details << (isQuerying ? QStringLiteral("正在后台刷新")
+                               : QStringLiteral("点击立即刷新"));
         tooltip = details.join(QLatin1Char('\n'));
     } else if (connected) {
         text = QStringLiteral("主站状态：未查询");
