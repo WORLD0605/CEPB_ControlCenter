@@ -412,7 +412,7 @@ bool uploadFileScpOnSession(SshSession &ssh,
         return false;
     }
 
-    const qint64 totalSize = QFileInfo(file).size();
+    const qint64 totalSize = file.size();
     qint64 sentSize = 0;
     if (progressCallback && !progressCallback(sentSize, totalSize)) {
         if (error) {
@@ -429,7 +429,7 @@ bool uploadFileScpOnSession(SshSession &ssh,
         channel = libssh2_scp_send64(ssh.raw(),
                                      remote.constData(),
                                      0644,
-                                     libssh2_uint64_t(QFileInfo(file).size()),
+                                     libssh2_uint64_t(totalSize),
                                      0,
                                      0);
         if (channel) {
@@ -472,6 +472,15 @@ bool uploadFileScpOnSession(SshSession &ssh,
             libssh2_channel_free(channel);
             return false;
         }
+    }
+    if (sentSize != totalSize) {
+        if (error) {
+            *error = QStringLiteral("SCP 上传字节数不一致：期望 %1，实际 %2")
+                         .arg(totalSize)
+                         .arg(sentSize);
+        }
+        libssh2_channel_free(channel);
+        return false;
     }
 
     runLibssh2([&]() { return libssh2_channel_send_eof(channel); }, ssh.tcpSocket(), ssh.raw(), 10000);

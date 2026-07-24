@@ -99,3 +99,9 @@ The apply helper waits up to 30 seconds for every interface referenced by the
 configuration. Its latest runtime result is written to
 `/run/cepb-network-apply.status` as `STATE|running`, `STATE|success`, or
 `STATE|failed`, followed by the command output.
+
+ControlCenter verifies the uploaded helper, unit, drop-in, and configuration by
+size and SHA-256 before replacing the installed files. Replacement uses
+same-filesystem temporary files followed by `mv`, and `sync` completes before
+the UI reports success so an immediate power cycle cannot leave zero-length
+network files behind.

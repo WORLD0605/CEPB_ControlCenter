@@ -12,20 +12,20 @@ CFG_APPLY_DROP_IN_SOURCE=${4:-"$SCRIPT_DIR/../systemd/cfg-apply-oneshot.conf"}
     echo "ERROR: run this installer as root" >&2
     exit 1
 }
-[ -r "$SERVICE_SOURCE" ] || {
-    echo "ERROR: service file not found: $SERVICE_SOURCE" >&2
+[ -s "$SERVICE_SOURCE" ] || {
+    echo "ERROR: service file is missing or empty: $SERVICE_SOURCE" >&2
     exit 1
 }
-[ -r "$APPLY_SOURCE" ] || {
-    echo "ERROR: apply helper not found: $APPLY_SOURCE" >&2
+[ -s "$APPLY_SOURCE" ] || {
+    echo "ERROR: apply helper is missing or empty: $APPLY_SOURCE" >&2
     exit 1
 }
-[ -r "$EXAMPLE_SOURCE" ] || {
-    echo "ERROR: example configuration not found: $EXAMPLE_SOURCE" >&2
+[ -s "$EXAMPLE_SOURCE" ] || {
+    echo "ERROR: example configuration is missing or empty: $EXAMPLE_SOURCE" >&2
     exit 1
 }
-[ -r "$CFG_APPLY_DROP_IN_SOURCE" ] || {
-    echo "ERROR: cfg-apply drop-in not found: $CFG_APPLY_DROP_IN_SOURCE" >&2
+[ -s "$CFG_APPLY_DROP_IN_SOURCE" ] || {
+    echo "ERROR: cfg-apply drop-in is missing or empty: $CFG_APPLY_DROP_IN_SOURCE" >&2
     exit 1
 }
 
@@ -51,6 +51,7 @@ actual_cfg_apply_type=$(systemctl show cfg-apply.service -p Type --value)
     exit 1
 }
 systemctl enable cepb-network.service
+sync
 
 echo "installation completed"
 echo "the service was enabled but not started, so the current SSH connection is unchanged"

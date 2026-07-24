@@ -94,11 +94,17 @@ bool isServiceChannelApp(const AppConfig &appConfig)
            appConfig.name.compare(QStringLiteral("North_Mqtt"), Qt::CaseInsensitive) == 0;
 }
 
+bool isNorthMqttApp(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("North_Mqtt"), Qt::CaseInsensitive) == 0;
+}
+
 bool supportsNorthConnectionStatus(const AppConfig &appConfig)
 {
     return appConfig.name.compare(QStringLiteral("North_CEP"), Qt::CaseInsensitive) == 0 ||
            appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0 ||
-           appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0;
+           appConfig.name.compare(QStringLiteral("North_104"), Qt::CaseInsensitive) == 0 ||
+           isNorthMqttApp(appConfig);
 }
 
 bool isModbusApp(const AppConfig &appConfig)
@@ -146,6 +152,9 @@ QString rawFrameDebugCategory(const AppConfig &appConfig)
     if (appConfig.name.compare(QStringLiteral("North_CEP"), Qt::CaseInsensitive) == 0) {
         return QStringLiteral("north");
     }
+    if (isNorthMqttApp(appConfig)) {
+        return QStringLiteral("northmqtt");
+    }
     if (isIec104App(appConfig)) {
         return QStringLiteral("104");
     }
@@ -163,6 +172,14 @@ QString rawFrameDebugCategory(const AppConfig &appConfig)
 
 QStringList rawFrameDebugCategories(const AppConfig &appConfig)
 {
+    if (isNorthMqttApp(appConfig)) {
+        return {
+            QStringLiteral("northmqtt"),
+            QStringLiteral("mqtt"),
+            QStringLiteral("data"),
+            QStringLiteral("misc")
+        };
+    }
     if (isLogicCenterApp(appConfig)) {
         return {
             QStringLiteral("compute"),
@@ -193,7 +210,7 @@ QString rawFrameAppDisplayName(const AppConfig &appConfig)
     if (appConfig.name.compare(QStringLiteral("North_101"), Qt::CaseInsensitive) == 0) {
         return QStringLiteral("North_101");
     }
-    if (appConfig.name.compare(QStringLiteral("North_Mqtt"), Qt::CaseInsensitive) == 0) {
+    if (isNorthMqttApp(appConfig)) {
         return QStringLiteral("North_Mqtt");
     }
     if (isIec104App(appConfig)) {
@@ -1156,16 +1173,26 @@ void MainWindow::updateNorthConnectionStatusUi()
     } else if (connected && session && !session->northConnectionStatus.isEmpty()) {
         const QJsonObject status = session->northConnectionStatus;
         const QString state = status.value(QStringLiteral("state")).toString();
+        const bool mqttStatus =
+            status.value(QStringLiteral("protocol")).toString().compare(
+                QStringLiteral("MQTT"), Qt::CaseInsensitive) == 0 ||
+            isNorthMqttApp(appConfig);
         const int transportCount = status.value(QStringLiteral("transport_connections")).toInt();
         const int onlineCount = status.value(QStringLiteral("protocol_online_connections")).toInt();
 
         if (state == QStringLiteral("online")) {
-            text = QStringLiteral("主站状态：在线（%1）").arg(onlineCount);
+            text = mqttStatus
+                ? QStringLiteral("主站状态：在线（MQTT）")
+                : QStringLiteral("主站状态：在线（%1）").arg(onlineCount);
             foreground = QStringLiteral("#027a48");
             background = QStringLiteral("#ecfdf3");
             border = QStringLiteral("#6ce9a6");
         } else if (state == QStringLiteral("partial")) {
-            text = QStringLiteral("主站状态：部分在线（%1/%2）").arg(onlineCount).arg(transportCount);
+            text = mqttStatus
+                ? QStringLiteral("主站状态：订阅未完成（%1/%2）")
+                      .arg(status.value(QStringLiteral("subscriptions_active")).toInt())
+                      .arg(status.value(QStringLiteral("subscriptions_expected")).toInt())
+                : QStringLiteral("主站状态：部分在线（%1/%2）").arg(onlineCount).arg(transportCount);
             foreground = QStringLiteral("#b54708");
             background = QStringLiteral("#fffaeb");
             border = QStringLiteral("#fec84b");
@@ -1195,9 +1222,38 @@ void MainWindow::updateNorthConnectionStatusUi()
         details << QStringLiteral("APP：%1").arg(status.value(QStringLiteral("app")).toString(appConfig.name));
         details << QStringLiteral("协议：%1").arg(status.value(QStringLiteral("protocol")).toString());
         details << QStringLiteral("状态：%1").arg(state);
-        details << QStringLiteral("监听：%1").arg(status.value(QStringLiteral("listening")).toBool()
-                                                     ? QStringLiteral("是") : QStringLiteral("否"));
         details << QStringLiteral("传输连接：%1，协议在线：%2").arg(transportCount).arg(onlineCount);
+        if (mqttStatus) {
+            details << QStringLiteral("已配置：%1")
+                           .arg(status.value(QStringLiteral("configured")).toBool()
+                                    ? QStringLiteral("是") : QStringLiteral("否"));
+            const QString endpoint = status.value(QStringLiteral("endpoint")).toString();
+            if (!endpoint.isEmpty()) {
+                details << QStringLiteral("Broker：%1").arg(endpoint);
+            }
+            const QString clientId = status.value(QStringLiteral("client_id")).toString();
+            if (!clientId.isEmpty()) {
+                details << QStringLiteral("Client ID：%1").arg(clientId);
+            }
+            details << QStringLiteral("订阅：%1/%2")
+                           .arg(status.value(QStringLiteral("subscriptions_active")).toInt())
+                           .arg(status.value(QStringLiteral("subscriptions_expected")).toInt());
+            const QString connectedAt = status.value(QStringLiteral("connected_at")).toString();
+            if (!connectedAt.isEmpty()) {
+                details << QStringLiteral("连接时间：%1").arg(connectedAt);
+            }
+            const QString lastMessageAt = status.value(QStringLiteral("last_message_at")).toString();
+            if (!lastMessageAt.isEmpty()) {
+                details << QStringLiteral("最近报文：%1").arg(lastMessageAt);
+            }
+            const QString lastError = status.value(QStringLiteral("last_error")).toString();
+            if (!lastError.isEmpty()) {
+                details << QStringLiteral("最近错误：%1").arg(lastError);
+            }
+        } else {
+            details << QStringLiteral("监听：%1").arg(status.value(QStringLiteral("listening")).toBool()
+                                                         ? QStringLiteral("是") : QStringLiteral("否"));
+        }
         const QString checkedAt = status.value(QStringLiteral("checked_at")).toString();
         if (!checkedAt.isEmpty()) {
             details << QStringLiteral("查询时间：%1").arg(checkedAt);

@@ -4,9 +4,11 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QDialog>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -24,6 +26,7 @@
 #include <QTemporaryFile>
 #include <QTextEdit>
 #include <QThread>
+#include <QUuid>
 #include <QVBoxLayout>
 
 namespace {
@@ -401,8 +404,10 @@ QString MainWindow::localNetworkSupportFile(const QString &relativePath) const
     const QString appDir = QApplication::applicationDirPath();
     const QStringList candidates = {QDir(appDir).filePath(relativePath), QDir(appDir).filePath(QStringLiteral("../%1").arg(relativePath)),
                                     QDir::current().filePath(relativePath), QDir::current().filePath(QStringLiteral("../%1").arg(relativePath))};
-    for (const QString &candidate : candidates)
-        if (QFileInfo::exists(candidate)) return QFileInfo(candidate).absoluteFilePath();
+    for (const QString &candidate : candidates) {
+        const QFileInfo info(candidate);
+        if (info.isFile() && info.size() > 0) return info.absoluteFilePath();
+    }
     return QString();
 }
 
@@ -447,44 +452,110 @@ void MainWindow::onApplyNetworkConfigClicked()
         return;
 
     QTemporaryFile configFile(QDir::temp().filePath(QStringLiteral("cepb_network_XXXXXX.conf")));
-    if (!configFile.open() || configFile.write(serializeNetworkConfig()) < 0 || !configFile.flush()) {
+    const QByteArray serializedConfig = serializeNetworkConfig();
+    if (!configFile.open() || configFile.write(serializedConfig) != serializedConfig.size()
+        || !configFile.flush()) {
         QMessageBox::warning(this, QStringLiteral("应用网络配置"), QStringLiteral("无法生成临时配置文件。"));
         return;
     }
     configFile.close();
+    const auto fileSha256 = [](const QString &path) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return QByteArray();
+        return QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex();
+    };
+    const QFileInfo helperInfo(helper);
+    const QFileInfo serviceInfo(service);
+    const QFileInfo cfgApplyDropInInfo(cfgApplyDropIn);
+    const QFileInfo configInfo(configFile.fileName());
+    const QByteArray helperSha256 = fileSha256(helper);
+    const QByteArray serviceSha256 = fileSha256(service);
+    const QByteArray cfgApplyDropInSha256 = fileSha256(cfgApplyDropIn);
+    const QByteArray configSha256 = fileSha256(configFile.fileName());
+    if (helperInfo.size() <= 0 || serviceInfo.size() <= 0 || cfgApplyDropInInfo.size() <= 0
+        || configInfo.size() <= 0 || helperSha256.isEmpty() || serviceSha256.isEmpty()
+        || cfgApplyDropInSha256.isEmpty() || configSha256.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("应用网络配置"),
+            QStringLiteral("本地网络支持文件为空或无法读取，已停止下发，设备配置未被修改。"));
+        return;
+    }
+
+    const QString uploadToken = QUuid::createUuid().toString(QUuid::Id128);
+    const QString remotePrefix = QStringLiteral("/tmp/cepb-network-%1").arg(uploadToken);
+    const QString remoteHelper = remotePrefix + QStringLiteral(".helper");
+    const QString remoteService = remotePrefix + QStringLiteral(".service");
+    const QString remoteCfgApplyDropIn = remotePrefix + QStringLiteral(".dropin");
+    const QString remoteConfig = remotePrefix + QStringLiteral(".conf");
     QProgressDialog progress(QStringLiteral("正在上传并校验网络配置..."), QString(), 0, 6, this);
     progress.setWindowModality(Qt::ApplicationModal);
     progress.setCancelButton(nullptr);
     progress.setMinimumDuration(0);
     const SshClient::Connection connection{oldHost, fixedRemoteSshPort().toUShort(), fixedRemoteUser(), fixedRemotePassword()};
     QString output;
-    bool ok = SshClient::uploadFileScp(connection, helper, QStringLiteral("/tmp/cepb-network-apply"), &output);
+    bool ok = SshClient::uploadFileScp(connection, helper, remoteHelper, &output);
     progress.setValue(1);
-    if (ok) ok = SshClient::uploadFileScp(connection, service, QStringLiteral("/tmp/cepb-network.service"), &output);
+    if (ok) ok = SshClient::uploadFileScp(connection, service, remoteService, &output);
     progress.setValue(2);
     if (ok) {
-        ok = SshClient::uploadFileScp(
-            connection, cfgApplyDropIn, QStringLiteral("/tmp/cfg-apply-oneshot.conf"), &output);
+        ok = SshClient::uploadFileScp(connection, cfgApplyDropIn, remoteCfgApplyDropIn, &output);
     }
     progress.setValue(3);
-    if (ok) ok = SshClient::uploadFileScp(connection, configFile.fileName(), QStringLiteral("/tmp/cepb-network.conf"), &output);
+    if (ok) ok = SshClient::uploadFileScp(connection, configFile.fileName(), remoteConfig, &output);
     progress.setValue(4);
     if (ok) {
-        const QString command = QStringLiteral(
-            "set -e; install -d -m 0755 /etc/cepb /usr/local/sbin /etc/systemd/system "
-            "/etc/systemd/system/cfg-apply.service.d; "
-            "install -m 0755 /tmp/cepb-network-apply /usr/local/sbin/cepb-network-apply; "
-            "install -m 0644 /tmp/cepb-network.service /etc/systemd/system/cepb-network.service; "
-            "install -m 0644 /tmp/cfg-apply-oneshot.conf "
-            "/etc/systemd/system/cfg-apply.service.d/10-cepb-network-ordering.conf; "
-            "/usr/local/sbin/cepb-network-apply check /tmp/cepb-network.conf; "
-            "install -m 0644 /tmp/cepb-network.conf /etc/cepb/network.conf; "
-            "rm -f /run/cepb-network-apply.status; systemctl daemon-reload; "
-            "test \"$(systemctl show cfg-apply.service -p Type --value)\" = oneshot; "
-            "systemctl enable cepb-network.service; systemctl reset-failed cepb-network.service || true; "
-            "systemd-run --quiet --no-block --collect "
-            "--unit=cepb-network-apply-now-$(date +%s)-$$ "
-            "/bin/systemctl restart cepb-network.service");
+        QString command = QStringLiteral("set -e; ");
+        auto appendRemoteFileCheck = [&command](const QString &path, qint64 size, const QByteArray &sha256) {
+            command += QStringLiteral(
+                           "test \"$(wc -c < %1)\" -eq %2; "
+                           "test \"$(sha256sum %1 | cut -d' ' -f1)\" = %3; ")
+                           .arg(path)
+                           .arg(size)
+                           .arg(QString::fromLatin1(sha256));
+        };
+        appendRemoteFileCheck(remoteHelper, helperInfo.size(), helperSha256);
+        appendRemoteFileCheck(remoteService, serviceInfo.size(), serviceSha256);
+        appendRemoteFileCheck(remoteCfgApplyDropIn, cfgApplyDropInInfo.size(), cfgApplyDropInSha256);
+        appendRemoteFileCheck(remoteConfig, configInfo.size(), configSha256);
+
+        const QString installedHelperTmp =
+            QStringLiteral("/usr/local/sbin/.cepb-network-apply.%1").arg(uploadToken);
+        const QString installedServiceTmp =
+            QStringLiteral("/etc/systemd/system/.cepb-network.service.%1").arg(uploadToken);
+        const QString installedDropInTmp =
+            QStringLiteral("/etc/systemd/system/cfg-apply.service.d/.10-cepb-network-ordering.%1")
+                .arg(uploadToken);
+        const QString installedConfigTmp =
+            QStringLiteral("/etc/cepb/.network.conf.%1").arg(uploadToken);
+        command += QStringLiteral(
+                       "/bin/sh %1 check %2; "
+                       "install -d -m 0755 /etc/cepb /usr/local/sbin /etc/systemd/system "
+                       "/etc/systemd/system/cfg-apply.service.d; "
+                       "install -m 0755 %1 %3; "
+                       "install -m 0644 %4 %5; "
+                       "install -m 0644 %6 %7; "
+                       "install -m 0644 %2 %8; "
+                       "mv -f %3 /usr/local/sbin/cepb-network-apply; "
+                       "mv -f %5 /etc/systemd/system/cepb-network.service; "
+                       "mv -f %7 /etc/systemd/system/cfg-apply.service.d/10-cepb-network-ordering.conf; "
+                       "mv -f %8 /etc/cepb/network.conf; "
+                       "sync; rm -f /run/cepb-network-apply.status; systemctl daemon-reload; "
+                       "test \"$(systemctl show cfg-apply.service -p Type --value)\" = oneshot; "
+                       "systemctl enable cepb-network.service; sync; "
+                       "systemctl reset-failed cepb-network.service || true; "
+                       "systemd-run --quiet --no-block --collect "
+                       "--unit=cepb-network-apply-now-$(date +%s)-$$ "
+                       "/bin/systemctl restart cepb-network.service; "
+                       "rm -f %1 %2 %4 %6")
+                       .arg(remoteHelper,
+                            remoteConfig,
+                            installedHelperTmp,
+                            remoteService,
+                            installedServiceTmp,
+                            remoteCfgApplyDropIn,
+                            installedDropInTmp,
+                            installedConfigTmp);
         const auto result = SshClient::execCommand(connection, command, 30000);
         ok = result.ok;
         output = result.ok ? result.output : result.error;
@@ -533,7 +604,7 @@ void MainWindow::onApplyNetworkConfigClicked()
             }
         }
         if (!applyVerified && !applyReportedFailure) {
-            QApplication::processEvents();
+            QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
             QThread::msleep(1000);
         }
     }

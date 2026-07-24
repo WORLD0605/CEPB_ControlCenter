@@ -793,6 +793,7 @@ MainWindow::MainWindow(QWidget *parent)
         {"North_CEP", 4444, "North_CEP>", AppViewMode::DataTable},
         {"North_101", 3333, "North_101>", AppViewMode::DataTable},
         {"North_104", 2222, "North_104>", AppViewMode::DataTable},
+        {"North_Mqtt", 1111, "North_Mqtt>", AppViewMode::DataTable},
         {"South_Modbus", 7777, "South_Modbus>", AppViewMode::DataTable},
         {"South_104", 6666, "South_104>", AppViewMode::DataTable},
         {"South_645", 8888, "South_645>", AppViewMode::DataTable},
