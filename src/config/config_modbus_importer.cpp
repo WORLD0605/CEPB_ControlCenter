@@ -300,6 +300,9 @@ bool ModbusConfigImporter::importDeviceFile(const QString &filePath,
         if (bindingObject.contains(QStringLiteral("precontrol_dataIndex"))) {
             binding.extensions.insert(QStringLiteral("precontrol_dataIndex"), bindingObject.value(QStringLiteral("precontrol_dataIndex")));
         }
+        if (bindingObject.contains(QStringLiteral("precontrol_val"))) {
+            binding.extensions.insert(QStringLiteral("precontrol_val"), bindingObject.value(QStringLiteral("precontrol_val")));
+        }
         if (bindingObject.contains(QStringLiteral("linkto"))) {
             binding.extensions.insert(QStringLiteral("linkto"), bindingObject.value(QStringLiteral("linkto")));
         }
@@ -318,6 +321,23 @@ bool ModbusConfigImporter::importDeviceFile(const QString &filePath,
         }
 
         device.bindings.append(binding);
+    }
+
+    QHash<QString, QString> dataRefByDataIndex;
+    const QList<PointBinding> &importedBindings = device.bindings;
+    for (const PointBinding &binding : importedBindings) {
+        const QString dataIndex = binding.address.trimmed();
+        if (!dataIndex.isEmpty() && !binding.dataRef.trimmed().isEmpty()) {
+            dataRefByDataIndex.insert(dataIndex, binding.dataRef.trimmed());
+        }
+    }
+    for (PointBinding &binding : device.bindings) {
+        const QString precontrolDataIndex = jsonValueToString(
+            binding.extensions.value(QStringLiteral("precontrol_dataIndex"))).trimmed();
+        const QString precontrolDataRef = dataRefByDataIndex.value(precontrolDataIndex);
+        if (!precontrolDataRef.isEmpty()) {
+            binding.extensions.insert(QStringLiteral("modbusPrecontrolDataRef"), precontrolDataRef);
+        }
     }
 
     const int completedBindingCount = completeVirtualDeviceBindings(device, project);

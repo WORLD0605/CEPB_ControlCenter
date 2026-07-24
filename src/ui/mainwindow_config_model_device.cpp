@@ -5,6 +5,87 @@ using namespace cepb_config_helpers;
 
 namespace {
 
+void configureCompactTableButton(QPushButton *button, bool warning = false)
+{
+    if (!button) {
+        return;
+    }
+    button->setFixedHeight(26);
+    button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    button->setStyleSheet(QStringLiteral(
+        "QPushButton { min-height: 0px; max-height: 24px; padding: 1px 6px; margin: 0px;%1 }")
+        .arg(warning ? QStringLiteral(" color: #b9770e;") : QString()));
+}
+
+QString modbusPrecontrolValueText(const configtool::PointBinding &binding)
+{
+    const QJsonValue value = binding.extensions.value(QStringLiteral("precontrol_val"));
+    if (value.isString()) {
+        const QString text = value.toString().trimmed();
+        bool hexValue = false;
+        text.toInt(&hexValue, 16);
+        if (hexValue
+            && !text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)
+            && !text.startsWith(QStringLiteral("-0x"), Qt::CaseInsensitive)) {
+            return text.startsWith(QLatin1Char('-'))
+                ? QStringLiteral("-0x%1").arg(text.mid(1))
+                : QStringLiteral("0x%1").arg(text);
+        }
+        return text;
+    }
+    if (value.isDouble()) {
+        return QString::number(value.toDouble(), 'g', 15);
+    }
+    if (value.isBool()) {
+        return value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
+    }
+    return QString();
+}
+
+QJsonValue modbusPrecontrolValueFromText(const QString &text)
+{
+    const QString value = text.trimmed();
+    if (value.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+    if (value.compare(QStringLiteral("false"), Qt::CaseInsensitive) == 0) {
+        return false;
+    }
+    if (value.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive)
+        || value.startsWith(QStringLiteral("-0x"), Qt::CaseInsensitive)) {
+        return value;
+    }
+
+    bool ok = false;
+    const double number = value.toDouble(&ok);
+    return ok ? QJsonValue(number) : QJsonValue(value);
+}
+
+bool isModbusPrecontrolValueValid(const QJsonValue &value)
+{
+    if (value.isDouble() || value.isBool()) {
+        return true;
+    }
+    if (!value.isString() || value.toString().trimmed().isEmpty()) {
+        return false;
+    }
+
+    bool ok = false;
+    value.toString().trimmed().toInt(&ok, 16);
+    return ok;
+}
+
+QString modbusPrecontrolPointDisplay(const configtool::PointBinding &binding)
+{
+    QString display = binding.descriptionOverride.trimmed();
+    if (display.isEmpty()) {
+        display = binding.dataRef.trimmed();
+    } else if (!binding.dataRef.trimmed().isEmpty()) {
+        display += QStringLiteral(" [%1]").arg(binding.dataRef.trimmed());
+    }
+    return display;
+}
+
 configtool::PointBinding createBindingForModelPoint(const configtool::ModelTemplate &model,
                                                     const configtool::PointTemplate &point,
                                                     configtool::ProtocolType protocol)
@@ -628,6 +709,14 @@ int MainWindow::renameModelPointReferences(const QString &modelId,
                 binding.pointRef = newPointRef;
                 ++updateCount;
             }
+            if (binding.extensions.value(QStringLiteral("modbusPrecontrolDataRef"))
+                    .toString().trimmed() == oldRef) {
+                binding.extensions.insert(QStringLiteral("modbusPrecontrolDataRef"), newRef);
+                ++updateCount;
+            }
+        }
+        if (isModbusDevice(device)) {
+            rebuildModbusDeviceConfig(device);
         }
     }
 
@@ -1834,13 +1923,11 @@ void MainWindow::onDeviceBindingItemChanged(QTableWidgetItem *item)
     bool refreshEditor = true;
     if (item->column() == 0) {
         binding.enabled = item->checkState() == Qt::Checked;
-    } else if ((modbusDevice && item->column() == ModbusColumnRetain)
-               || (dlt645Device && item->column() == Dlt645ColumnRetain)
+    } else if ((dlt645Device && item->column() == Dlt645ColumnRetain)
                || (!modbusDevice && !dlt645Device && item->column() == Iec104ColumnRetain)) {
         binding.retain = item->checkState() == Qt::Checked;
         refreshEditor = false;
-    } else if ((modbusDevice && item->column() == ModbusColumnSelfSignal)
-               || (dlt645Device && item->column() == Dlt645ColumnSelfSignal)
+    } else if ((dlt645Device && item->column() == Dlt645ColumnSelfSignal)
                || (!modbusDevice && !dlt645Device && item->column() == Iec104ColumnSelfSignal)) {
         binding.selfSignalFlag = item->checkState() == Qt::Checked ? QStringLiteral("1") : QString();
         refreshEditor = false;
@@ -2057,6 +2144,11 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             const QString kind = normalizedModbusKind(value);
             binding.extensions.insert(QStringLiteral("modbusKind"), kind);
             binding.extensions.insert(QStringLiteral("modbusDataType"), defaultModbusDataTypeForKind(kind));
+            if (!isModbusSetKind(kind)) {
+                binding.extensions.remove(QStringLiteral("modbusPrecontrolDataRef"));
+                binding.extensions.remove(QStringLiteral("precontrol_dataIndex"));
+                binding.extensions.remove(QStringLiteral("precontrol_val"));
+            }
             break;
         }
         case ModbusColumnDescription:
@@ -2093,28 +2185,16 @@ void MainWindow::applyDeviceBindingCellText(int row, int column, const QString &
             }
             break;
         }
-        case ModbusColumnSourceIndex:
-            if (value.isEmpty()) {
-                binding.extensions.remove(QStringLiteral("modbusSourceIndex"));
-            } else {
-                binding.extensions.insert(QStringLiteral("modbusSourceIndex"), value.toInt());
-            }
-            break;
-        case ModbusColumnBitIndex:
-            if (value.isEmpty()) {
-                binding.extensions.remove(QStringLiteral("modbusBitIndex"));
-            } else {
-                binding.extensions.insert(QStringLiteral("modbusBitIndex"), value.toInt());
-            }
-            break;
         case ModbusColumnScale:
             binding.extensions.insert(QStringLiteral("modbusScale"), value);
             break;
-        case ModbusColumnSelfSignal:
-            binding.selfSignalFlag = selfSignalFlagChecked(value) ? QStringLiteral("1") : QString();
-            break;
-        case ModbusColumnInitValue:
-            binding.initValue = value;
+        case ModbusColumnPrecontrolValue:
+            if (value.isEmpty()) {
+                binding.extensions.remove(QStringLiteral("precontrol_val"));
+            } else {
+                binding.extensions.insert(QStringLiteral("precontrol_val"),
+                                          modbusPrecontrolValueFromText(value));
+            }
             break;
         default:
             break;
@@ -2421,6 +2501,30 @@ void MainWindow::rebuildModbusDeviceConfig(configtool::ProtocolDeviceInstance &d
             binding.extensions.insert(QStringLiteral("modbusEntryNo"), entryNo);
             binding.address = QString::number(buildModbusDataIndex(groupNo, entryNo));
             ++entryNo;
+        }
+    }
+
+    QHash<QString, QString> dataIndexByDataRef;
+    const QList<configtool::PointBinding> &rebuiltBindings = device.bindings;
+    for (const configtool::PointBinding &binding : rebuiltBindings) {
+        if (binding.enabled
+            && isModbusSetKind(modbusBindingKind(binding))
+            && !binding.dataRef.trimmed().isEmpty()
+            && !binding.address.trimmed().isEmpty()) {
+            dataIndexByDataRef.insert(binding.dataRef.trimmed(), binding.address.trimmed());
+        }
+    }
+    for (configtool::PointBinding &binding : device.bindings) {
+        const QString precontrolDataRef = binding.extensions
+            .value(QStringLiteral("modbusPrecontrolDataRef")).toString().trimmed();
+        if (precontrolDataRef.isEmpty()) {
+            continue;
+        }
+        const QString precontrolDataIndex = dataIndexByDataRef.value(precontrolDataRef);
+        if (precontrolDataIndex.isEmpty()) {
+            binding.extensions.remove(QStringLiteral("precontrol_dataIndex"));
+        } else {
+            binding.extensions.insert(QStringLiteral("precontrol_dataIndex"), precontrolDataIndex);
         }
     }
 }
@@ -4217,6 +4321,39 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     if (modbusDevice) {
         int missingRegisterCount = 0;
         int invalidPocketBitCount = 0;
+        QSet<int> invalidPrecontrolBindingIndexes;
+        for (int bindingIndex = 0; bindingIndex < device.bindings.size(); ++bindingIndex) {
+            const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
+            const QString precontrolDataRef = binding.extensions
+                .value(QStringLiteral("modbusPrecontrolDataRef")).toString().trimmed();
+            const QString precontrolDataIndex = modbusBindingString(
+                binding, QStringLiteral("precontrol_dataIndex")).trimmed();
+            if (precontrolDataRef.isEmpty() && precontrolDataIndex.isEmpty()) {
+                continue;
+            }
+
+            bool validTarget = false;
+            for (int targetIndex = 0; targetIndex < device.bindings.size(); ++targetIndex) {
+                const configtool::PointBinding &target = device.bindings.at(targetIndex);
+                const bool matchesTarget = !precontrolDataRef.isEmpty()
+                    ? target.dataRef.trimmed() == precontrolDataRef
+                    : target.address.trimmed() == precontrolDataIndex;
+                if (matchesTarget
+                    && targetIndex != bindingIndex
+                    && target.enabled
+                    && isModbusSetKind(modbusBindingKind(target))
+                    && !target.address.trimmed().isEmpty()) {
+                    validTarget = true;
+                    break;
+                }
+            }
+            if (!isModbusSetKind(modbusBindingKind(binding))
+                || !validTarget
+                || !isModbusPrecontrolValueValid(
+                    binding.extensions.value(QStringLiteral("precontrol_val")))) {
+                invalidPrecontrolBindingIndexes.insert(bindingIndex);
+            }
+        }
         m_updatingDeviceBindingsTable = true;
         m_deviceBindingsTable->clear();
         m_deviceBindingsTable->setColumnCount(ModbusBindingColumnCount);
@@ -4228,35 +4365,26 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             QStringLiteral("功能码"),
             QStringLiteral("寄存器"),
             QStringLiteral("数据类型"),
-            QStringLiteral("源序号"),
-            QStringLiteral("位序号"),
             QStringLiteral("比例"),
-            QStringLiteral("组号"),
-            QStringLiteral("序号"),
-            QStringLiteral("dataIndex"),
-            QStringLiteral("虚拟点标志"),
-            QStringLiteral("初始值"),
-            QStringLiteral("持久化")
+            QStringLiteral("预控点位"),
+            QStringLiteral("预控值"),
+            QStringLiteral("高级设置")
         });
         m_deviceBindingsTable->setRowCount(visibleBindingIndexes.size());
         m_deviceBindingsTable->setColumnWidth(ModbusColumnEnabled, 56);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnKind, 90);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataRef, 260);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnDescription, 180);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnKind, 96);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataRef, 190);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDescription, 130);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnFunCode, 64);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnRegister, 80);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataType, 130);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnSourceIndex, 68);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnBitIndex, 68);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataType, 190);
         m_deviceBindingsTable->setColumnWidth(ModbusColumnScale, 64);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnGroupNo, 58);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnEntryNo, 58);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnDataIndex, 90);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnSelfSignal, 80);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnInitValue, 90);
-        m_deviceBindingsTable->setColumnWidth(ModbusColumnRetain, 72);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnPrecontrolPoint, 190);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnPrecontrolValue, 82);
+        m_deviceBindingsTable->setColumnWidth(ModbusColumnAdvanced, 90);
 
         for (int row = 0; row < visibleBindingIndexes.size(); ++row) {
+            m_deviceBindingsTable->setRowHeight(row, 36);
             const int bindingIndex = visibleBindingIndexes.at(row);
             const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
             auto *enabledItem = new QTableWidgetItem();
@@ -4274,21 +4402,11 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             const QString registerAddress = hasRegister
                 ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusRegisterAddress")))
                 : QString();
-            const QString groupNo = binding.extensions.contains(QStringLiteral("modbusGroupNo"))
-                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusGroupNo")))
-                : QString();
-            const QString entryNo = binding.extensions.contains(QStringLiteral("modbusEntryNo"))
-                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusEntryNo")))
-                : QString();
             const bool pocketBit = dataType == QStringLiteral("POCKETBIT");
-            const QString sourceIndex = pocketBit && binding.extensions.contains(QStringLiteral("modbusSourceIndex"))
-                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"))) : QString();
-            const QString bitIndex = pocketBit && binding.extensions.contains(QStringLiteral("modbusBitIndex"))
-                ? QString::number(modbusBindingInt(binding, QStringLiteral("modbusBitIndex"))) : QString();
+            const int sourceIndex = modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"), -1);
+            const int bitIndex = modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1);
             const bool invalidPocketBit = pocketBit
-                && (modbusBindingInt(binding, QStringLiteral("modbusSourceIndex"), -1) < 0
-                    || modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1) < 0
-                    || modbusBindingInt(binding, QStringLiteral("modbusBitIndex"), -1) > 15);
+                && (sourceIndex < 0 || bitIndex < 0 || bitIndex > 15);
 
             auto *kindItem = new QTableWidgetItem(modbusKindDisplayName(kind));
             kindItem->setFlags(kindItem->flags() & ~Qt::ItemIsEditable);
@@ -4298,34 +4416,28 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             auto *funCodeItem = new QTableWidgetItem(funCode);
             auto *registerItem = new QTableWidgetItem(registerAddress);
             auto *dataTypeItem = new QTableWidgetItem(dataType);
-            auto *sourceIndexItem = new QTableWidgetItem(sourceIndex);
-            auto *bitIndexItem = new QTableWidgetItem(bitIndex);
             auto *scaleItem = new QTableWidgetItem(scale);
-            auto *groupItem = new QTableWidgetItem(groupNo);
-            auto *entryItem = new QTableWidgetItem(entryNo);
-            auto *dataIndexItem = new QTableWidgetItem(binding.address);
-            auto *selfSignalItem = new QTableWidgetItem();
-            auto *initValueItem = new QTableWidgetItem(binding.initValue);
-            auto *retainItem = new QTableWidgetItem();
-            selfSignalItem->setFlags((selfSignalItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
-            selfSignalItem->setCheckState(selfSignalFlagChecked(binding.selfSignalFlag) ? Qt::Checked : Qt::Unchecked);
-            retainItem->setFlags((retainItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
-            retainItem->setCheckState(binding.retain ? Qt::Checked : Qt::Unchecked);
+            auto *precontrolPointItem = new QTableWidgetItem();
+            auto *precontrolValueItem = new QTableWidgetItem(modbusPrecontrolValueText(binding));
+            auto *advancedItem = new QTableWidgetItem();
+            advancedItem->setFlags(advancedItem->flags() & ~Qt::ItemIsEditable);
 
             dataRefItem->setFlags(dataRefItem->flags() & ~Qt::ItemIsEditable);
-            groupItem->setFlags(groupItem->flags() & ~Qt::ItemIsEditable);
-            entryItem->setFlags(entryItem->flags() & ~Qt::ItemIsEditable);
-            dataIndexItem->setFlags(dataIndexItem->flags() & ~Qt::ItemIsEditable);
-            if (!pocketBit) {
-                sourceIndexItem->setFlags(sourceIndexItem->flags() & ~Qt::ItemIsEditable);
-                bitIndexItem->setFlags(bitIndexItem->flags() & ~Qt::ItemIsEditable);
-                sourceIndexItem->setForeground(QColor(QStringLiteral("#9e9e9e")));
-                bitIndexItem->setForeground(QColor(QStringLiteral("#9e9e9e")));
-            } else if (invalidPocketBit) {
+            precontrolPointItem->setFlags(precontrolPointItem->flags() & ~Qt::ItemIsEditable);
+            const bool controlPoint = isModbusSetKind(kind);
+            const bool hasPrecontrolPoint = binding.extensions.contains(QStringLiteral("precontrol_dataIndex"))
+                || binding.extensions.contains(QStringLiteral("modbusPrecontrolDataRef"));
+            if (!controlPoint || !hasPrecontrolPoint) {
+                precontrolValueItem->setFlags(precontrolValueItem->flags() & ~Qt::ItemIsEditable);
+                precontrolValueItem->setForeground(QColor(QStringLiteral("#9e9e9e")));
+            }
+            precontrolPointItem->setToolTip(
+                QStringLiteral("选择同一设备内的遥控/遥调点。执行当前点位前，将先按“预控值”控制所选点位。"));
+            precontrolValueItem->setToolTip(
+                QStringLiteral("十进制值直接填写数字；十六进制值使用 0x 前缀，例如 0x01。"));
+            if (invalidPocketBit) {
                 ++invalidPocketBitCount;
-                const QColor warningColor(QStringLiteral("#b9770e"));
-                sourceIndexItem->setForeground(warningColor);
-                bitIndexItem->setForeground(warningColor);
+                dataTypeItem->setForeground(QColor(QStringLiteral("#b9770e")));
             }
 
             if (binding.enabled && hasRegister && duplicateModbusRegisterAddresses.contains(registerAddress)) {
@@ -4338,16 +4450,19 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 registerItem->setForeground(duplicateColor);
                 dataTypeItem->setForeground(duplicateColor);
                 scaleItem->setForeground(duplicateColor);
-                groupItem->setForeground(duplicateColor);
-                entryItem->setForeground(duplicateColor);
-                dataIndexItem->setForeground(duplicateColor);
-                selfSignalItem->setForeground(duplicateColor);
-                initValueItem->setForeground(duplicateColor);
+                precontrolPointItem->setForeground(duplicateColor);
+                precontrolValueItem->setForeground(duplicateColor);
+                advancedItem->setForeground(duplicateColor);
             } else if (binding.enabled && !hasRegister && !virtualModbusDevice) {
                 ++missingRegisterCount;
                 const QColor warningColor(QStringLiteral("#b9770e"));
                 dataRefItem->setForeground(warningColor);
                 registerItem->setForeground(warningColor);
+            }
+            if (invalidPrecontrolBindingIndexes.contains(bindingIndex)) {
+                const QColor warningColor(QStringLiteral("#b9770e"));
+                precontrolPointItem->setForeground(warningColor);
+                precontrolValueItem->setForeground(warningColor);
             }
 
             m_deviceBindingsTable->setItem(row, ModbusColumnEnabled, enabledItem);
@@ -4389,6 +4504,11 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 const QString kind = kindCombo->currentData().toString();
                 device.bindings[bindingIndex].extensions.insert(QStringLiteral("modbusKind"), kind);
                 device.bindings[bindingIndex].extensions.insert(QStringLiteral("modbusDataType"), defaultModbusDataTypeForKind(kind));
+                if (!isModbusSetKind(kind)) {
+                    device.bindings[bindingIndex].extensions.remove(QStringLiteral("modbusPrecontrolDataRef"));
+                    device.bindings[bindingIndex].extensions.remove(QStringLiteral("precontrol_dataIndex"));
+                    device.bindings[bindingIndex].extensions.remove(QStringLiteral("precontrol_val"));
+                }
                 rebuildModbusDeviceConfig(device);
                 refreshDeviceDetail(deviceIndex);
                 refreshDeviceEditor(deviceIndex);
@@ -4466,41 +4586,262 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                 }
             });
             hideComboBackedItemText(dataTypeItem);
-            m_deviceBindingsTable->setCellWidget(row, ModbusColumnDataType, dataTypeCombo);
-            m_deviceBindingsTable->setItem(row, ModbusColumnSourceIndex, sourceIndexItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnBitIndex, bitIndexItem);
+            auto *dataTypeCell = new QWidget(m_deviceBindingsTable);
+            auto *dataTypeLayout = new QHBoxLayout(dataTypeCell);
+            dataTypeLayout->setContentsMargins(4, 3, 4, 3);
+            dataTypeLayout->setSpacing(4);
+            dataTypeCombo->setFixedHeight(26);
+            dataTypeLayout->addWidget(dataTypeCombo, 1);
+            if (pocketBit) {
+                auto *pocketBitButton = new QPushButton(
+                    invalidPocketBit
+                        ? QStringLiteral("设置源/位")
+                        : QStringLiteral("源%1 / 位%2").arg(sourceIndex).arg(bitIndex),
+                    dataTypeCell);
+                pocketBitButton->setToolTip(
+                    QStringLiteral("POCKETBIT 位拆分设置：源序号表示轮询结果中的寄存器序号，位序号范围为 0～15。"));
+                pocketBitButton->setProperty("bindingIndex", bindingIndex);
+                configureCompactTableButton(pocketBitButton, invalidPocketBit);
+                connect(pocketBitButton, &QPushButton::clicked, this, [this, pocketBitButton]() {
+                    const int deviceIndex = currentConfigDeviceIndex();
+                    configtool::ConfigProject &project = m_configProjectManager.project();
+                    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+                        return;
+                    }
+                    configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                    const int bindingIndex = pocketBitButton->property("bindingIndex").toInt();
+                    if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                        return;
+                    }
+
+                    const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
+                    QDialog dialog(this);
+                    dialog.setWindowTitle(QStringLiteral("设置 POCKETBIT 位拆分"));
+                    auto *layout = new QFormLayout(&dialog);
+                    auto *sourceSpin = new QSpinBox(&dialog);
+                    sourceSpin->setRange(0, 65535);
+                    sourceSpin->setValue(qMax(0, modbusBindingInt(
+                        binding, QStringLiteral("modbusSourceIndex"), 0)));
+                    sourceSpin->setToolTip(QStringLiteral("当前轮询组返回数据中的寄存器序号，从 0 开始。"));
+                    auto *bitSpin = new QSpinBox(&dialog);
+                    bitSpin->setRange(0, 15);
+                    bitSpin->setValue(qBound(0, modbusBindingInt(
+                        binding, QStringLiteral("modbusBitIndex"), 0), 15));
+                    layout->addRow(QStringLiteral("源序号:"), sourceSpin);
+                    layout->addRow(QStringLiteral("位序号:"), bitSpin);
+                    auto *buttons = new QDialogButtonBox(
+                        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+                    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定"));
+                    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+                    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+                    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+                    layout->addRow(buttons);
+                    if (dialog.exec() != QDialog::Accepted) {
+                        return;
+                    }
+
+                    pushConfigUndoSnapshot();
+                    configtool::PointBinding &editedBinding = device.bindings[bindingIndex];
+                    editedBinding.extensions.insert(QStringLiteral("modbusSourceIndex"), sourceSpin->value());
+                    editedBinding.extensions.insert(QStringLiteral("modbusBitIndex"), bitSpin->value());
+                    rebuildModbusDeviceConfig(device);
+                    refreshDeviceDetail(deviceIndex);
+                    refreshDeviceEditor(deviceIndex);
+                    for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                        const QTableWidgetItem *item = m_deviceBindingsTable->item(row, ModbusColumnEnabled);
+                        if (item && item->data(Qt::UserRole).toInt() == bindingIndex) {
+                            m_deviceBindingsTable->setCurrentCell(row, ModbusColumnDataType);
+                            break;
+                        }
+                    }
+                });
+                dataTypeLayout->addWidget(pocketBitButton);
+            }
+            m_deviceBindingsTable->setCellWidget(row, ModbusColumnDataType, dataTypeCell);
             m_deviceBindingsTable->setItem(row, ModbusColumnScale, scaleItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnGroupNo, groupItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnEntryNo, entryItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnDataIndex, dataIndexItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnSelfSignal, selfSignalItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnInitValue, initValueItem);
-            m_deviceBindingsTable->setItem(row, ModbusColumnRetain, retainItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnPrecontrolPoint, precontrolPointItem);
+            const QString precontrolDataRef = binding.extensions
+                .value(QStringLiteral("modbusPrecontrolDataRef")).toString().trimmed();
+            QString precontrolDisplay = QStringLiteral("选择预控点位…");
+            bool validPrecontrolTarget = false;
+            for (const configtool::PointBinding &target : device.bindings) {
+                if (!precontrolDataRef.isEmpty()
+                    && target.dataRef.trimmed() == precontrolDataRef) {
+                    precontrolDisplay = modbusPrecontrolPointDisplay(target);
+                    validPrecontrolTarget = true;
+                    break;
+                }
+            }
+            if (!validPrecontrolTarget
+                && binding.extensions.contains(QStringLiteral("precontrol_dataIndex"))) {
+                precontrolDisplay = QStringLiteral("无效预控点（重新选择）");
+            }
+
+            auto *precontrolCell = new QWidget(m_deviceBindingsTable);
+            auto *precontrolLayout = new QHBoxLayout(precontrolCell);
+            precontrolLayout->setContentsMargins(4, 3, 4, 3);
+            precontrolLayout->setSpacing(4);
+            auto *selectPrecontrolButton = new QPushButton(precontrolDisplay, precontrolCell);
+            configureCompactTableButton(
+                selectPrecontrolButton,
+                invalidPrecontrolBindingIndexes.contains(bindingIndex));
+            selectPrecontrolButton->setEnabled(controlPoint);
+            selectPrecontrolButton->setToolTip(
+                QStringLiteral("从当前设备的遥控/遥调点中选择预控点位。"));
+            selectPrecontrolButton->setProperty("bindingIndex", bindingIndex);
+            connect(selectPrecontrolButton, &QPushButton::clicked,
+                    this, [this, selectPrecontrolButton]() {
+                const int deviceIndex = currentConfigDeviceIndex();
+                configtool::ConfigProject &project = m_configProjectManager.project();
+                if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+                    return;
+                }
+                configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                const int bindingIndex = selectPrecontrolButton->property("bindingIndex").toInt();
+                if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                    return;
+                }
+
+                QSet<QString> allowedDataRefs;
+                for (int targetIndex = 0; targetIndex < device.bindings.size(); ++targetIndex) {
+                    const configtool::PointBinding &target = device.bindings.at(targetIndex);
+                    if (targetIndex != bindingIndex
+                        && target.enabled
+                        && isModbusSetKind(modbusBindingKind(target))
+                        && !target.address.trimmed().isEmpty()
+                        && !target.dataRef.trimmed().isEmpty()) {
+                        allowedDataRefs.insert(target.dataRef.trimmed());
+                    }
+                }
+
+                PointSelectorDialog selector(this);
+                selector.setProject(&project);
+                selector.setFixedDeviceFilter(device.deviceId);
+                selector.setAllowedDataRefs(allowedDataRefs);
+                selector.setWindowTitle(QStringLiteral("选择当前设备的预控遥控/遥调点"));
+                if (selector.exec() != QDialog::Accepted) {
+                    return;
+                }
+                const PointSelectorDialog::SelectedPoint selected = selector.selectedPoint();
+                if (!selected.valid
+                    || selected.deviceId.trimmed() != device.deviceId.trimmed()
+                    || !allowedDataRefs.contains(selected.dataRef.trimmed())) {
+                    return;
+                }
+
+                pushConfigUndoSnapshot();
+                configtool::PointBinding &binding = device.bindings[bindingIndex];
+                binding.extensions.insert(QStringLiteral("modbusPrecontrolDataRef"),
+                                          selected.dataRef.trimmed());
+                rebuildModbusDeviceConfig(device);
+                refreshDeviceDetail(deviceIndex);
+                refreshDeviceEditor(deviceIndex);
+                for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
+                    const QTableWidgetItem *item = m_deviceBindingsTable->item(row, ModbusColumnEnabled);
+                    if (item && item->data(Qt::UserRole).toInt() == bindingIndex) {
+                        m_deviceBindingsTable->setCurrentCell(row, ModbusColumnPrecontrolPoint);
+                        break;
+                    }
+                }
+            });
+            precontrolLayout->addWidget(selectPrecontrolButton, 1);
+            if (controlPoint && hasPrecontrolPoint) {
+                auto *clearPrecontrolButton = new QPushButton(QStringLiteral("×"), precontrolCell);
+                clearPrecontrolButton->setFixedSize(30, 24);
+                QFont clearButtonFont = clearPrecontrolButton->font();
+                clearButtonFont.setPixelSize(16);
+                clearButtonFont.setBold(true);
+                clearPrecontrolButton->setFont(clearButtonFont);
+                clearPrecontrolButton->setStyleSheet(
+                    QStringLiteral("QPushButton { min-height: 0px; max-height: 22px; padding: 0px; margin: 0px; }"));
+                clearPrecontrolButton->setToolTip(QStringLiteral("清除预控制配置"));
+                clearPrecontrolButton->setProperty("bindingIndex", bindingIndex);
+                connect(clearPrecontrolButton, &QPushButton::clicked,
+                        this, [this, clearPrecontrolButton]() {
+                    const int deviceIndex = currentConfigDeviceIndex();
+                    configtool::ConfigProject &project = m_configProjectManager.project();
+                    if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+                        return;
+                    }
+                    configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                    const int bindingIndex = clearPrecontrolButton->property("bindingIndex").toInt();
+                    if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                        return;
+                    }
+                    pushConfigUndoSnapshot();
+                    configtool::PointBinding &binding = device.bindings[bindingIndex];
+                    binding.extensions.remove(QStringLiteral("modbusPrecontrolDataRef"));
+                    binding.extensions.remove(QStringLiteral("precontrol_dataIndex"));
+                    binding.extensions.remove(QStringLiteral("precontrol_val"));
+                    rebuildModbusDeviceConfig(device);
+                    refreshDeviceDetail(deviceIndex);
+                    refreshDeviceEditor(deviceIndex);
+                });
+                precontrolLayout->addWidget(clearPrecontrolButton);
+            }
+            hideComboBackedItemText(precontrolPointItem);
+            m_deviceBindingsTable->setCellWidget(row, ModbusColumnPrecontrolPoint,
+                                                 precontrolCell);
+            m_deviceBindingsTable->setItem(row, ModbusColumnPrecontrolValue, precontrolValueItem);
+            m_deviceBindingsTable->setItem(row, ModbusColumnAdvanced, advancedItem);
+            auto *advancedCell = new QWidget(m_deviceBindingsTable);
+            auto *advancedLayout = new QHBoxLayout(advancedCell);
+            advancedLayout->setContentsMargins(4, 3, 4, 3);
+            auto *advancedButton = new QPushButton(QStringLiteral("设置…"), advancedCell);
+            configureCompactTableButton(advancedButton);
+            advancedButton->setToolTip(QStringLiteral("设置虚拟点标志、初始值和持久化。"));
+            advancedButton->setProperty("bindingIndex", bindingIndex);
+            connect(advancedButton, &QPushButton::clicked, this, [this, advancedButton]() {
+                const int deviceIndex = currentConfigDeviceIndex();
+                configtool::ConfigProject &project = m_configProjectManager.project();
+                if (deviceIndex < 0 || deviceIndex >= project.devices.size()) {
+                    return;
+                }
+                configtool::ProtocolDeviceInstance &device = project.devices[deviceIndex];
+                const int bindingIndex = advancedButton->property("bindingIndex").toInt();
+                if (bindingIndex < 0 || bindingIndex >= device.bindings.size()) {
+                    return;
+                }
+                const configtool::PointBinding &binding = device.bindings.at(bindingIndex);
+
+                QDialog dialog(this);
+                dialog.setWindowTitle(QStringLiteral("Modbus 点位高级设置"));
+                auto *layout = new QFormLayout(&dialog);
+                auto *virtualPointCheck = new QCheckBox(QStringLiteral("启用虚拟点标志"), &dialog);
+                virtualPointCheck->setChecked(selfSignalFlagChecked(binding.selfSignalFlag));
+                auto *initValueEdit = new QLineEdit(binding.initValue, &dialog);
+                initValueEdit->setPlaceholderText(QStringLiteral("留空表示不写入 init_value"));
+                auto *retainCheck = new QCheckBox(QStringLiteral("持久化点值"), &dialog);
+                retainCheck->setChecked(binding.retain);
+                layout->addRow(QStringLiteral("虚拟点:"), virtualPointCheck);
+                layout->addRow(QStringLiteral("初始值:"), initValueEdit);
+                layout->addRow(QStringLiteral("持久化:"), retainCheck);
+                auto *buttons = new QDialogButtonBox(
+                    QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+                buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("确定"));
+                buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+                connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+                connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+                layout->addRow(buttons);
+                if (dialog.exec() != QDialog::Accepted) {
+                    return;
+                }
+
+                pushConfigUndoSnapshot();
+                configtool::PointBinding &editedBinding = device.bindings[bindingIndex];
+                editedBinding.selfSignalFlag = virtualPointCheck->isChecked()
+                    ? QStringLiteral("1")
+                    : QString();
+                editedBinding.initValue = initValueEdit->text().trimmed();
+                editedBinding.retain = retainCheck->isChecked();
+                refreshDeviceDetail(deviceIndex);
+                refreshDeviceEditor(deviceIndex);
+            });
+            advancedLayout->addWidget(advancedButton);
+            hideComboBackedItemText(advancedItem);
+            m_deviceBindingsTable->setCellWidget(row, ModbusColumnAdvanced, advancedCell);
         }
         m_updatingDeviceBindingsTable = false;
-
-        auto fitDataTypeCombosToCells = [this]() {
-            if (!m_deviceBindingsTable
-                || m_deviceBindingsTable->columnCount() != ModbusBindingColumnCount) {
-                return;
-            }
-
-            for (int row = 0; row < m_deviceBindingsTable->rowCount(); ++row) {
-                QWidget *widget = m_deviceBindingsTable->cellWidget(row, ModbusColumnDataType);
-                if (!widget) {
-                    continue;
-                }
-
-                const QModelIndex index = m_deviceBindingsTable->model()->index(row, ModbusColumnDataType);
-                const QRect rect = m_deviceBindingsTable->visualRect(index);
-                if (rect.isValid()) {
-                    widget->setGeometry(rect.adjusted(5, 3, -5, -3));
-                }
-            }
-            m_deviceBindingsTable->viewport()->update();
-        };
-        fitDataTypeCombosToCells();
-        QTimer::singleShot(0, this, fitDataTypeCombosToCells);
 
         if (!duplicateModbusRegisterAddresses.isEmpty()) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #c0392b; }");
@@ -4512,9 +4853,14 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
             m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个 POCKETBIT 点位的源序号或位序号无效；源序号须不小于 0，位序号须为 0～15。")
                 .arg(invalidPocketBitCount));
+        } else if (!invalidPrecontrolBindingIndexes.isEmpty()) {
+            m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
+            m_deviceValidationLabel->setText(
+                QStringLiteral("当前有 %1 个预控制配置无效：请为遥控/遥调点选择同一设备内有效的预控点位，并填写预控值。")
+                    .arg(invalidPrecontrolBindingIndexes.size()));
         } else if (missingRegisterCount > 0) {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #b9770e; }");
-            m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 Modbus 寄存器地址。填写后会自动生成分组、组内序号和 dataIndex。")
+            m_deviceValidationLabel->setText(QStringLiteral("当前有 %1 个启用点位未填写 Modbus 寄存器地址。填写后会自动生成内部映射。")
                 .arg(missingRegisterCount));
         } else {
             m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");

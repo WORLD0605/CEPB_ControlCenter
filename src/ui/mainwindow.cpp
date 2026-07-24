@@ -2885,6 +2885,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
     refreshProgramControlTable(QString());
     refreshLogicCenterOverview();
+    QTimer::singleShot(0, this, &MainWindow::tryAutoOpenLastConfig);
 }
 
 MainWindow::~MainWindow()

@@ -800,12 +800,12 @@ void MainWindow::onCommandReply(const QString &reply)
                                   replyText.startsWith(QStringLiteral("mqtt client unavailable"), Qt::CaseInsensitive);
             if (isCurrentSession) {
                 if (sent) {
-                    appendSystem(QStringLiteral("LogicCenter datawrite 已发送 %1#%2=%3，正在刷新 AGC/AVC 状态...")
+                    appendSystem(QStringLiteral("LogicCenter datawrite 已发送 %1#%2=%3，稍后刷新 AGC/AVC 状态...")
                                      .arg(session->pendingDataWriteDeviceId,
                                           session->pendingDataWriteDataRef,
                                           session->pendingDataWriteValue),
                                  "#32cd32");
-                    requestServiceChannelData(false);
+                    scheduleLogicCenterStatusRefresh(session);
                 } else if (rejected) {
                     appendSystem(QStringLiteral("LogicCenter datawrite 发送失败: %1").arg(replyText), "#ff4444");
                 }
@@ -1270,6 +1270,36 @@ void MainWindow::requestServiceChannelData(bool logRequest)
     session->pendingDataTableCommand = logicCenterMode ? QStringLiteral("agcavc") : QStringLiteral("dataread");
     client->sendCommand(command);
     updateControlCommandUi();
+}
+
+void MainWindow::scheduleLogicCenterStatusRefresh(DebugAppSession *session,
+                                                  int delayMs,
+                                                  int remainingRetries)
+{
+    if (!session) {
+        return;
+    }
+
+    QTimer::singleShot(delayMs, this, [this, session, remainingRetries]() {
+        if (session != currentDebugSession() ||
+            currentAppConfig().viewMode != AppViewMode::LogicAgcAvcTable) {
+            return;
+        }
+
+        DebugConsoleClient *client = session->client;
+        if (!client || !client->isConnected()) {
+            return;
+        }
+
+        if (client->isExecutingCommand()) {
+            if (remainingRetries > 0) {
+                scheduleLogicCenterStatusRefresh(session, 250, remainingRetries - 1);
+            }
+            return;
+        }
+
+        requestServiceChannelData(false);
+    });
 }
 
 void MainWindow::onDeviceFilterChanged(int /*index*/)

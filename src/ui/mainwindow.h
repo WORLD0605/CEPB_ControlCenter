@@ -263,6 +263,9 @@ private:
     void updateNorthConnectionStatusUi();
     void updateNorthConnectionStatusTimer();
     void requestServiceChannelData(bool logRequest = true);
+    void scheduleLogicCenterStatusRefresh(DebugAppSession *session,
+                                          int delayMs = 600,
+                                          int remainingRetries = 3);
     QList<LogicAgcAvcStatusItem> parseLogicAgcAvcReply(const QString &reply) const;
     void populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &items);
     void configureDataTableForCurrentApp();
@@ -324,6 +327,7 @@ private:
     void autoMergeDlt645FfPollGroups();
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
+    void tryAutoOpenLastConfig();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
     QString resolveNorthCepAppDir(const QString &projectRoot) const;

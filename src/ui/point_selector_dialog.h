@@ -3,6 +3,7 @@
 
 #include <QDialog>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 #include "config/config_domain.h"
@@ -32,6 +33,8 @@ public:
 
     void setProject(const configtool::ConfigProject *project);
     void setServiceTypeFilter(configtool::ModelServiceType type);
+    void setFixedDeviceFilter(const QString &deviceId);
+    void setAllowedDataRefs(const QSet<QString> &dataRefs);
     SelectedPoint selectedPoint() const;
 
 private slots:
@@ -59,6 +62,8 @@ private:
     static bool rowMatchesSearch(const PointRow &row, const QString &keyword);
 
     const configtool::ConfigProject *m_project = nullptr;
+    QSet<QString> m_allowedDataRefs;
+    bool m_filterAllowedDataRefs = false;
     QComboBox *m_deviceCombo = nullptr;
     QComboBox *m_typeCombo = nullptr;
     QLineEdit *m_searchEdit = nullptr;

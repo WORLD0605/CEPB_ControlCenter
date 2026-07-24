@@ -503,6 +503,41 @@ void MainWindow::onBrowseConfigImportDirClicked()
     }
 }
 
+void MainWindow::tryAutoOpenLastConfig()
+{
+    if (!m_configImportDirEdit) {
+        return;
+    }
+
+    QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
+    QString projectRoot = settings.value(QStringLiteral("config/lastOpenedDir"))
+                              .toString().trimmed();
+    if (projectRoot.isEmpty()) {
+        projectRoot = settings.value(QStringLiteral("config/lastBrowseDir"))
+                          .toString().trimmed();
+    }
+    projectRoot = normalizedConfigProjectRoot(projectRoot);
+    if (projectRoot.isEmpty() || !QFileInfo(projectRoot).isDir()) {
+        return;
+    }
+
+    const bool hasImportableConfig = !resolveIec104AppDir(projectRoot).isEmpty()
+        || !resolveModbusAppDir(projectRoot).isEmpty()
+        || !resolveDlt645AppDir(projectRoot).isEmpty()
+        || !resolveLogicCenterAppDir(projectRoot).isEmpty()
+        || !resolveNorthCepAppDir(projectRoot).isEmpty()
+        || !resolveIec101ServiceChannelAppDir(projectRoot).isEmpty()
+        || !resolveIec104ServiceChannelAppDir(projectRoot).isEmpty();
+    if (!hasImportableConfig) {
+        statusBar()->showMessage(QStringLiteral("上次工程目录中未找到可自动打开的配置"), 5000);
+        return;
+    }
+
+    m_configImportDirEdit->setText(projectRoot);
+    statusBar()->showMessage(QStringLiteral("正在自动打开上次配置…"));
+    onImportIec104ConfigClicked();
+}
+
 void MainWindow::onOpenConfigDirClicked()
 {
     const QString projectRoot = normalizedConfigProjectRoot(m_configImportDirEdit->text());
@@ -632,6 +667,7 @@ void MainWindow::onImportIec104ConfigClicked()
         return;
     }
 
+    settings.setValue(QStringLiteral("config/lastOpenedDir"), projectRoot);
     statusBar()->showMessage(QStringLiteral("配置导入完成"), 5000);
 }
 

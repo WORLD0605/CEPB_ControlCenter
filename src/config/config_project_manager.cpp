@@ -769,8 +769,12 @@ QJsonObject serializeModbusBinding(const PointBinding &binding,
     if (!binding.initValue.isEmpty()) {
         object.insert(QStringLiteral("init_value"), binding.initValue);
     }
-    if (binding.extensions.contains(QStringLiteral("precontrol_dataIndex"))) {
+    const bool controlPoint = isModbusSetKind(modbusBindingKind(binding));
+    if (controlPoint && binding.extensions.contains(QStringLiteral("precontrol_dataIndex"))) {
         object.insert(QStringLiteral("precontrol_dataIndex"), binding.extensions.value(QStringLiteral("precontrol_dataIndex")));
+    }
+    if (controlPoint && binding.extensions.contains(QStringLiteral("precontrol_val"))) {
+        object.insert(QStringLiteral("precontrol_val"), binding.extensions.value(QStringLiteral("precontrol_val")));
     }
     if (binding.extensions.contains(QStringLiteral("linkto"))) {
         object.insert(QStringLiteral("linkto"), binding.extensions.value(QStringLiteral("linkto")));

@@ -139,6 +139,30 @@ void PointSelectorDialog::setServiceTypeFilter(configtool::ModelServiceType type
     }
 }
 
+void PointSelectorDialog::setFixedDeviceFilter(const QString &deviceId)
+{
+    const int index = m_deviceCombo->findData(deviceId.trimmed());
+    m_deviceCombo->setCurrentIndex(index >= 0 ? index : 0);
+    m_deviceCombo->setEnabled(false);
+    refreshPointTable();
+}
+
+void PointSelectorDialog::setAllowedDataRefs(const QSet<QString> &dataRefs)
+{
+    m_allowedDataRefs.clear();
+    for (const QString &dataRef : dataRefs) {
+        const QString normalized = dataRef.trimmed();
+        if (!normalized.isEmpty()) {
+            m_allowedDataRefs.insert(normalized);
+        }
+    }
+    m_filterAllowedDataRefs = true;
+    const int allTypesIndex = m_typeCombo->findData(-1);
+    m_typeCombo->setCurrentIndex(allTypesIndex >= 0 ? allTypesIndex : 0);
+    m_typeCombo->setEnabled(false);
+    refreshPointTable();
+}
+
 PointSelectorDialog::SelectedPoint PointSelectorDialog::selectedPoint() const
 {
     return m_selectedPoint;
@@ -301,6 +325,9 @@ void PointSelectorDialog::refreshPointTable()
 
     int visibleRow = 0;
     for (const PointRow &row : rows) {
+        if (m_filterAllowedDataRefs && !m_allowedDataRefs.contains(row.dataRef.trimmed())) {
+            continue;
+        }
         if (!selectedDeviceId.isEmpty() && row.deviceId != selectedDeviceId) {
             continue;
         }
