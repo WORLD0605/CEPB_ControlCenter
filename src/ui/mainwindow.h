@@ -105,6 +105,7 @@ struct DebugAppSession {
     bool serviceChannelDataFrozen = false;
     QJsonObject northConnectionStatus;
     QString northConnectionStatusError;
+    bool showSouthConnectionStatusDialog = false;
 };
 
 class MainWindow : public QMainWindow
@@ -266,7 +267,7 @@ private:
     void requestNorthConnectionStatus(DebugAppSession *session = nullptr, bool logRequest = false);
     void updateNorthConnectionStatusUi();
     void updateNorthConnectionStatusTimer();
-    void updateSouthDeviceStatusPanel();
+    void showSouthDeviceStatusDialog(DebugAppSession *session);
     void requestServiceChannelData(bool logRequest = true);
     void scheduleLogicCenterStatusRefresh(DebugAppSession *session,
                                           int delayMs = 600,
@@ -592,10 +593,6 @@ private:
     QPushButton *m_connectBtn = nullptr;
     QPushButton *m_disconnectBtn = nullptr;
     QPushButton *m_northConnectionStatusBtn = nullptr;
-    QWidget *m_southDeviceStatusPanel = nullptr;
-    QLabel *m_southDeviceStatusSummaryLabel = nullptr;
-    QPushButton *m_southDeviceStatusRefreshBtn = nullptr;
-    QTableWidget *m_southDeviceStatusTable = nullptr;
     QPushButton *m_selectConfigImportDirBtn = nullptr;
     QPushButton *m_browseConfigImportDirBtn = nullptr;
     QPushButton *m_openConfigDirBtn = nullptr;
