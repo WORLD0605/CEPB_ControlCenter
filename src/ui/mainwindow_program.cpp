@@ -226,13 +226,13 @@ QString programBulkActionAndStatusCommand(const QString &action,
                                           const QString &baseDir,
                                           const QStringList &appNames)
 {
-    QStringList quotedServices;
-    quotedServices.reserve(appNames.size());
+    QStringList serviceNames;
+    serviceNames.reserve(appNames.size());
     for (const QString &appName : appNames) {
-        quotedServices.append(remoteProgramShellQuote(programServiceNameForApp(appName)));
+        serviceNames.append(programServiceNameForApp(appName));
     }
 
-    const QString services = quotedServices.join(QLatin1Char(' '));
+    const QString services = serviceNames.join(QLatin1Char(' '));
     return QStringLiteral(
         "action_rc=0; services=%1; "
         "for service in $services; do "

@@ -562,9 +562,10 @@ void MainWindow::updateDebugAppTabText(DebugAppSession *session)
         if (m_appTabBar->tabData(tab).toInt() == session->appIndex) {
             const bool connected = session->client && session->client->isConnected();
             m_appTabBar->setTabText(tab, appConfig.name);
-            m_appTabBar->setTabTextColor(tab, connected
-                ? QColor(QStringLiteral("#2e9d50"))
-                : QColor());
+            const QByteArray propertyName =
+                QByteArrayLiteral("debugConnectedTab") + QByteArray::number(tab);
+            m_appTabBar->setProperty(propertyName.constData(), connected);
+            m_appTabBar->update(m_appTabBar->tabRect(tab));
             return;
         }
     }

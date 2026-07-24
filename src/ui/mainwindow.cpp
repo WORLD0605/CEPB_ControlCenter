@@ -24,6 +24,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPalette>
+#include <QPaintEvent>
+#include <QPainter>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
@@ -44,6 +46,39 @@
 #include <QWidget>
 
 namespace {
+
+class DebugAppTabBar : public QTabBar
+{
+public:
+    using QTabBar::QTabBar;
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        QTabBar::paintEvent(event);
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        for (int tab = 0; tab < count(); ++tab) {
+            const QByteArray propertyName =
+                QByteArrayLiteral("debugConnectedTab") + QByteArray::number(tab);
+            if (!property(propertyName.constData()).toBool()) {
+                continue;
+            }
+
+            const QRect tabArea = tabRect(tab).adjusted(1, 1, -1, -1);
+            painter.setPen(QPen(QColor(QStringLiteral("#66bb6a")), 1));
+            painter.setBrush(QColor(QStringLiteral("#2e7d32")));
+            painter.drawRoundedRect(tabArea, 4, 4);
+
+            painter.setPen(Qt::white);
+            painter.drawText(tabArea.adjusted(8, 0, -8, 0),
+                             Qt::AlignCenter,
+                             tabText(tab));
+        }
+    }
+};
 
 class EnterToNextRowTableWidget;
 
@@ -851,7 +886,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *topLayout = new QHBoxLayout();
     topLayout->addWidget(new QLabel("APP:"));
-    m_appTabBar = new QTabBar();
+    m_appTabBar = new DebugAppTabBar();
     m_appTabBar->setDocumentMode(true);
     m_appTabBar->setExpanding(false);
     m_appTabBar->setUsesScrollButtons(true);
