@@ -331,6 +331,7 @@ private:
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
     QString resolveNorthCepAppDir(const QString &projectRoot) const;
+    QString resolveNorthMqttAppDir(const QString &projectRoot) const;
     QString resolveIec104AppDir(const QString &projectRoot) const;
     QString resolveModbusAppDir(const QString &projectRoot) const;
     QString resolveDlt645AppDir(const QString &projectRoot) const;
@@ -343,6 +344,9 @@ private:
     bool validateNorthCepConfig(QString *errorMessage = nullptr) const;
     bool writeNorthCepSystemConfig(const QString &projectRoot,
                                    configtool::ExportReport &report) const;
+    void clearNorthMqttConfigPage();
+    void loadNorthMqttMainstationConfig(const QString &filePath, configtool::ImportReport &report);
+    bool validateNorthMqttConfig(QString *errorMessage = nullptr) const;
     QJsonObject serializeIec101LocalhostConfig() const;
     void loadIec101LocalhostConfigFromFile(const QString &filePath);
     void loadIec101LocalhostConfigFromJson(const QJsonObject &root);
@@ -644,6 +648,7 @@ private:
     QWidget *m_logManagementPage = nullptr;
     QWidget *m_northConfigPage = nullptr;
     QWidget *m_northCepConfigPage = nullptr;
+    QWidget *m_northMqttConfigPage = nullptr;
     QWidget *m_iec101ConfigPage = nullptr;
     QWidget *m_iec104ConfigPage = nullptr;
     QWidget *m_modelEditorPage = nullptr;
@@ -793,6 +798,12 @@ private:
     QLineEdit *m_northCepGatewayNameEdit = nullptr;
     QLineEdit *m_northCepManagementPortEdit = nullptr;
     QLineEdit *m_northCepDataPortEdit = nullptr;
+    // North_Mqtt 配置页面控件
+    QLineEdit *m_northMqttGatewayIdEdit = nullptr;
+    QLineEdit *m_northMqttBrokerIpEdit = nullptr;
+    QLineEdit *m_northMqttPortEdit = nullptr;
+    QLineEdit *m_northMqttUsernameEdit = nullptr;
+    QLineEdit *m_northMqttPasswordEdit = nullptr;
     // IEC101 配置页面控件
     QComboBox *m_iec101CommModeCombo = nullptr;
     QLineEdit *m_iec101ComAddrEdit = nullptr;

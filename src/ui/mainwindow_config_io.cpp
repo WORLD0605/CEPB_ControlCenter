@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QHostAddress>
 #include <QSaveFile>
 #include <QUrl>
 
@@ -12,6 +13,9 @@ namespace {
 
 const QString kDefaultGatewayId = QStringLiteral("00010002000300040005032");
 const QString kDefaultGatewayName = QStringLiteral("南网科技边缘网关");
+const QString kDefaultNorthMqttGatewayId = QStringLiteral("000100020003000400051234");
+const QString kDefaultNorthMqttBrokerIp = QStringLiteral("192.168.0.16");
+const QString kDefaultNorthMqttPort = QStringLiteral("1883");
 
 struct ConfigAppDirMigration {
     QString newName;
@@ -382,6 +386,57 @@ bool writeNorthCepMainstationConfig(const QString &projectRoot,
     return true;
 }
 
+bool writeNorthMqttMainstationConfig(const QString &projectRoot,
+                                     const QString &gatewayId,
+                                     const QString &brokerIp,
+                                     const QString &port,
+                                     const QString &username,
+                                     const QString &password,
+                                     configtool::ExportReport &report)
+{
+    const QString etcDirPath = QDir(projectRoot).filePath(QStringLiteral("North_Mqtt/etc"));
+    const QString filePath = QDir(etcDirPath).filePath(QStringLiteral("mainstation.json"));
+    if (!QDir().mkpath(etcDirPath)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法创建 North_Mqtt 主站配置目录: %1").arg(etcDirPath));
+        return false;
+    }
+
+    QJsonObject station;
+    station.insert(QStringLiteral("broker_ip"), brokerIp);
+    station.insert(QStringLiteral("port"), port);
+    station.insert(QStringLiteral("username"), username);
+    station.insert(QStringLiteral("password"), password);
+
+    QJsonObject root;
+    root.insert(QStringLiteral("gatewayId"), gatewayId);
+    root.insert(QStringLiteral("mainstation"), QJsonArray{station});
+
+    QSaveFile output(filePath);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法写入 North_Mqtt 主站配置文件: %1").arg(output.errorString()));
+        return false;
+    }
+    const QByteArray outputData = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    if (output.write(outputData) != outputData.size()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("写入 North_Mqtt 主站配置文件失败: %1").arg(output.errorString()));
+        output.cancelWriting();
+        return false;
+    }
+    if (!output.commit()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("提交 North_Mqtt 主站配置文件失败: %1").arg(output.errorString()));
+        return false;
+    }
+    return true;
+}
+
 QStringList configAppFolderNames()
 {
     QStringList names;
@@ -461,6 +516,92 @@ void MainWindow::loadNorthCepMainstationConfig(const QString &filePath, configto
                         filePath,
                         QStringLiteral("North_CEP 数据通道端口无效，已使用默认值 9902"));
     }
+}
+
+void MainWindow::clearNorthMqttConfigPage()
+{
+    if (m_northMqttGatewayIdEdit) {
+        m_northMqttGatewayIdEdit->setText(kDefaultNorthMqttGatewayId);
+    }
+    if (m_northMqttBrokerIpEdit) {
+        m_northMqttBrokerIpEdit->setText(kDefaultNorthMqttBrokerIp);
+    }
+    if (m_northMqttPortEdit) {
+        m_northMqttPortEdit->setText(kDefaultNorthMqttPort);
+    }
+    if (m_northMqttUsernameEdit) {
+        m_northMqttUsernameEdit->clear();
+    }
+    if (m_northMqttPasswordEdit) {
+        m_northMqttPasswordEdit->clear();
+    }
+}
+
+void MainWindow::loadNorthMqttMainstationConfig(const QString &filePath,
+                                                configtool::ImportReport &report)
+{
+    clearNorthMqttConfigPage();
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("无法读取 North_Mqtt 主站配置，已使用默认值: %1")
+                            .arg(file.errorString()));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    const QJsonObject root = document.isObject() ? document.object() : QJsonObject();
+    const QJsonArray stations = root.value(QStringLiteral("mainstation")).toArray();
+    if (parseError.error != QJsonParseError::NoError || root.isEmpty()
+        || stations.isEmpty() || !stations.first().isObject()) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_Mqtt mainstation.json 格式无效，已使用默认值"));
+        return;
+    }
+
+    const QString gatewayId = root.value(QStringLiteral("gatewayId")).toString().trimmed();
+    if (!gatewayId.isEmpty() && gatewayId.toUtf8().size() <= 24) {
+        m_northMqttGatewayIdEdit->setText(gatewayId);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_Mqtt gatewayId 无效，已使用默认值"));
+    }
+
+    const QJsonObject station = stations.first().toObject();
+    const QString brokerIp = station.value(QStringLiteral("broker_ip")).toString().trimmed();
+    QHostAddress brokerAddress;
+    if (brokerAddress.setAddress(brokerIp)
+        && brokerAddress.protocol() == QAbstractSocket::IPv4Protocol) {
+        m_northMqttBrokerIpEdit->setText(brokerIp);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_Mqtt broker_ip 无效，已使用默认值"));
+    }
+
+    const QJsonValue portValue = station.value(QStringLiteral("port"));
+    const QString portText = portValue.isDouble()
+        ? QString::number(portValue.toInt())
+        : portValue.toString().trimmed();
+    bool portOk = false;
+    const int port = portText.toInt(&portOk);
+    if (portOk && port >= 1 && port <= 65535) {
+        m_northMqttPortEdit->setText(portText);
+    } else {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_Mqtt Broker 端口无效，已使用默认值 1883"));
+    }
+
+    m_northMqttUsernameEdit->setText(
+        station.value(QStringLiteral("username")).toString());
+    m_northMqttPasswordEdit->setText(
+        station.value(QStringLiteral("password")).toString());
 }
 
 void MainWindow::loadNorthCepSystemConfig(const QString &filePath,
@@ -571,6 +712,50 @@ bool MainWindow::validateNorthCepConfig(QString *errorMessage) const
     if (managementPort == dataPort) {
         if (errorMessage) {
             *errorMessage = QStringLiteral("管理通道端口和数据通道端口不能相同。");
+        }
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::validateNorthMqttConfig(QString *errorMessage) const
+{
+    const QString gatewayId = m_northMqttGatewayIdEdit
+        ? m_northMqttGatewayIdEdit->text().trimmed()
+        : QString();
+    if (gatewayId.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("网关 ID 不能为空。");
+        }
+        return false;
+    }
+    if (gatewayId.toUtf8().size() > 24) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("网关 ID 的 UTF-8 编码长度不能超过 24 字节。");
+        }
+        return false;
+    }
+
+    const QString brokerIp = m_northMqttBrokerIpEdit
+        ? m_northMqttBrokerIpEdit->text().trimmed()
+        : QString();
+    QHostAddress brokerAddress;
+    if (!brokerAddress.setAddress(brokerIp)
+        || brokerAddress.protocol() != QAbstractSocket::IPv4Protocol) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Broker IP 必须是有效的 IPv4 地址。");
+        }
+        return false;
+    }
+
+    const QString portText = m_northMqttPortEdit
+        ? m_northMqttPortEdit->text().trimmed()
+        : QString();
+    bool portOk = false;
+    const int port = portText.toInt(&portOk);
+    if (!portOk || port < 1 || port > 65535) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Broker 端口必须是 1～65535 之间的整数。");
         }
         return false;
     }
@@ -694,6 +879,7 @@ void MainWindow::tryAutoOpenLastConfig()
         || !resolveDlt645AppDir(projectRoot).isEmpty()
         || !resolveLogicCenterAppDir(projectRoot).isEmpty()
         || !resolveNorthCepAppDir(projectRoot).isEmpty()
+        || !resolveNorthMqttAppDir(projectRoot).isEmpty()
         || !resolveIec101ServiceChannelAppDir(projectRoot).isEmpty()
         || !resolveIec104ServiceChannelAppDir(projectRoot).isEmpty();
     if (!hasImportableConfig) {
@@ -742,11 +928,13 @@ void MainWindow::onImportIec104ConfigClicked()
     const QString dlt645AppDir = resolveDlt645AppDir(projectRoot);
     const QString logicCenterAppDir = resolveLogicCenterAppDir(projectRoot);
     const QString northCepAppDir = resolveNorthCepAppDir(projectRoot);
+    const QString northMqttAppDir = resolveNorthMqttAppDir(projectRoot);
     const QString iec101AppDir = resolveIec101ServiceChannelAppDir(projectRoot);
     const QString iec104NorthAppDir = resolveIec104ServiceChannelAppDir(projectRoot);
     if (iec104AppDir.isEmpty() && modbusAppDir.isEmpty() && dlt645AppDir.isEmpty()
         && logicCenterAppDir.isEmpty() && northCepAppDir.isEmpty()
-        && iec101AppDir.isEmpty() && iec104NorthAppDir.isEmpty()) {
+        && northMqttAppDir.isEmpty() && iec101AppDir.isEmpty()
+        && iec104NorthAppDir.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("警告"), QStringLiteral("当前工程目录下未找到可导入的 APP 配置目录"));
         return;
     }
@@ -802,6 +990,18 @@ void MainWindow::onImportIec104ConfigClicked()
     loadNorthCepSystemConfig(
         QDir(projectRoot).filePath(QStringLiteral("etc/system.json")),
         report);
+    // ---- North_Mqtt 配置（可选） ----
+    if (!northMqttAppDir.isEmpty()) {
+        const QString mainstationPath = QDir(northMqttAppDir)
+            .filePath(QStringLiteral("etc/mainstation.json"));
+        if (QFileInfo::exists(mainstationPath)) {
+            loadNorthMqttMainstationConfig(mainstationPath, report);
+        } else {
+            clearNorthMqttConfigPage();
+        }
+    } else {
+        clearNorthMqttConfigPage();
+    }
     // ---- IEC101 配置（可选） ----
     if (!iec101AppDir.isEmpty()) {
         const QString iec101ConfigPath = findIec101LocalhostConfig(projectRoot, report);
@@ -857,6 +1057,14 @@ void MainWindow::onExportIec104ConfigClicked()
         return;
     }
 
+    QString northMqttError;
+    if (!validateNorthMqttConfig(&northMqttError)) {
+        showNorthConfigPage(m_northMqttConfigPage);
+        QMessageBox::warning(this, QStringLiteral("MQTT配置"), northMqttError);
+        statusBar()->showMessage(QStringLiteral("MQTT 配置校验失败"), 5000);
+        return;
+    }
+
     const QString serialConflict = serialPortConflictMessage(
         m_configProjectManager.project(),
         m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
@@ -900,6 +1108,14 @@ void MainWindow::onExportIec104ConfigClicked()
                                         m_northCepManagementPortEdit->text().trimmed(),
                                         m_northCepDataPortEdit->text().trimmed(),
                                         report) && ok;
+    ok = writeNorthMqttMainstationConfig(
+        projectRoot,
+        m_northMqttGatewayIdEdit->text().trimmed(),
+        m_northMqttBrokerIpEdit->text().trimmed(),
+        m_northMqttPortEdit->text().trimmed(),
+        m_northMqttUsernameEdit->text(),
+        m_northMqttPasswordEdit->text(),
+        report) && ok;
 
     // ---- IEC101 配置导出 ----
     const QString iec101ExportDir = QDir(projectRoot).filePath(QStringLiteral("North_101"));
@@ -1124,6 +1340,13 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         appendIssue(configtool::ImportIssueSeverity::Error,
                     QDir(projectPath).filePath(QStringLiteral("North_CEP/etc/mainstation.json")),
                     QStringLiteral("North_CEP 配置：%1").arg(northCepError));
+    }
+
+    QString northMqttError;
+    if (!validateNorthMqttConfig(&northMqttError)) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    QDir(projectPath).filePath(QStringLiteral("North_Mqtt/etc/mainstation.json")),
+                    QStringLiteral("North_Mqtt 配置：%1").arg(northMqttError));
     }
 
     const QStringList serialConflicts = serialPortConflictDescriptions(
@@ -1794,6 +2017,14 @@ QString MainWindow::resolveNorthCepAppDir(const QString &projectRoot) const
     return resolveAppDirByNames(projectRoot, {
         QStringLiteral("North_CEP"),
         QStringLiteral("ServiceChannel")
+    });
+}
+
+QString MainWindow::resolveNorthMqttAppDir(const QString &projectRoot) const
+{
+    return resolveAppDirByNames(projectRoot, {
+        QStringLiteral("North_Mqtt"),
+        QStringLiteral("MqttServiceChannel")
     });
 }
 

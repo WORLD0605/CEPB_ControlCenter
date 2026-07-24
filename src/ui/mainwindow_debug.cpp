@@ -561,9 +561,10 @@ void MainWindow::updateDebugAppTabText(DebugAppSession *session)
     for (int tab = 0; tab < m_appTabBar->count(); ++tab) {
         if (m_appTabBar->tabData(tab).toInt() == session->appIndex) {
             const bool connected = session->client && session->client->isConnected();
-            m_appTabBar->setTabText(tab, connected
-                ? QStringLiteral("%1 (on)").arg(appConfig.name)
-                : appConfig.name);
+            m_appTabBar->setTabText(tab, appConfig.name);
+            m_appTabBar->setTabTextColor(tab, connected
+                ? QColor(QStringLiteral("#2e9d50"))
+                : QColor());
             return;
         }
     }

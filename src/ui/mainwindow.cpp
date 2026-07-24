@@ -1044,7 +1044,7 @@ MainWindow::MainWindow(QWidget *parent)
     auto *importRow = new QHBoxLayout();
     importRow->addWidget(new QLabel("工程目录:"));
     m_configImportDirEdit = new QLineEdit();
-    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_CEP、North_101、North_104 的目录");
+    m_configImportDirEdit->setPlaceholderText("选择工程根目录，例如包含 South_104、South_Modbus、South_645、LogicCenter、North_CEP、North_Mqtt、North_101、North_104 的目录");
     {
         QSettings settings(QStringLiteral("CEPB"), QStringLiteral("ControlCenter"));
         const QString lastDir = settings.value(QStringLiteral("config/lastBrowseDir")).toString().trimmed();
@@ -2104,6 +2104,59 @@ MainWindow::MainWindow(QWidget *parent)
     northCepLayout->addStretch();
 
     // ============================================================
+    // North_Mqtt 配置页面
+    // ============================================================
+    m_northMqttConfigPage = new QWidget(this);
+    auto *northMqttLayout = new QVBoxLayout(m_northMqttConfigPage);
+    northMqttLayout->setContentsMargins(0, 0, 0, 0);
+    northMqttLayout->setSpacing(8);
+
+    auto *northMqttFrame = new QFrame(this);
+    northMqttFrame->setFrameShape(QFrame::StyledPanel);
+    auto *northMqttForm = new QFormLayout(northMqttFrame);
+    northMqttForm->setContentsMargins(12, 10, 12, 10);
+    northMqttForm->setHorizontalSpacing(24);
+    northMqttForm->setVerticalSpacing(10);
+
+    m_northMqttGatewayIdEdit = new QLineEdit(QStringLiteral("000100020003000400051234"), this);
+    m_northMqttGatewayIdEdit->setMaximumWidth(360);
+    m_northMqttGatewayIdEdit->setToolTip(
+        QStringLiteral("写入 North_Mqtt/etc/mainstation.json 的 gatewayId，不能为空且 UTF-8 编码后不能超过 24 字节"));
+    northMqttForm->addRow(QStringLiteral("网关 ID:"), m_northMqttGatewayIdEdit);
+
+    m_northMqttBrokerIpEdit = new QLineEdit(QStringLiteral("192.168.0.16"), this);
+    m_northMqttBrokerIpEdit->setMaximumWidth(360);
+    m_northMqttBrokerIpEdit->setPlaceholderText(QStringLiteral("例如 192.168.0.16"));
+    northMqttForm->addRow(QStringLiteral("Broker IP:"), m_northMqttBrokerIpEdit);
+
+    m_northMqttPortEdit = new QLineEdit(QStringLiteral("1883"), this);
+    m_northMqttPortEdit->setValidator(new QIntValidator(1, 65535, m_northMqttPortEdit));
+    m_northMqttPortEdit->setMaximumWidth(240);
+    northMqttForm->addRow(QStringLiteral("Broker 端口:"), m_northMqttPortEdit);
+
+    m_northMqttUsernameEdit = new QLineEdit(this);
+    m_northMqttUsernameEdit->setMaximumWidth(360);
+    m_northMqttUsernameEdit->setPlaceholderText(QStringLiteral("允许留空"));
+    northMqttForm->addRow(QStringLiteral("用户名:"), m_northMqttUsernameEdit);
+
+    m_northMqttPasswordEdit = new QLineEdit(this);
+    m_northMqttPasswordEdit->setEchoMode(QLineEdit::Password);
+    m_northMqttPasswordEdit->setMaximumWidth(360);
+    m_northMqttPasswordEdit->setPlaceholderText(QStringLiteral("允许留空"));
+    northMqttForm->addRow(QStringLiteral("密码:"), m_northMqttPasswordEdit);
+
+    auto *northMqttHintLabel = new QLabel(
+        QStringLiteral("以上参数导出到 North_Mqtt/etc/mainstation.json；上传后的设备路径为 "
+                       "/home/cepgateway/app/North_Mqtt/etc/mainstation.json。"
+                       "修改后需重启 North_Mqtt 生效。"),
+        this);
+    northMqttHintLabel->setWordWrap(true);
+    northMqttForm->addRow(QString(), northMqttHintLabel);
+
+    northMqttLayout->addWidget(northMqttFrame);
+    northMqttLayout->addStretch();
+
+    // ============================================================
     // IEC101 配置页面
     // ============================================================
     m_iec101ConfigPage = new QWidget(this);
@@ -2390,6 +2443,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_northConfigTabWidget->addTab(m_northCepConfigPage, QStringLiteral("CEP"));
     m_northConfigTabWidget->addTab(m_iec101ConfigPage, QStringLiteral("IEC101"));
     m_northConfigTabWidget->addTab(m_iec104ConfigPage, QStringLiteral("IEC104"));
+    m_northConfigTabWidget->addTab(m_northMqttConfigPage, QStringLiteral("MQTT"));
     northConfigLayout->addWidget(m_northConfigTabWidget, 1);
 
     {
