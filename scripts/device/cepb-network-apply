@@ -4,6 +4,8 @@ set -eu
 
 CONFIG_FILE=${2:-/etc/cepb/network.conf}
 MANAGED_ROUTE_PROTO=186
+INTERFACE_WAIT_SECONDS=${CEPB_NETWORK_INTERFACE_WAIT_SECONDS:-30}
+APPLY_STATUS_FILE=${CEPB_NETWORK_STATUS_FILE:-/run/cepb-network-apply.status}
 
 fail()
 {
@@ -36,6 +38,44 @@ valid_interface()
         eth0|eth1|eth2|eth3|eth4|eth5|eth6|eth7) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+configured_interfaces()
+{
+    awk -F'|' '
+        $1 == "INTERFACE" { print $2 }
+        $1 == "ROUTE" { print $4 }
+    ' "$1"
+}
+
+wait_for_interfaces()
+{
+    file=$1
+    waited=0
+
+    while :; do
+        missing=
+        for name in $(configured_interfaces "$file"); do
+            valid_interface "$name" || continue
+            if ! ip link show "$name" >/dev/null 2>&1; then
+                case " $missing " in
+                    *" $name "*) ;;
+                    *) missing="${missing}${missing:+ }$name" ;;
+                esac
+            fi
+        done
+
+        [ -n "$missing" ] || {
+            [ "$waited" -eq 0 ] || echo "interfaces became ready after ${waited}s"
+            return 0
+        }
+        [ "$waited" -lt "$INTERFACE_WAIT_SECONDS" ] \
+            || fail "interfaces did not appear within ${INTERFACE_WAIT_SECONDS}s: $missing"
+
+        [ "$waited" -ne 0 ] || echo "waiting for interfaces: $missing"
+        sleep 1
+        waited=$((waited + 1))
+    done
 }
 
 check_config()
@@ -92,6 +132,7 @@ check_config()
 apply_config()
 {
     file=$1
+    wait_for_interfaces "$file"
     check_config "$file"
 
     while IFS='|' read -r kind name address prefix unused extra || [ -n "${kind}${name}${address}${prefix}${unused}${extra}" ]; do
@@ -110,6 +151,41 @@ apply_config()
     done < "$file"
 }
 
+write_apply_status()
+{
+    write_state=$1
+    write_exit_code=$2
+    write_output_file=${3:-}
+    write_status_tmp="${APPLY_STATUS_FILE}.$$"
+
+    {
+        echo "STATE|$write_state"
+        echo "EXIT_CODE|$write_exit_code"
+        [ -z "$write_output_file" ] || cat "$write_output_file"
+    } > "$write_status_tmp"
+    mv "$write_status_tmp" "$APPLY_STATUS_FILE"
+}
+
+apply_with_status()
+{
+    apply_file=$1
+    apply_output_file="${APPLY_STATUS_FILE}.output.$$"
+    write_apply_status running 0
+
+    if (apply_config "$apply_file") > "$apply_output_file" 2>&1; then
+        apply_exit_code=0
+        apply_state=success
+    else
+        apply_exit_code=$?
+        apply_state=failed
+    fi
+
+    write_apply_status "$apply_state" "$apply_exit_code" "$apply_output_file"
+    cat "$apply_output_file"
+    rm -f "$apply_output_file"
+    return "$apply_exit_code"
+}
+
 show_status()
 {
     ip -br link show
@@ -121,7 +197,7 @@ show_status()
 
 case "${1:-}" in
     check) check_config "$CONFIG_FILE" ;;
-    apply) apply_config "$CONFIG_FILE" ;;
+    apply) apply_with_status "$CONFIG_FILE" ;;
     show) show_status ;;
     *)
         echo "Usage: $0 {check|apply|show} [config-file]" >&2

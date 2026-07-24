@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -22,6 +23,7 @@
 #include <QTableWidget>
 #include <QTemporaryFile>
 #include <QTextEdit>
+#include <QThread>
 #include <QVBoxLayout>
 
 namespace {
@@ -421,10 +423,15 @@ void MainWindow::onApplyNetworkConfigClicked()
     }
     QString helper = localNetworkSupportFile(QStringLiteral("scripts/device/cepb-network-apply"));
     QString service = localNetworkSupportFile(QStringLiteral("scripts/systemd/cepb-network.service"));
+    QString cfgApplyDropIn = localNetworkSupportFile(QStringLiteral("scripts/systemd/cfg-apply-oneshot.conf"));
     if (helper.isEmpty()) helper = localNetworkSupportFile(QStringLiteral("device/cepb-network-apply"));
     if (service.isEmpty()) service = localNetworkSupportFile(QStringLiteral("systemd/cepb-network.service"));
-    if (helper.isEmpty() || service.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("应用网络配置"), QStringLiteral("找不到设备端网络脚本或 service 文件，请检查发布包。"));
+    if (cfgApplyDropIn.isEmpty()) cfgApplyDropIn = localNetworkSupportFile(QStringLiteral("systemd/cfg-apply-oneshot.conf"));
+    if (helper.isEmpty() || service.isEmpty() || cfgApplyDropIn.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("应用网络配置"),
+            QStringLiteral("找不到设备端网络脚本、service 或 cfg-apply 时序配置，请检查发布包。"));
         return;
     }
     const QString oldHost = deviceHost();
@@ -445,7 +452,7 @@ void MainWindow::onApplyNetworkConfigClicked()
         return;
     }
     configFile.close();
-    QProgressDialog progress(QStringLiteral("正在上传并校验网络配置..."), QString(), 0, 4, this);
+    QProgressDialog progress(QStringLiteral("正在上传并校验网络配置..."), QString(), 0, 6, this);
     progress.setWindowModality(Qt::ApplicationModal);
     progress.setCancelButton(nullptr);
     progress.setMinimumDuration(0);
@@ -455,26 +462,94 @@ void MainWindow::onApplyNetworkConfigClicked()
     progress.setValue(1);
     if (ok) ok = SshClient::uploadFileScp(connection, service, QStringLiteral("/tmp/cepb-network.service"), &output);
     progress.setValue(2);
-    if (ok) ok = SshClient::uploadFileScp(connection, configFile.fileName(), QStringLiteral("/tmp/cepb-network.conf"), &output);
+    if (ok) {
+        ok = SshClient::uploadFileScp(
+            connection, cfgApplyDropIn, QStringLiteral("/tmp/cfg-apply-oneshot.conf"), &output);
+    }
     progress.setValue(3);
+    if (ok) ok = SshClient::uploadFileScp(connection, configFile.fileName(), QStringLiteral("/tmp/cepb-network.conf"), &output);
+    progress.setValue(4);
     if (ok) {
         const QString command = QStringLiteral(
-            "set -e; install -d -m 0755 /etc/cepb /usr/local/sbin /etc/systemd/system; "
+            "set -e; install -d -m 0755 /etc/cepb /usr/local/sbin /etc/systemd/system "
+            "/etc/systemd/system/cfg-apply.service.d; "
             "install -m 0755 /tmp/cepb-network-apply /usr/local/sbin/cepb-network-apply; "
             "install -m 0644 /tmp/cepb-network.service /etc/systemd/system/cepb-network.service; "
+            "install -m 0644 /tmp/cfg-apply-oneshot.conf "
+            "/etc/systemd/system/cfg-apply.service.d/10-cepb-network-ordering.conf; "
             "/usr/local/sbin/cepb-network-apply check /tmp/cepb-network.conf; "
-            "install -m 0644 /tmp/cepb-network.conf /etc/cepb/network.conf; systemctl daemon-reload; "
-            "systemctl enable cepb-network.service; systemd-run --quiet --no-block --collect "
-            "--unit=cepb-network-apply-now-$(date +%s) /bin/systemctl restart cepb-network.service");
+            "install -m 0644 /tmp/cepb-network.conf /etc/cepb/network.conf; "
+            "rm -f /run/cepb-network-apply.status; systemctl daemon-reload; "
+            "test \"$(systemctl show cfg-apply.service -p Type --value)\" = oneshot; "
+            "systemctl enable cepb-network.service; systemctl reset-failed cepb-network.service || true; "
+            "systemd-run --quiet --no-block --collect "
+            "--unit=cepb-network-apply-now-$(date +%s)-$$ "
+            "/bin/systemctl restart cepb-network.service");
         const auto result = SshClient::execCommand(connection, command, 30000);
         ok = result.ok;
         output = result.ok ? result.output : result.error;
     }
-    progress.setValue(4);
+    progress.setValue(5);
     if (!ok) {
         QMessageBox::warning(this, QStringLiteral("应用网络配置"), QStringLiteral("网络配置下发失败：\n%1").arg(output));
         return;
     }
+
+    progress.setLabelText(QStringLiteral("设备正在应用网络配置，正在重新连接并核验结果..."));
+    QStringList verificationHosts;
+    verificationHosts.append(newHost);
+    if (oldHost != newHost) verificationHosts.append(oldHost);
+    bool applyVerified = false;
+    bool applyReportedFailure = false;
+    QString verificationDetail;
+    QElapsedTimer verificationTimer;
+    verificationTimer.start();
+    while (verificationTimer.elapsed() < 45000 && !applyVerified && !applyReportedFailure) {
+        for (const QString &host : verificationHosts) {
+            SshClient::Connection verificationConnection{
+                host, fixedRemoteSshPort().toUShort(), fixedRemoteUser(), fixedRemotePassword()};
+            verificationConnection.timeoutMs = 2000;
+            const auto result = SshClient::execCommand(
+                verificationConnection,
+                QStringLiteral(
+                    "cat /run/cepb-network-apply.status 2>/dev/null || true; "
+                    "printf 'SERVICE_ACTIVE|'; systemctl is-active cepb-network.service || true; "
+                    "printf 'SERVICE_RESULT|'; "
+                    "systemctl show cepb-network.service -p Result --value --no-page"),
+                5000);
+            if (!result.ok) {
+                verificationDetail = result.error;
+                continue;
+            }
+
+            verificationDetail = result.output.trimmed();
+            if (verificationDetail.contains(QStringLiteral("STATE|success"))) {
+                applyVerified = true;
+                break;
+            }
+            if (verificationDetail.contains(QStringLiteral("STATE|failed"))) {
+                applyReportedFailure = true;
+                break;
+            }
+        }
+        if (!applyVerified && !applyReportedFailure) {
+            QApplication::processEvents();
+            QThread::msleep(1000);
+        }
+    }
+    progress.setValue(6);
+    if (!applyVerified) {
+        const QString summary = applyReportedFailure
+            ? QStringLiteral("设备已明确报告网络配置应用失败。")
+            : QStringLiteral("45 秒内无法通过新旧管理地址确认设备应用结果。");
+        QMessageBox::warning(
+            this,
+            QStringLiteral("应用网络配置"),
+            QStringLiteral("%1\n\n配置文件已经写入设备，但本次不保存到项目，也不将状态标记为成功。\n\n%2")
+                .arg(summary, verificationDetail));
+        return;
+    }
+
     QString saveError;
     const bool projectSaved = saveNetworkConfigToProject(&saveError);
     if (projectSaved) {
@@ -482,17 +557,17 @@ void MainWindow::onApplyNetworkConfigClicked()
     }
     if (newHost != oldHost && m_ipEdit) m_ipEdit->setText(newHost);
     statusBar()->showMessage(projectSaved
-                                 ? QStringLiteral("网络配置已提交设备应用，并保存到当前项目")
-                                 : QStringLiteral("网络配置已提交设备应用，但项目保存失败"),
+                                 ? QStringLiteral("网络配置已在设备应用成功，并保存到当前项目")
+                                 : QStringLiteral("网络配置已在设备应用成功，但项目保存失败"),
                              8000);
     if (!projectSaved) {
         QMessageBox::warning(this,
                              QStringLiteral("应用网络配置"),
-                             QStringLiteral("设备已经接受网络配置，但自动保存到当前项目失败：\n%1").arg(saveError));
+                             QStringLiteral("设备网络配置已应用成功，但自动保存到当前项目失败：\n%1").arg(saveError));
         return;
     }
     QMessageBox::information(this, QStringLiteral("应用网络配置"),
-                             newHost == oldHost
-                                 ? QStringLiteral("网络配置已提交设备应用并保存到当前项目，请稍后重新读取确认。")
-                                 : QStringLiteral("网络配置已提交并保存到当前项目，请等待设备应用后使用 %1 重新读取。").arg(newHost));
+                              newHost == oldHost
+                                  ? QStringLiteral("网络配置已在设备应用成功并保存到当前项目。")
+                                  : QStringLiteral("网络配置已在设备应用成功并保存到当前项目，管理地址已切换为 %1。").arg(newHost));
 }

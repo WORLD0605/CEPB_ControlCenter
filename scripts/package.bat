@@ -134,6 +134,7 @@ if not exist "%DEVICE_RELEASE%" mkdir "%DEVICE_RELEASE%"
 copy /Y "%DEVICE_SRC%\cepb-network-apply" "%DEVICE_RELEASE%\" >nul
 copy /Y "%DEVICE_SRC%\install-cepb-network" "%DEVICE_RELEASE%\" >nul
 copy /Y "%DEVICE_SRC%\network.conf.example" "%DEVICE_RELEASE%\" >nul
+copy /Y "%SYSTEMD_SRC%\cfg-apply-oneshot.conf" "%SYSTEMD_RELEASE%\" >nul
 
 echo [7/8] Cleaning build files...
 rmdir /s /q "%RELEASE_DIR%\CMakeFiles" 2>nul

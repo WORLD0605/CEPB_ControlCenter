@@ -8,6 +8,7 @@ ConditionPathExists=/etc/cepb/network.conf
 Type=oneshot
 ExecStart=/usr/local/sbin/cepb-network-apply apply /etc/cepb/network.conf
 RemainAfterExit=yes
+TimeoutStartSec=45
 
 [Install]
 WantedBy=multi-user.target
