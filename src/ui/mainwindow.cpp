@@ -1034,6 +1034,43 @@ MainWindow::MainWindow(QWidget *parent)
     topLayout->addWidget(m_refreshDataBtn);
     dataLayout->addLayout(dataToolbar);
 
+    m_southDeviceStatusPanel = new QWidget(dataPage);
+    auto *southDeviceStatusLayout = new QVBoxLayout(m_southDeviceStatusPanel);
+    southDeviceStatusLayout->setContentsMargins(0, 0, 0, 0);
+    southDeviceStatusLayout->setSpacing(4);
+    auto *southDeviceStatusHeader = new QHBoxLayout();
+    auto *southDeviceStatusTitle = new QLabel(QStringLiteral("南向设备在线状态"));
+    southDeviceStatusTitle->setStyleSheet(QStringLiteral("font-weight: 600;"));
+    southDeviceStatusHeader->addWidget(southDeviceStatusTitle);
+    m_southDeviceStatusSummaryLabel = new QLabel(QStringLiteral("调试未连接"));
+    m_southDeviceStatusSummaryLabel->setStyleSheet(QStringLiteral("color: #667085;"));
+    southDeviceStatusHeader->addWidget(m_southDeviceStatusSummaryLabel);
+    southDeviceStatusHeader->addStretch();
+    m_southDeviceStatusRefreshBtn = new QPushButton(QStringLiteral("立即刷新"));
+    m_southDeviceStatusRefreshBtn->setEnabled(false);
+    southDeviceStatusHeader->addWidget(m_southDeviceStatusRefreshBtn);
+    southDeviceStatusLayout->addLayout(southDeviceStatusHeader);
+
+    m_southDeviceStatusTable = new QTableWidget(0, 5, m_southDeviceStatusPanel);
+    m_southDeviceStatusTable->setHorizontalHeaderLabels(
+        {QStringLiteral("设备 ID"), QStringLiteral("名称"), QStringLiteral("状态"),
+         QStringLiteral("地址"), QStringLiteral("链路")});
+    m_southDeviceStatusTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_southDeviceStatusTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_southDeviceStatusTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_southDeviceStatusTable->setAlternatingRowColors(true);
+    m_southDeviceStatusTable->verticalHeader()->setVisible(false);
+    m_southDeviceStatusTable->horizontalHeader()->setStretchLastSection(true);
+    for (int column = 0; column < 4; ++column) {
+        m_southDeviceStatusTable->horizontalHeader()->setSectionResizeMode(
+            column, QHeaderView::ResizeToContents);
+    }
+    m_southDeviceStatusTable->setMinimumHeight(126);
+    m_southDeviceStatusTable->setMaximumHeight(190);
+    southDeviceStatusLayout->addWidget(m_southDeviceStatusTable);
+    m_southDeviceStatusPanel->setVisible(false);
+    dataLayout->addWidget(m_southDeviceStatusPanel);
+
     m_dataViewStack = new QStackedWidget(dataPage);
     m_serviceDataViewPage = new QWidget(dataPage);
     auto *serviceDataViewLayout = new QVBoxLayout(m_serviceDataViewPage);
@@ -2540,6 +2577,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_disconnectBtn, &QPushButton::clicked,
             this, &MainWindow::onDisconnectClicked);
     connect(m_northConnectionStatusBtn, &QPushButton::clicked,
+            this, [this]() { requestNorthConnectionStatus(nullptr, true); });
+    connect(m_southDeviceStatusRefreshBtn, &QPushButton::clicked,
             this, [this]() { requestNorthConnectionStatus(nullptr, true); });
     connect(m_themeToggleBtn, &QPushButton::clicked,
             this, &MainWindow::onThemeToggleClicked);

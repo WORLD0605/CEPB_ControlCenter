@@ -107,6 +107,26 @@ bool supportsNorthConnectionStatus(const AppConfig &appConfig)
            isNorthMqttApp(appConfig);
 }
 
+bool supportsSouthConnectionStatus(const AppConfig &appConfig)
+{
+    return appConfig.name.compare(QStringLiteral("South_Modbus"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("South_104"), Qt::CaseInsensitive) == 0 ||
+           appConfig.name.compare(QStringLiteral("South_645"), Qt::CaseInsensitive) == 0;
+}
+
+bool supportsConnectionStatus(const AppConfig &appConfig)
+{
+    return supportsNorthConnectionStatus(appConfig) ||
+           supportsSouthConnectionStatus(appConfig);
+}
+
+QString connectionStatusCommand(const AppConfig &appConfig)
+{
+    return supportsSouthConnectionStatus(appConfig)
+        ? QStringLiteral("southconn")
+        : QStringLiteral("northconn");
+}
+
 bool isModbusApp(const AppConfig &appConfig)
 {
     return appConfig.name.compare(QStringLiteral("South_Modbus"), Qt::CaseInsensitive) == 0 ||
@@ -657,7 +677,7 @@ void MainWindow::onConnected()
         m_dataRefFilterEdit->setEnabled(dataTableApp);
         m_autoRefreshCombo->setEnabled(true);
         updateControlCommandUi();
-        if (supportsNorthConnectionStatus(appConfig)) {
+        if (supportsConnectionStatus(appConfig)) {
             requestNorthConnectionStatus(session);
         } else {
             requestServiceChannelData(false);
@@ -775,7 +795,8 @@ void MainWindow::onCommandReply(const QString &reply)
     const QString pendingCommand = session->pendingDataTableCommand;
     session->pendingDataTableCommand.clear();
 
-    if (pendingCommand == QStringLiteral("northconn")) {
+    if (pendingCommand == QStringLiteral("northconn") ||
+        pendingCommand == QStringLiteral("southconn")) {
         QString jsonText;
         for (const QString &rawLine : reply.split(QLatin1Char('\n'))) {
             const QString line = rawLine.trimmed();
@@ -1116,7 +1137,7 @@ void MainWindow::requestNorthConnectionStatus(DebugAppSession *session, bool log
         session = currentDebugSession();
     }
     const AppConfig appConfig = appConfigForSession(session);
-    if (!session || !supportsNorthConnectionStatus(appConfig)) {
+    if (!session || !supportsConnectionStatus(appConfig)) {
         return;
     }
 
@@ -1126,11 +1147,12 @@ void MainWindow::requestNorthConnectionStatus(DebugAppSession *session, bool log
         return;
     }
 
+    const QString command = connectionStatusCommand(appConfig);
     if (logRequest && session == currentDebugSession()) {
-        appendSystem(QStringLiteral("=> northconn"), "#aaaaaa");
+        appendSystem(QStringLiteral("=> %1").arg(command), "#aaaaaa");
     }
-    session->pendingDataTableCommand = QStringLiteral("northconn");
-    client->sendCommand(QStringLiteral("northconn"));
+    session->pendingDataTableCommand = command;
+    client->sendCommand(command);
     updateNorthConnectionStatusUi();
 }
 
@@ -1141,8 +1163,12 @@ void MainWindow::updateNorthConnectionStatusUi()
     }
 
     const AppConfig appConfig = currentAppConfig();
-    const bool supported = supportsNorthConnectionStatus(appConfig);
+    const bool supported = supportsConnectionStatus(appConfig);
+    const bool southStatus = supportsSouthConnectionStatus(appConfig);
     m_northConnectionStatusBtn->setVisible(supported);
+    if (m_southDeviceStatusPanel) {
+        m_southDeviceStatusPanel->setVisible(southStatus);
+    }
     if (!supported) {
         return;
     }
@@ -1150,25 +1176,33 @@ void MainWindow::updateNorthConnectionStatusUi()
     DebugAppSession *session = currentDebugSession();
     DebugConsoleClient *client = session ? session->client : nullptr;
     const bool connected = client && client->isConnected();
+    const QString command = connectionStatusCommand(appConfig);
     const bool isQuerying = connected &&
-                            session->pendingDataTableCommand == QStringLiteral("northconn");
+                            session->pendingDataTableCommand == command;
     m_northConnectionStatusBtn->setEnabled(connected);
+    if (m_southDeviceStatusRefreshBtn) {
+        m_southDeviceStatusRefreshBtn->setEnabled(connected && !isQuerying);
+    }
 
-    QString text = QStringLiteral("主站状态：调试未连接");
-    QString tooltip = QStringLiteral("连接当前 APP 的调试端口后，将自动查询主站协议连接状态");
+    const QString statusTarget = southStatus ? QStringLiteral("设备状态") : QStringLiteral("主站状态");
+    QString text = QStringLiteral("%1：调试未连接").arg(statusTarget);
+    QString tooltip = southStatus
+        ? QStringLiteral("连接当前 APP 的调试端口后，将自动查询各南向设备在线状态")
+        : QStringLiteral("连接当前 APP 的调试端口后，将自动查询主站协议连接状态");
     QString foreground = QStringLiteral("#667085");
     QString background = QStringLiteral("#f2f4f7");
     QString border = QStringLiteral("#d0d5dd");
 
     if (isQuerying && session->northConnectionStatus.isEmpty()) {
-        text = QStringLiteral("主站状态：查询中...");
-        tooltip = QStringLiteral("正在执行 northconn 查询");
+        text = QStringLiteral("%1：查询中...").arg(statusTarget);
+        tooltip = QStringLiteral("正在执行 %1 查询").arg(command);
         foreground = QStringLiteral("#175cd3");
         background = QStringLiteral("#eff8ff");
         border = QStringLiteral("#84caff");
     } else if (connected && session && !session->northConnectionStatusError.isEmpty()) {
-        text = QStringLiteral("主站状态：查询失败");
-        tooltip = QStringLiteral("northconn 查询失败：%1\n点击重试").arg(session->northConnectionStatusError);
+        text = QStringLiteral("%1：查询失败").arg(statusTarget);
+        tooltip = QStringLiteral("%1 查询失败：%2\n点击重试")
+                      .arg(command, session->northConnectionStatusError);
         foreground = QStringLiteral("#b42318");
         background = QStringLiteral("#fef3f2");
         border = QStringLiteral("#fda29b");
@@ -1181,16 +1215,22 @@ void MainWindow::updateNorthConnectionStatusUi()
             isNorthMqttApp(appConfig);
         const int transportCount = status.value(QStringLiteral("transport_connections")).toInt();
         const int onlineCount = status.value(QStringLiteral("protocol_online_connections")).toInt();
+        const int totalDevices = status.value(QStringLiteral("total_devices")).toInt();
+        const int onlineDevices = status.value(QStringLiteral("online_devices")).toInt();
 
         if (state == QStringLiteral("online")) {
-            text = mqttStatus
+            text = southStatus
+                ? QStringLiteral("设备状态：全部在线（%1/%2）").arg(onlineDevices).arg(totalDevices)
+                : mqttStatus
                 ? QStringLiteral("主站状态：在线（MQTT）")
                 : QStringLiteral("主站状态：在线（%1）").arg(onlineCount);
             foreground = QStringLiteral("#027a48");
             background = QStringLiteral("#ecfdf3");
             border = QStringLiteral("#6ce9a6");
         } else if (state == QStringLiteral("partial")) {
-            text = mqttStatus
+            text = southStatus
+                ? QStringLiteral("设备状态：部分在线（%1/%2）").arg(onlineDevices).arg(totalDevices)
+                : mqttStatus
                 ? QStringLiteral("主站状态：订阅未完成（%1/%2）")
                       .arg(status.value(QStringLiteral("subscriptions_active")).toInt())
                       .arg(status.value(QStringLiteral("subscriptions_expected")).toInt())
@@ -1199,7 +1239,9 @@ void MainWindow::updateNorthConnectionStatusUi()
             background = QStringLiteral("#fffaeb");
             border = QStringLiteral("#fec84b");
         } else if (state == QStringLiteral("connecting")) {
-            text = QStringLiteral("主站状态：协议连接中");
+            text = southStatus
+                ? QStringLiteral("设备状态：连接中（%1/%2）").arg(onlineDevices).arg(totalDevices)
+                : QStringLiteral("主站状态：协议连接中");
             foreground = QStringLiteral("#175cd3");
             background = QStringLiteral("#eff8ff");
             border = QStringLiteral("#84caff");
@@ -1209,12 +1251,19 @@ void MainWindow::updateNorthConnectionStatusUi()
             background = QStringLiteral("#fef3f2");
             border = QStringLiteral("#fda29b");
         } else if (state == QStringLiteral("offline")) {
-            text = QStringLiteral("主站状态：离线");
+            text = southStatus
+                ? QStringLiteral("设备状态：全部离线（0/%1）").arg(totalDevices)
+                : QStringLiteral("主站状态：离线");
             foreground = QStringLiteral("#b42318");
             background = QStringLiteral("#fef3f2");
             border = QStringLiteral("#fda29b");
+        } else if (state == QStringLiteral("no_devices")) {
+            text = QStringLiteral("设备状态：未配置设备");
+            foreground = QStringLiteral("#667085");
+            background = QStringLiteral("#f2f4f7");
+            border = QStringLiteral("#d0d5dd");
         } else {
-            text = QStringLiteral("主站状态：未知状态");
+            text = QStringLiteral("%1：未知状态").arg(statusTarget);
             foreground = QStringLiteral("#667085");
             background = QStringLiteral("#f2f4f7");
             border = QStringLiteral("#d0d5dd");
@@ -1224,7 +1273,15 @@ void MainWindow::updateNorthConnectionStatusUi()
         details << QStringLiteral("APP：%1").arg(status.value(QStringLiteral("app")).toString(appConfig.name));
         details << QStringLiteral("协议：%1").arg(status.value(QStringLiteral("protocol")).toString());
         details << QStringLiteral("状态：%1").arg(state);
-        details << QStringLiteral("传输连接：%1，协议在线：%2").arg(transportCount).arg(onlineCount);
+        if (southStatus) {
+            details << QStringLiteral("设备在线：%1/%2").arg(onlineDevices).arg(totalDevices);
+            const QString onlineBasis = status.value(QStringLiteral("online_basis")).toString();
+            if (!onlineBasis.isEmpty()) {
+                details << QStringLiteral("在线判据：%1").arg(onlineBasis);
+            }
+        } else {
+            details << QStringLiteral("传输连接：%1，协议在线：%2").arg(transportCount).arg(onlineCount);
+        }
         if (mqttStatus) {
             details << QStringLiteral("已配置：%1")
                            .arg(status.value(QStringLiteral("configured")).toBool()
@@ -1273,12 +1330,26 @@ void MainWindow::updateNorthConnectionStatusUi()
             }
             details << connectionText;
         }
+        const QJsonArray devices = status.value(QStringLiteral("devices")).toArray();
+        for (const QJsonValue &value : devices) {
+            const QJsonObject device = value.toObject();
+            QString deviceText = QStringLiteral("- %1：%2")
+                .arg(device.value(QStringLiteral("device_id")).toString(QStringLiteral("unknown")),
+                     device.value(QStringLiteral("state")).toString(QStringLiteral("unknown")));
+            const QString name = device.value(QStringLiteral("name")).toString();
+            if (!name.isEmpty()) {
+                deviceText += QStringLiteral("，%1").arg(name);
+            }
+            details << deviceText;
+        }
         details << (isQuerying ? QStringLiteral("正在后台刷新")
                                : QStringLiteral("点击立即刷新"));
         tooltip = details.join(QLatin1Char('\n'));
     } else if (connected) {
-        text = QStringLiteral("主站状态：未查询");
-        tooltip = QStringLiteral("点击查询当前北向 APP 与主站的协议连接状态");
+        text = QStringLiteral("%1：未查询").arg(statusTarget);
+        tooltip = southStatus
+            ? QStringLiteral("点击查询当前南向 APP 的各设备在线状态")
+            : QStringLiteral("点击查询当前北向 APP 与主站的协议连接状态");
     }
 
     m_northConnectionStatusBtn->setText(text);
@@ -1289,17 +1360,140 @@ void MainWindow::updateNorthConnectionStatusUi()
         "QPushButton:hover { border-width: 2px; }"
         "QPushButton:disabled { color: %1; background-color: %2; }")
         .arg(foreground, background, border));
+    updateSouthDeviceStatusPanel();
 }
 
 void MainWindow::updateNorthConnectionStatusTimer()
 {
     DebugAppSession *session = currentDebugSession();
     const AppConfig appConfig = appConfigForSession(session);
-    if (session && supportsNorthConnectionStatus(appConfig) &&
+    if (session && supportsConnectionStatus(appConfig) &&
         session->client && session->client->isConnected()) {
         m_northConnectionStatusTimer->start();
     } else {
         m_northConnectionStatusTimer->stop();
+    }
+}
+
+void MainWindow::updateSouthDeviceStatusPanel()
+{
+    if (!m_southDeviceStatusPanel || !m_southDeviceStatusTable ||
+        !m_southDeviceStatusSummaryLabel) {
+        return;
+    }
+
+    const AppConfig appConfig = currentAppConfig();
+    const bool supported = supportsSouthConnectionStatus(appConfig);
+    m_southDeviceStatusPanel->setVisible(supported);
+    if (!supported) {
+        return;
+    }
+
+    DebugAppSession *session = currentDebugSession();
+    DebugConsoleClient *client = session ? session->client : nullptr;
+    const bool connected = client && client->isConnected();
+    const bool querying = connected &&
+        session->pendingDataTableCommand == QStringLiteral("southconn");
+    m_southDeviceStatusTable->setRowCount(0);
+
+    if (!connected) {
+        m_southDeviceStatusSummaryLabel->setText(QStringLiteral("调试未连接"));
+        m_southDeviceStatusSummaryLabel->setStyleSheet(QStringLiteral("color: #667085;"));
+        return;
+    }
+    if (!session->northConnectionStatusError.isEmpty()) {
+        m_southDeviceStatusSummaryLabel->setText(
+            QStringLiteral("查询失败：%1").arg(session->northConnectionStatusError));
+        m_southDeviceStatusSummaryLabel->setStyleSheet(QStringLiteral("color: #b42318;"));
+        return;
+    }
+    if (session->northConnectionStatus.isEmpty()) {
+        m_southDeviceStatusSummaryLabel->setText(
+            querying ? QStringLiteral("查询中...") : QStringLiteral("等待查询"));
+        m_southDeviceStatusSummaryLabel->setStyleSheet(QStringLiteral("color: #175cd3;"));
+        return;
+    }
+
+    const QJsonObject status = session->northConnectionStatus;
+    const int totalDevices = status.value(QStringLiteral("total_devices")).toInt();
+    const int onlineDevices = status.value(QStringLiteral("online_devices")).toInt();
+    const QString checkedAt = status.value(QStringLiteral("checked_at")).toString();
+    m_southDeviceStatusSummaryLabel->setText(
+        QStringLiteral("在线 %1 / %2%3")
+            .arg(onlineDevices)
+            .arg(totalDevices)
+            .arg(querying ? QStringLiteral(" · 正在刷新") :
+                 (checkedAt.isEmpty() ? QString() : QStringLiteral(" · %1").arg(checkedAt))));
+    m_southDeviceStatusSummaryLabel->setStyleSheet(
+        onlineDevices == totalDevices && totalDevices > 0
+            ? QStringLiteral("color: #027a48;")
+            : (onlineDevices > 0 ? QStringLiteral("color: #b54708;")
+                                 : QStringLiteral("color: #b42318;")));
+
+    const QJsonArray devices = status.value(QStringLiteral("devices")).toArray();
+    m_southDeviceStatusTable->setRowCount(devices.size());
+    for (int row = 0; row < devices.size(); ++row) {
+        const QJsonObject device = devices.at(row).toObject();
+        const QString state = device.value(QStringLiteral("state")).toString();
+        QString stateText = QStringLiteral("未知");
+        QColor stateColor(QStringLiteral("#667085"));
+        QColor stateBackground(QStringLiteral("#f2f4f7"));
+        if (state == QStringLiteral("online")) {
+            stateText = QStringLiteral("在线");
+            stateColor = QColor(QStringLiteral("#027a48"));
+            stateBackground = QColor(QStringLiteral("#ecfdf3"));
+        } else if (state == QStringLiteral("connecting")) {
+            stateText = QStringLiteral("连接中");
+            stateColor = QColor(QStringLiteral("#175cd3"));
+            stateBackground = QColor(QStringLiteral("#eff8ff"));
+        } else if (state == QStringLiteral("offline")) {
+            stateText = QStringLiteral("离线");
+            stateColor = QColor(QStringLiteral("#b42318"));
+            stateBackground = QColor(QStringLiteral("#fef3f2"));
+        }
+
+        QString address = device.value(QStringLiteral("address")).toVariant().toString();
+        if (address.isEmpty() && device.contains(QStringLiteral("common_address"))) {
+            address = QStringLiteral("公共地址 %1")
+                          .arg(device.value(QStringLiteral("common_address")).toInt());
+        }
+
+        QString link;
+        const QString transport = device.value(QStringLiteral("transport")).toString();
+        if (!transport.isEmpty()) {
+            link = transport;
+        } else {
+            const QString activeEndpoint =
+                device.value(QStringLiteral("active_endpoint")).toString();
+            const QString primaryIp = device.value(QStringLiteral("primary_ip")).toString();
+            const int port = device.value(QStringLiteral("port")).toInt();
+            const QString endpoint = !activeEndpoint.isEmpty() ? activeEndpoint : primaryIp;
+            if (!endpoint.isEmpty()) {
+                link = port > 0 ? QStringLiteral("%1:%2").arg(endpoint).arg(port) : endpoint;
+            }
+            if (device.value(QStringLiteral("transport_connected")).toBool() &&
+                state != QStringLiteral("online")) {
+                link += link.isEmpty() ? QStringLiteral("TCP 已连接")
+                                       : QStringLiteral(" · TCP 已连接");
+            }
+        }
+
+        const QStringList values = {
+            device.value(QStringLiteral("device_id")).toString(),
+            device.value(QStringLiteral("name")).toString(),
+            stateText,
+            address,
+            link
+        };
+        for (int column = 0; column < values.size(); ++column) {
+            auto *item = new QTableWidgetItem(values.at(column));
+            if (column == 2) {
+                item->setForeground(stateColor);
+                item->setBackground(stateBackground);
+                item->setTextAlignment(Qt::AlignCenter);
+            }
+            m_southDeviceStatusTable->setItem(row, column, item);
+        }
     }
 }
 

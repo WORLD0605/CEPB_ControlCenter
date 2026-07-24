@@ -27,6 +27,14 @@ struct SerialPortUse {
     QString configuredPort;
 };
 
+struct NetworkEndpointUse {
+    QString appName;
+    QString objectName;
+    QString ip;
+    QString port;
+    QString filePath;
+};
+
 bool isDeviceForSerialCheck(const configtool::ProtocolDeviceInstance &device,
                             configtool::ProtocolType protocol)
 {
@@ -188,6 +196,185 @@ QString serialPortConflictMessage(const configtool::ConfigProject &project,
     return QStringLiteral("检测到多个 APP 使用了同一个串口，已取消导出：\n\n%1\n\n"
                           "请修改南向 Modbus、南向 645 或北向 101 的串口配置后重试。")
         .arg(bulletLines.join(QChar('\n')));
+}
+
+QString normalizedNetworkIp(const QString &configuredIp)
+{
+    const QString ip = configuredIp.trimmed();
+    QHostAddress address;
+    if (address.setAddress(ip)) {
+        return address.toString().toLower();
+    }
+    return ip.toLower();
+}
+
+QString normalizedNetworkPort(const QString &configuredPort)
+{
+    const QString port = configuredPort.trimmed();
+    bool ok = false;
+    const int number = port.toInt(&ok);
+    return ok ? QString::number(number) : port;
+}
+
+QString networkEndpointText(const NetworkEndpointUse &use)
+{
+    return QStringLiteral("%1:%2").arg(use.ip, use.port);
+}
+
+QList<configtool::ImportIssue> networkEndpointConflictIssues(
+    const configtool::ConfigProject &project,
+    const QString &projectPath,
+    const QString &northCepManagementPort,
+    const QString &northCepDataPort,
+    const QString &northMqttBrokerIp,
+    const QString &northMqttBrokerPort,
+    int iec101CommunicationMode,
+    const QString &iec101CodePort,
+    const QString &iec104CodeIp,
+    const QString &iec104CodePort)
+{
+    QList<configtool::ImportIssue> issues;
+    QList<NetworkEndpointUse> clientUses;
+    QList<NetworkEndpointUse> listenerUses;
+
+    const auto addUse = [](QList<NetworkEndpointUse> &uses,
+                           const QString &appName,
+                           const QString &objectName,
+                           const QString &ip,
+                           const QString &port,
+                           const QString &filePath) {
+        const QString normalizedIp = normalizedNetworkIp(ip);
+        const QString normalizedPort = normalizedNetworkPort(port);
+        if (normalizedIp.isEmpty() || normalizedPort.isEmpty()) {
+            return;
+        }
+        uses.append({appName, objectName, normalizedIp, normalizedPort, filePath});
+    };
+
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        const QString devicePath = device.source.filePath.trimmed().isEmpty()
+            ? projectPath
+            : device.source.filePath;
+        if (device.protocol == configtool::ProtocolType::Iec104) {
+            addUse(clientUses,
+                   QStringLiteral("南向 IEC104"),
+                   device.deviceId,
+                   device.transport.ip,
+                   device.transport.port,
+                   devicePath);
+            continue;
+        }
+        if (!configtool::isModbusDevice(device)) {
+            continue;
+        }
+        const QString type = device.transport.protocolOptions
+                                 .value(QStringLiteral("type"))
+                                 .toString(QStringLiteral("TCP"))
+                                 .trimmed()
+                                 .toUpper();
+        if (type == QStringLiteral("TCP")) {
+            addUse(clientUses,
+                   QStringLiteral("南向 Modbus"),
+                   device.deviceId,
+                   device.transport.ip,
+                   device.transport.port,
+                   devicePath);
+        }
+    }
+
+    addUse(clientUses,
+           QStringLiteral("North_Mqtt"),
+           QStringLiteral("Broker"),
+           northMqttBrokerIp,
+           northMqttBrokerPort,
+           QDir(projectPath).filePath(QStringLiteral("North_Mqtt/etc/mainstation.json")));
+
+    addUse(listenerUses,
+           QStringLiteral("North_CEP"),
+           QStringLiteral("管理通道"),
+           QStringLiteral("0.0.0.0"),
+           northCepManagementPort,
+           QDir(projectPath).filePath(QStringLiteral("North_CEP/etc/mainstation.json")));
+    addUse(listenerUses,
+           QStringLiteral("North_CEP"),
+           QStringLiteral("数据通道"),
+           QStringLiteral("0.0.0.0"),
+           northCepDataPort,
+           QDir(projectPath).filePath(QStringLiteral("North_CEP/etc/mainstation.json")));
+    if (iec101CommunicationMode == 1 || iec101CommunicationMode == 2) {
+        addUse(listenerUses,
+               QStringLiteral("North_101"),
+               QStringLiteral("TCP 通道"),
+               QStringLiteral("0.0.0.0"),
+               iec101CodePort,
+               QDir(projectPath).filePath(QStringLiteral("North_101/config/localhost.json")));
+    }
+    addUse(listenerUses,
+           QStringLiteral("North_104"),
+           QStringLiteral("TCP 通道"),
+           iec104CodeIp,
+           iec104CodePort,
+           QDir(projectPath).filePath(QStringLiteral("North_104/config/localhost.json")));
+
+    QMap<QString, QList<NetworkEndpointUse>> clientUsesByEndpoint;
+    for (const NetworkEndpointUse &use : clientUses) {
+        clientUsesByEndpoint[networkEndpointText(use)].append(use);
+    }
+    for (auto it = clientUsesByEndpoint.cbegin(); it != clientUsesByEndpoint.cend(); ++it) {
+        QMap<QString, QStringList> objectsByApp;
+        for (const NetworkEndpointUse &use : it.value()) {
+            QStringList &objects = objectsByApp[use.appName];
+            if (!objects.contains(use.objectName)) {
+                objects.append(use.objectName);
+            }
+        }
+        if (objectsByApp.size() < 2) {
+            continue;
+        }
+
+        QStringList participants;
+        for (auto appIt = objectsByApp.cbegin(); appIt != objectsByApp.cend(); ++appIt) {
+            participants.append(QStringLiteral("%1（%2）")
+                                    .arg(appIt.key(), appIt.value().join(QStringLiteral("、"))));
+        }
+        configtool::ImportIssue issue;
+        issue.severity = configtool::ImportIssueSeverity::Error;
+        issue.filePath = it.value().constFirst().filePath;
+        issue.message = QStringLiteral("网络客户端端点被多个 APP 重复配置：%1；%2")
+                            .arg(it.key(), participants.join(QStringLiteral("；")));
+        issues.append(issue);
+    }
+
+    for (int firstIndex = 0; firstIndex < listenerUses.size(); ++firstIndex) {
+        const NetworkEndpointUse &first = listenerUses.at(firstIndex);
+        for (int secondIndex = firstIndex + 1; secondIndex < listenerUses.size(); ++secondIndex) {
+            const NetworkEndpointUse &second = listenerUses.at(secondIndex);
+            if (first.appName == second.appName || first.port != second.port) {
+                continue;
+            }
+            const bool ipOverlaps = first.ip == second.ip
+                || first.ip == QStringLiteral("0.0.0.0")
+                || second.ip == QStringLiteral("0.0.0.0");
+            if (!ipOverlaps) {
+                continue;
+            }
+
+            configtool::ImportIssue issue;
+            issue.severity = configtool::ImportIssueSeverity::Error;
+            issue.filePath = first.filePath;
+            issue.message = QStringLiteral("网络监听端点冲突：%1 %2（%3）与 %4 %5（%6）；"
+                                           "0.0.0.0 会占用本机所有 IPv4 地址")
+                                .arg(first.appName,
+                                     first.objectName,
+                                     networkEndpointText(first),
+                                     second.appName,
+                                     second.objectName,
+                                     networkEndpointText(second));
+            issues.append(issue);
+        }
+    }
+
+    return issues;
 }
 
 QList<ConfigAppDirMigration> configAppDirMigrations()
@@ -1049,6 +1236,29 @@ void MainWindow::onExportIec104ConfigClicked()
         return;
     }
 
+    const QList<configtool::ImportIssue> networkIssues = networkEndpointConflictIssues(
+        m_configProjectManager.project(),
+        projectRoot,
+        m_northCepManagementPortEdit ? m_northCepManagementPortEdit->text() : QString(),
+        m_northCepDataPortEdit ? m_northCepDataPortEdit->text() : QString(),
+        m_northMqttBrokerIpEdit ? m_northMqttBrokerIpEdit->text() : QString(),
+        m_northMqttPortEdit ? m_northMqttPortEdit->text() : QString(),
+        m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
+        m_iec101CodePortEdit ? m_iec101CodePortEdit->text() : QString(),
+        m_iec104CodeIpEdit ? m_iec104CodeIpEdit->text() : QString(),
+        m_iec104CodePortEdit ? m_iec104CodePortEdit->text() : QString());
+    if (!networkIssues.isEmpty()) {
+        refreshConfigIssueTable(networkIssues, QStringLiteral("导出"));
+        if (m_mainTabWidget && m_configIssuePage) {
+            m_mainTabWidget->setCurrentWidget(m_configIssuePage);
+        }
+        QMessageBox::warning(this,
+                             QStringLiteral("网络配置冲突"),
+                             QStringLiteral("检测到重复的 IP/端口配置，已取消保存。详细冲突已列入“问题列表”。"));
+        statusBar()->showMessage(QStringLiteral("网络端点冲突，已取消保存"), 5000);
+        return;
+    }
+
     QString northCepError;
     if (!validateNorthCepConfig(&northCepError)) {
         showNorthConfigPage(m_northCepConfigPage);
@@ -1358,6 +1568,18 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                     projectPath,
                     QStringLiteral("串口被多个 APP 重复占用：%1").arg(conflict));
     }
+
+    issues.append(networkEndpointConflictIssues(
+        project,
+        projectPath,
+        m_northCepManagementPortEdit ? m_northCepManagementPortEdit->text() : QString(),
+        m_northCepDataPortEdit ? m_northCepDataPortEdit->text() : QString(),
+        m_northMqttBrokerIpEdit ? m_northMqttBrokerIpEdit->text() : QString(),
+        m_northMqttPortEdit ? m_northMqttPortEdit->text() : QString(),
+        m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
+        m_iec101CodePortEdit ? m_iec101CodePortEdit->text() : QString(),
+        m_iec104CodeIpEdit ? m_iec104CodeIpEdit->text() : QString(),
+        m_iec104CodePortEdit ? m_iec104CodePortEdit->text() : QString()));
 
     QSet<QString> seenModelIds;
     QSet<QString> duplicateModelIds;
