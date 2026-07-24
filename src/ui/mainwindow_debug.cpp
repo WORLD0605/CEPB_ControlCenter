@@ -678,7 +678,7 @@ void MainWindow::onConnected()
         m_dataRefFilterEdit->setEnabled(dataTableApp);
         m_autoRefreshCombo->setEnabled(true);
         updateControlCommandUi();
-        if (supportsNorthConnectionStatus(appConfig)) {
+        if (supportsConnectionStatus(appConfig)) {
             requestNorthConnectionStatus(session);
         } else {
             requestServiceChannelData(false);
