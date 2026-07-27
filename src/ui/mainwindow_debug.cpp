@@ -730,9 +730,7 @@ void MainWindow::onDisconnected()
         refreshDeviceFilterOptions();
         m_dataTable->setRowCount(0);
         m_deviceFilterCombo->setEnabled(false);
-        m_serviceTypeFilterTabBar->setCurrentIndex(0);
         m_serviceTypeFilterTabBar->setEnabled(false);
-        m_dataRefFilterEdit->clear();
         m_dataRefFilterEdit->setEnabled(false);
         m_autoRefreshCombo->setEnabled(false);
         if (m_controlStatusLabel) {
@@ -1092,6 +1090,22 @@ void MainWindow::applyCurrentAppView()
         if (appConfig.viewMode == AppViewMode::LogicAgcAvcTable) {
             populateLogicAgcAvcTable(session->logicAgcAvcItems);
         } else {
+            {
+                QSignalBlocker blocker(m_serviceTypeFilterTabBar);
+                int serviceTypeIndex = 0;
+                for (int index = 0; index < m_serviceTypeFilterTabBar->count(); ++index) {
+                    if (m_serviceTypeFilterTabBar->tabData(index).toString()
+                        == session->serviceTypeFilterId) {
+                        serviceTypeIndex = index;
+                        break;
+                    }
+                }
+                m_serviceTypeFilterTabBar->setCurrentIndex(serviceTypeIndex);
+            }
+            {
+                QSignalBlocker blocker(m_dataRefFilterEdit);
+                m_dataRefFilterEdit->setText(session->dataRefFilterText);
+            }
             refreshDeviceFilterOptions();
             applyServiceChannelFilter();
         }
@@ -1571,16 +1585,26 @@ void MainWindow::scheduleLogicCenterStatusRefresh(DebugAppSession *session,
 
 void MainWindow::onDeviceFilterChanged(int /*index*/)
 {
+    if (DebugAppSession *session = currentDebugSession()) {
+        session->deviceFilterId = m_deviceFilterCombo->currentData().toString();
+    }
     applyServiceChannelFilter();
 }
 
 void MainWindow::onServiceTypeFilterChanged(int /*index*/)
 {
+    if (DebugAppSession *session = currentDebugSession()) {
+        session->serviceTypeFilterId =
+            m_serviceTypeFilterTabBar->tabData(m_serviceTypeFilterTabBar->currentIndex()).toString();
+    }
     applyServiceChannelFilter();
 }
 
-void MainWindow::onDataRefFilterTextChanged(const QString & /*text*/)
+void MainWindow::onDataRefFilterTextChanged(const QString &text)
 {
+    if (DebugAppSession *session = currentDebugSession()) {
+        session->dataRefFilterText = text;
+    }
     applyServiceChannelFilter();
 }
 
@@ -2111,11 +2135,15 @@ void MainWindow::refreshDeviceFilterOptions()
 {
     QSignalBlocker blocker(m_deviceFilterCombo);
 
-    const QString currentFilter = m_deviceFilterCombo->currentData().toString();
+    DebugAppSession *session = currentDebugSession();
+    if (!session) {
+        return;
+    }
+    const QString currentFilter = session->deviceFilterId;
     QSet<QString> seenDeviceIds;
     QStringList deviceIds;
 
-    for (const ServiceChannelDataItem &item : currentDebugSession()->serviceChannelItems) {
+    for (const ServiceChannelDataItem &item : session->serviceChannelItems) {
         if (item.deviceId.isEmpty() || seenDeviceIds.contains(item.deviceId)) {
             continue;
         }

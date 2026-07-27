@@ -91,6 +91,9 @@ struct DebugAppSession {
     QHash<QString, QString> controlStatusTextMap;
     QHash<QString, QColor> controlStatusColorMap;
     QList<LogicAgcAvcStatusItem> logicAgcAvcItems;
+    QString deviceFilterId;
+    QString serviceTypeFilterId;
+    QString dataRefFilterText;
     QString pendingDataTableCommand;
     bool waitingControlResponse = false;
     QString pendingControlDeviceId;
