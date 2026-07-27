@@ -3,6 +3,7 @@
 
 #include <QJsonObject>
 #include <QList>
+#include <QMap>
 #include <QString>
 
 namespace configtool {
@@ -262,14 +263,30 @@ struct AgcAvcDebugConfig {
     QJsonObject rawExtra;
 };
 
+struct LogicControlPriorityConfig {
+    bool enable = true;
+    QMap<QString, int> sourcePriorities{
+        {QStringLiteral("North_CEP"), 100},
+        {QStringLiteral("North_101"), 100},
+        {QStringLiteral("North_104"), 100},
+        {QStringLiteral("North_Mqtt"), 100}
+    };
+    int selectTimeoutMs = 20000;
+    int executeTimeoutMs = 10000;
+    bool preemptSelected = true;
+    QJsonObject rawExtra;
+};
+
 struct LogicCenterConfig {
     QList<LogicComputationPoint> computationPoints;
     QList<LogicControlRule> controlRules;
     QList<AgcAvcGroup> agcAvcGroups;
     QList<LogicOnlineStatusLink> onlineStatusLinks;
     AgcAvcDebugConfig debug;
+    LogicControlPriorityConfig controlPriority;
     QJsonObject rawExtra;
     bool hasDebug = false;
+    bool hasControlPriority = false;
 };
 
 struct SourceInfo {

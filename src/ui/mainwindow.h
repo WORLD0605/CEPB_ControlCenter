@@ -336,6 +336,7 @@ private:
     void autoMergeDlt645FfPollGroups();
     void pushConfigUndoSnapshot();
     void undoLastConfigEdit();
+    void openControlPriorityDialog();
     void tryAutoOpenLastConfig();
     QString serviceChannelItemKey(const ServiceChannelDataItem &item) const;
     QString normalizedConfigProjectRoot(const QString &selectedPath) const;
@@ -606,6 +607,7 @@ private:
     QPushButton *m_downloadConfigBtn = nullptr;
     QPushButton *m_openNetworkConfigBtn = nullptr;
     QPushButton *m_openLogManagementBtn = nullptr;
+    QPushButton *m_openControlPriorityBtn = nullptr;
     QLineEdit *m_configRemoteBaseDirEdit = nullptr;
     QPushButton *m_newModelBtn = nullptr;
     QPushButton *m_createDeviceBtn = nullptr;

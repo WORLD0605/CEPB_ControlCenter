@@ -1141,10 +1141,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_openNetworkConfigBtn->setToolTip(QStringLiteral("配置设备网口 IP、静态路由并测试网络连通性"));
     m_openLogManagementBtn = new QPushButton(QStringLiteral("日志管理..."), this);
     m_openLogManagementBtn->setToolTip(QStringLiteral("配置各 APP 的日志和消息保留天数"));
+    m_openControlPriorityBtn = new QPushButton(QStringLiteral("控制优先级..."), this);
+    m_openControlPriorityBtn->setToolTip(QStringLiteral("配置各北向 APP 经 LogicCenter 下发控制时的仲裁优先级"));
     transferRow->addWidget(m_uploadConfigBtn);
     transferRow->addWidget(m_downloadConfigBtn);
     transferRow->addWidget(m_openNetworkConfigBtn);
     transferRow->addWidget(m_openLogManagementBtn);
+    transferRow->addWidget(m_openControlPriorityBtn);
     configLayout->addLayout(transferRow);
 
     auto *summaryFrame = new QFrame(this);
@@ -2670,6 +2673,8 @@ MainWindow::MainWindow(QWidget *parent)
         m_logManagementPage->raise();
         m_logManagementPage->activateWindow();
     });
+    connect(m_openControlPriorityBtn, &QPushButton::clicked,
+            this, &MainWindow::openControlPriorityDialog);
     connect(m_connectProgramControlBtn, &QPushButton::clicked,
             this, &MainWindow::onConnectProgramControlClicked);
     connect(m_disconnectProgramControlBtn, &QPushButton::clicked,

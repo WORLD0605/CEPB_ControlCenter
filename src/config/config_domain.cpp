@@ -978,6 +978,40 @@ LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object)
 {
     LogicCenterConfig config;
 
+    config.hasControlPriority = object.value(QStringLiteral("control_priority")).isObject();
+    if (config.hasControlPriority) {
+        const QJsonObject priorityObject = object.value(QStringLiteral("control_priority")).toObject();
+        config.controlPriority.enable =
+            priorityObject.value(QStringLiteral("enable")).toBool(config.controlPriority.enable);
+        config.controlPriority.selectTimeoutMs =
+            intValue(priorityObject,
+                     QStringLiteral("select_timeout_ms"),
+                     QString(),
+                     config.controlPriority.selectTimeoutMs);
+        config.controlPriority.executeTimeoutMs =
+            intValue(priorityObject,
+                     QStringLiteral("execute_timeout_ms"),
+                     QString(),
+                     config.controlPriority.executeTimeoutMs);
+        config.controlPriority.preemptSelected =
+            priorityObject.value(QStringLiteral("preempt_selected"))
+                .toBool(config.controlPriority.preemptSelected);
+
+        const QJsonObject sources = priorityObject.value(QStringLiteral("sources")).toObject();
+        for (auto it = sources.constBegin(); it != sources.constEnd(); ++it) {
+            if (it.value().isDouble()) {
+                config.controlPriority.sourcePriorities.insert(it.key(), it.value().toInt());
+            }
+        }
+        config.controlPriority.rawExtra = rawExtraWithout(priorityObject, {
+            QStringLiteral("enable"),
+            QStringLiteral("sources"),
+            QStringLiteral("select_timeout_ms"),
+            QStringLiteral("execute_timeout_ms"),
+            QStringLiteral("preempt_selected")
+        });
+    }
+
     const QJsonArray computationPoints = object.value(QStringLiteral("computation_points")).toArray();
     for (const QJsonValue &value : computationPoints) {
         if (value.isObject()) {
@@ -1020,7 +1054,8 @@ LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object)
         QStringLiteral("AgcAvcGroups"),
         QStringLiteral("AgcAvc"),
         QStringLiteral("onlineStatus_link"),
-        QStringLiteral("AgcAvc_debug")
+        QStringLiteral("AgcAvc_debug"),
+        QStringLiteral("control_priority")
     });
 
     return config;
@@ -1029,6 +1064,26 @@ LogicCenterConfig parseLogicCenterConfig(const QJsonObject &object)
 QJsonObject serializeLogicCenterConfig(const LogicCenterConfig &config)
 {
     QJsonObject object = config.rawExtra;
+
+    if (config.hasControlPriority) {
+        QJsonObject priorityObject = config.controlPriority.rawExtra;
+        priorityObject.insert(QStringLiteral("enable"), config.controlPriority.enable);
+
+        QJsonObject sources;
+        for (auto it = config.controlPriority.sourcePriorities.constBegin();
+             it != config.controlPriority.sourcePriorities.constEnd();
+             ++it) {
+            sources.insert(it.key(), it.value());
+        }
+        priorityObject.insert(QStringLiteral("sources"), sources);
+        priorityObject.insert(QStringLiteral("select_timeout_ms"),
+                              config.controlPriority.selectTimeoutMs);
+        priorityObject.insert(QStringLiteral("execute_timeout_ms"),
+                              config.controlPriority.executeTimeoutMs);
+        priorityObject.insert(QStringLiteral("preempt_selected"),
+                              config.controlPriority.preemptSelected);
+        object.insert(QStringLiteral("control_priority"), priorityObject);
+    }
 
     QJsonArray computationPoints;
     for (const LogicComputationPoint &point : config.computationPoints) {
