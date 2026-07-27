@@ -1,8 +1,24 @@
 #include "mainwindow_config_p.h"
 
+#include <cmath>
 #include <QHostAddress>
 
 using namespace cepb_config_helpers;
+
+namespace {
+
+QString iec101JsonScalarText(const QJsonValue &value)
+{
+    if (value.isString()) {
+        return value.toString().trimmed();
+    }
+    if (value.isDouble()) {
+        return QString::number(value.toDouble(), 'g', 15);
+    }
+    return QString();
+}
+
+}
 
 // ============================================================
 // IEC101 配置页面 — 槽函数 & 序列化
@@ -44,6 +60,8 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString deviceaddr;
         QString deathzoneType = QStringLiteral("0");
         QString deathzone = QStringLiteral("0.2");
+        QString normalizationMin;
+        QString normalizationMax;
     };
     QHash<QString, PointSettings> existingSettings;
     QStringList existingPointOrder;
@@ -70,6 +88,14 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         if (m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)) {
             s.deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed();
         }
+        if (m_iec101PointsTable->item(row, Iec101PointColumnNormalizationMin)) {
+            s.normalizationMin = m_iec101PointsTable->item(
+                row, Iec101PointColumnNormalizationMin)->text().trimmed();
+        }
+        if (m_iec101PointsTable->item(row, Iec101PointColumnNormalizationMax)) {
+            s.normalizationMax = m_iec101PointsTable->item(
+                row, Iec101PointColumnNormalizationMax)->text().trimmed();
+        }
         existingSettings[key] = s;
     }
 
@@ -81,6 +107,10 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             s.deviceaddr = pt.value(QStringLiteral("deviceaddr")).toString();
             s.deathzoneType = pt.value(QStringLiteral("deathzone_type")).toString(QStringLiteral("0"));
             s.deathzone = pt.value(QStringLiteral("deathzone")).toString(QStringLiteral("0.2"));
+            s.normalizationMin = iec101JsonScalarText(
+                pt.value(QStringLiteral("normalization_min")));
+            s.normalizationMax = iec101JsonScalarText(
+                pt.value(QStringLiteral("normalization_max")));
             s.enabled = pt.value(QStringLiteral("enabled")).toBool(true);
             existingSettings[it.key()] = s;
         }
@@ -93,12 +123,16 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString dataRef;
         QString description;
         int category = 0; // ModelServiceType: 0=Measurement, 1=Status, 2=Control
+        QString engineeringMin;
+        QString engineeringMax;
     };
     QHash<QString, DevicePoint> devicePointsByKey;
     QStringList devicePointOrder;
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
         // 预解析设备模型，建立 pointRef → category 映射
         QHash<QString, int> pointCategoryMap;
+        QHash<QString, QString> pointMinMap;
+        QHash<QString, QString> pointMaxMap;
         for (const configtool::ModelTemplate &model : project.models) {
             if (model.modelId != device.modelId) {
                 continue;
@@ -106,6 +140,8 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             for (const configtool::ServiceTemplate &service : model.services) {
                 for (const configtool::PointTemplate &pt : service.points) {
                     pointCategoryMap[pt.pointRef(model.modelId)] = static_cast<int>(pt.category);
+                    pointMinMap[pt.pointRef(model.modelId)] = pt.min.trimmed();
+                    pointMaxMap[pt.pointRef(model.modelId)] = pt.max.trimmed();
                 }
             }
         }
@@ -120,6 +156,8 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             dp.description = binding.descriptionOverride.isEmpty()
                 ? binding.dataRef : binding.descriptionOverride;
             dp.category = pointCategoryMap.value(binding.pointRef, 0);
+            dp.engineeringMin = pointMinMap.value(binding.pointRef);
+            dp.engineeringMax = pointMaxMap.value(binding.pointRef);
             const QString key = dp.deviceId + QStringLiteral("|") + dp.dataRef;
             if (!devicePointsByKey.contains(key)) {
                 devicePointOrder.append(key);
@@ -160,6 +198,8 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString deviceaddr;
         QString deathzoneType = QStringLiteral("0");
         QString deathzone = QStringLiteral("0.2");
+        QString normalizationMin = dp.category == 0 ? dp.engineeringMin : QString();
+        QString normalizationMax = dp.category == 0 ? dp.engineeringMax : QString();
         bool enabled = true;
         if (existingSettings.contains(key)) {
             const PointSettings &s = existingSettings[key];
@@ -167,6 +207,10 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             deviceaddr = s.deviceaddr;
             deathzoneType = s.deathzoneType.isEmpty() ? QStringLiteral("0") : s.deathzoneType;
             deathzone = s.deathzone.isEmpty() ? QStringLiteral("0.2") : s.deathzone;
+            if (!s.normalizationMin.isEmpty() || !s.normalizationMax.isEmpty()) {
+                normalizationMin = s.normalizationMin;
+                normalizationMax = s.normalizationMax;
+            }
         }
 
         // Col 0: 拖动手柄
@@ -213,6 +257,23 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
 
         // Col 7: 死区值
         m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(deathzone));
+
+        // Col 8-9: 归一化遥测使用的工程量量程。首次生成时沿用模型点位 min/max。
+        auto *normalizationMinItem = new QTableWidgetItem(normalizationMin);
+        auto *normalizationMaxItem = new QTableWidgetItem(normalizationMax);
+        const QString normalizationToolTip = dp.category == 0
+            ? QStringLiteral("遥测类型为“归一化值”时必填，且工程量下限必须小于上限")
+            : QStringLiteral("仅遥测点使用工程量量程");
+        normalizationMinItem->setToolTip(normalizationToolTip);
+        normalizationMaxItem->setToolTip(normalizationToolTip);
+        if (dp.category != 0) {
+            normalizationMinItem->setFlags(normalizationMinItem->flags() & ~Qt::ItemIsEditable);
+            normalizationMaxItem->setFlags(normalizationMaxItem->flags() & ~Qt::ItemIsEditable);
+        }
+        m_iec101PointsTable->setItem(
+            row, Iec101PointColumnNormalizationMin, normalizationMinItem);
+        m_iec101PointsTable->setItem(
+            row, Iec101PointColumnNormalizationMax, normalizationMaxItem);
     }
 
     m_iec101PointsTable->blockSignals(false);
@@ -235,6 +296,8 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
         QString deviceaddr;
         QString deathzoneType = QStringLiteral("0");
         QString deathzone = QStringLiteral("0.2");
+        QString normalizationMin;
+        QString normalizationMax;
     };
     QList<RowSnapshot> allRows;
     allRows.reserve(m_iec101PointsTable->rowCount());
@@ -258,6 +321,14 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
         rs.deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
             ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed()
             : QStringLiteral("0.2");
+        rs.normalizationMin = m_iec101PointsTable->item(row, Iec101PointColumnNormalizationMin)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnNormalizationMin)->text().trimmed()
+            : QString();
+        rs.normalizationMax = m_iec101PointsTable->item(row, Iec101PointColumnNormalizationMax)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnNormalizationMax)->text().trimmed()
+            : QString();
         allRows.append(rs);
     }
 
@@ -305,6 +376,22 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
         dzTypeCombo->setCurrentIndex(dzTypeIdx >= 0 ? dzTypeIdx : 0);
         m_iec101PointsTable->setCellWidget(row, Iec101PointColumnDeadzoneType, dzTypeCombo);
         m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(rs.deathzone));
+
+        auto *normalizationMinItem = new QTableWidgetItem(rs.normalizationMin);
+        auto *normalizationMaxItem = new QTableWidgetItem(rs.normalizationMax);
+        const QString normalizationToolTip = rs.category == 0
+            ? QStringLiteral("遥测类型为“归一化值”时必填，且工程量下限必须小于上限")
+            : QStringLiteral("仅遥测点使用工程量量程");
+        normalizationMinItem->setToolTip(normalizationToolTip);
+        normalizationMaxItem->setToolTip(normalizationToolTip);
+        if (rs.category != 0) {
+            normalizationMinItem->setFlags(normalizationMinItem->flags() & ~Qt::ItemIsEditable);
+            normalizationMaxItem->setFlags(normalizationMaxItem->flags() & ~Qt::ItemIsEditable);
+        }
+        m_iec101PointsTable->setItem(
+            row, Iec101PointColumnNormalizationMin, normalizationMinItem);
+        m_iec101PointsTable->setItem(
+            row, Iec101PointColumnNormalizationMax, normalizationMaxItem);
     }
     m_iec101PointsTable->blockSignals(false);
     applyIec101PointsFilter();
@@ -316,8 +403,11 @@ void MainWindow::onIec101PointItemChanged(QTableWidgetItem *item)
     if (!item) {
         return;
     }
-    // 当地址列或启用列变化时，刷新重复地址高亮
-    if (item->column() == Iec101PointColumnEnabled || item->column() == Iec101PointColumnAddress) {
+    // 地址、启用状态或归一化量程变化时刷新校验提示。
+    if (item->column() == Iec101PointColumnEnabled
+        || item->column() == Iec101PointColumnAddress
+        || item->column() == Iec101PointColumnNormalizationMin
+        || item->column() == Iec101PointColumnNormalizationMax) {
         highlightIec101DuplicateAddresses();
     }
 }
@@ -490,6 +580,16 @@ void MainWindow::pushIec101PointsUndoSnapshot()
         }
         rowObj[QStringLiteral("deathzone")] = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
             ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text() : QString();
+        rowObj[QStringLiteral("normalization_min")] = m_iec101PointsTable->item(
+            row, Iec101PointColumnNormalizationMin)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnNormalizationMin)->text()
+            : QString();
+        rowObj[QStringLiteral("normalization_max")] = m_iec101PointsTable->item(
+            row, Iec101PointColumnNormalizationMax)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnNormalizationMax)->text()
+            : QString();
         rows.append(rowObj);
     }
     snapshot[QStringLiteral("rows")] = rows;
@@ -567,6 +667,14 @@ void MainWindow::undoIec101PointsLastEdit()
         if (m_iec101PointsTable->item(i, Iec101PointColumnDeadzone)) {
             m_iec101PointsTable->item(i, Iec101PointColumnDeadzone)
                 ->setText(rowObj.value(QStringLiteral("deathzone")).toString(QStringLiteral("0.2")));
+        }
+        if (m_iec101PointsTable->item(i, Iec101PointColumnNormalizationMin)) {
+            m_iec101PointsTable->item(i, Iec101PointColumnNormalizationMin)
+                ->setText(rowObj.value(QStringLiteral("normalization_min")).toString());
+        }
+        if (m_iec101PointsTable->item(i, Iec101PointColumnNormalizationMax)) {
+            m_iec101PointsTable->item(i, Iec101PointColumnNormalizationMax)
+                ->setText(rowObj.value(QStringLiteral("normalization_max")).toString());
         }
     }
     m_iec101PointsTable->blockSignals(false);
@@ -656,6 +764,16 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
             // 死区值
             const QString deathzone = m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)
                 ? m_iec101PointsTable->item(row, Iec101PointColumnDeadzone)->text().trimmed() : QStringLiteral("0.2");
+            const QString normalizationMin = m_iec101PointsTable->item(
+                row, Iec101PointColumnNormalizationMin)
+                ? m_iec101PointsTable->item(
+                      row, Iec101PointColumnNormalizationMin)->text().trimmed()
+                : QString();
+            const QString normalizationMax = m_iec101PointsTable->item(
+                row, Iec101PointColumnNormalizationMax)
+                ? m_iec101PointsTable->item(
+                      row, Iec101PointColumnNormalizationMax)->text().trimmed()
+                : QString();
 
             QJsonObject point;
             point[QStringLiteral("datafrom")] = deviceId;
@@ -668,6 +786,15 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
             point[QStringLiteral("deathzone")] = deathzone;
 
             QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
+            const int category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
+            if (category == 0) {
+                if (!normalizationMin.isEmpty()) {
+                    point[QStringLiteral("normalization_min")] = normalizationMin;
+                }
+                if (!normalizationMax.isEmpty()) {
+                    point[QStringLiteral("normalization_max")] = normalizationMax;
+                }
+            }
             if (checkItem && checkItem->checkState() != Qt::Checked) {
                 point[QStringLiteral("enabled")] = false;
                 point[QStringLiteral("order")] = row;
@@ -689,6 +816,17 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
 
 bool MainWindow::validateIec101Config(QString *errorMessage) const
 {
+    const QStringList normalizationErrors = checkIec101NormalizationRangeErrors();
+    if (!normalizationErrors.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral(
+                "遥测类型为“归一化值”时，每个已配置的启用遥测点都必须填写有效工程量上下限"
+                "（下限 < 上限）。\n%1")
+                                .arg(normalizationErrors.first());
+        }
+        return false;
+    }
+
     const int commMode = m_iec101CommModeCombo->currentData().toInt();
     if (commMode != 1 && commMode != 2) {
         return true;
@@ -1096,6 +1234,66 @@ QStringList MainWindow::checkIec101AddressRangeErrors() const
     return errors;
 }
 
+QStringList MainWindow::checkIec101NormalizationRangeErrors() const
+{
+    QStringList errors;
+    if (!m_iec101PointsTable || !m_iec101TelemetryTypeCombo
+        || m_iec101TelemetryTypeCombo->currentData().toString()
+               != QStringLiteral("归一化值")) {
+        return errors;
+    }
+
+    for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
+        QTableWidgetItem *checkItem = m_iec101PointsTable->item(
+            row, Iec101PointColumnEnabled);
+        if (!checkItem || checkItem->checkState() != Qt::Checked
+            || checkItem->data(Qt::UserRole).toInt() != 0) {
+            continue;
+        }
+
+        const QString address = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnAddress)->text().trimmed()
+            : QString();
+        if (address.isEmpty()) {
+            continue;
+        }
+
+        const QString minText = m_iec101PointsTable->item(
+            row, Iec101PointColumnNormalizationMin)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnNormalizationMin)->text().trimmed()
+            : QString();
+        const QString maxText = m_iec101PointsTable->item(
+            row, Iec101PointColumnNormalizationMax)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnNormalizationMax)->text().trimmed()
+            : QString();
+        bool minOk = false;
+        bool maxOk = false;
+        const double minimum = minText.toDouble(&minOk);
+        const double maximum = maxText.toDouble(&maxOk);
+        if (minOk && maxOk && std::isfinite(minimum) && std::isfinite(maximum)
+            && minimum < maximum) {
+            continue;
+        }
+
+        const QString deviceId = m_iec101PointsTable->item(
+            row, Iec101PointColumnDeviceId)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnDeviceId)->text().trimmed()
+            : QStringLiteral("?");
+        const QString dataRef = m_iec101PointsTable->item(
+            row, Iec101PointColumnDataRef)
+            ? m_iec101PointsTable->item(
+                  row, Iec101PointColumnDataRef)->text().trimmed()
+            : QStringLiteral("?");
+        errors.append(QStringLiteral("%1/%2 工程量范围“%3 ～ %4”无效")
+                          .arg(deviceId, dataRef, minText, maxText));
+    }
+    return errors;
+}
+
 void MainWindow::highlightIec101DuplicateAddresses()
 {
     if (!m_iec101PointsTable) {
@@ -1104,6 +1302,7 @@ void MainWindow::highlightIec101DuplicateAddresses()
 
     const QSet<QString> duplicates = checkIec101DuplicateAddresses();
     const QStringList rangeErrors = checkIec101AddressRangeErrors();
+    const QStringList normalizationErrors = checkIec101NormalizationRangeErrors();
     const QColor duplicateColor(QStringLiteral("#c0392b"));
     const QColor rangeErrorColor(QStringLiteral("#b9770e"));
     const QColor normalColor = m_iec101PointsTable->palette().text().color();
@@ -1164,6 +1363,10 @@ void MainWindow::highlightIec101DuplicateAddresses()
         }
         if (!rangeErrors.isEmpty()) {
             messages << QStringLiteral("地址范围异常（%1处）").arg(rangeErrors.size());
+        }
+        if (!normalizationErrors.isEmpty()) {
+            messages << QStringLiteral("归一化工程量范围异常（%1处）")
+                            .arg(normalizationErrors.size());
         }
 
         if (!messages.isEmpty()) {

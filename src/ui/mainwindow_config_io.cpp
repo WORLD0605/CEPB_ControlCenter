@@ -1782,6 +1782,13 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                         filePath,
                         QStringLiteral("IEC101 %1").arg(err));
         }
+
+        const QStringList normalizationErrors = checkIec101NormalizationRangeErrors();
+        for (const QString &err : normalizationErrors) {
+            appendIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("IEC101 %1").arg(err));
+        }
     }
 
     // 北向 IEC104 点表地址检查（重复 + 范围）

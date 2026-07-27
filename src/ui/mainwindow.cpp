@@ -2451,7 +2451,7 @@ MainWindow::MainWindow(QWidget *parent)
     iec101FilterRow->addWidget(m_iec101PointDataRefFilterEdit);
     iec101PointsLayout->addLayout(iec101FilterRow);
 
-    auto *iec101PointsTable = new EnterToNextRowTableWidget(0, 8, this);
+    auto *iec101PointsTable = new EnterToNextRowTableWidget(0, 10, this);
     iec101PointsTable->enableEnterToNextRowEdit();
     m_iec101PointsTable = iec101PointsTable;
     m_iec101PointsTable->setHorizontalHeaderLabels({
@@ -2462,7 +2462,9 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("Description"),
         QStringLiteral("北向101地址"),
         QStringLiteral("死区类型"),
-        QStringLiteral("死区值")
+        QStringLiteral("死区值"),
+        QStringLiteral("工程量下限"),
+        QStringLiteral("工程量上限")
     });
     m_iec101PointsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked | QAbstractItemView::EditKeyPressed);
     m_iec101PointsTable->setSelectionBehavior(QAbstractItemView::SelectItems);
@@ -2478,6 +2480,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101PointsTable->setColumnWidth(4, 150);
     m_iec101PointsTable->setColumnWidth(5, 100);
     m_iec101PointsTable->setColumnWidth(6, 130);
+    m_iec101PointsTable->setColumnWidth(7, 90);
+    m_iec101PointsTable->setColumnWidth(8, 110);
+    m_iec101PointsTable->setColumnWidth(9, 110);
     // Drag-drop setup
     m_iec101PointsTable->setDragEnabled(false);
     m_iec101PointsTable->setAcceptDrops(true);
@@ -2515,6 +2520,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onSortIec101PointsClicked);
     connect(m_iec101PointsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onIec101PointItemChanged);
+    connect(m_iec101TelemetryTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this]() { highlightIec101DuplicateAddresses(); });
     connect(m_iec101PointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onIec101PointFilterChanged);
     connect(m_iec101PointDataRefFilterEdit, &QLineEdit::textChanged,

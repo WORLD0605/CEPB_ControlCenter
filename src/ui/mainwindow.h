@@ -368,6 +368,7 @@ private:
     void applyIec101PointsFilter();
     QSet<QString> checkIec101DuplicateAddresses() const;
     QStringList checkIec101AddressRangeErrors() const;
+    QStringList checkIec101NormalizationRangeErrors() const;
     void highlightIec101DuplicateAddresses();
     void setupIec104ConfigPage();
     QJsonObject serializeIec104LocalhostConfig() const;
