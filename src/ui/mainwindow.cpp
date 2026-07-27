@@ -50,9 +50,25 @@ namespace {
 class DebugAppTabBar : public QTabBar
 {
 public:
-    using QTabBar::QTabBar;
+    explicit DebugAppTabBar(QWidget *parent = nullptr)
+        : QTabBar(parent)
+    {
+        connect(this, &QTabBar::currentChanged, this, [this]() {
+            updateGeometry();
+            update();
+        });
+    }
 
 protected:
+    QSize tabSizeHint(int index) const override
+    {
+        QSize size = QTabBar::tabSizeHint(index);
+        if (index == currentIndex()) {
+            size += QSize(16, 6);
+        }
+        return size;
+    }
+
     void paintEvent(QPaintEvent *event) override
     {
         QTabBar::paintEvent(event);
@@ -67,15 +83,31 @@ protected:
                 continue;
             }
 
+            const bool selected = tab == currentIndex();
             const QRect tabArea = tabRect(tab).adjusted(1, 1, -1, -1);
-            painter.setPen(QPen(QColor(QStringLiteral("#66bb6a")), 1));
-            painter.setBrush(QColor(QStringLiteral("#2e7d32")));
+            painter.save();
+            painter.setPen(QPen(
+                QColor(selected ? QStringLiteral("#90caf9") : QStringLiteral("#66bb6a")),
+                selected ? 3 : 1));
+            painter.setBrush(QColor(
+                selected ? QStringLiteral("#388e3c") : QStringLiteral("#2e7d32")));
             painter.drawRoundedRect(tabArea, 4, 4);
 
+            QFont tabFont = painter.font();
+            tabFont.setBold(selected);
+            if (selected) {
+                if (tabFont.pointSizeF() > 0) {
+                    tabFont.setPointSizeF(tabFont.pointSizeF() + 0.5);
+                } else if (tabFont.pixelSize() > 0) {
+                    tabFont.setPixelSize(tabFont.pixelSize() + 1);
+                }
+            }
+            painter.setFont(tabFont);
             painter.setPen(Qt::white);
             painter.drawText(tabArea.adjusted(8, 0, -8, 0),
                              Qt::AlignCenter,
                              tabText(tab));
+            painter.restore();
         }
     }
 };
