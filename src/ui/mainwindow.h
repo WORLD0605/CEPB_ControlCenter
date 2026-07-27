@@ -357,6 +357,7 @@ private:
     void loadNorthMqttMainstationConfig(const QString &filePath, configtool::ImportReport &report);
     bool validateNorthMqttConfig(QString *errorMessage = nullptr) const;
     QJsonObject serializeIec101LocalhostConfig() const;
+    bool validateIec101Config(QString *errorMessage = nullptr) const;
     void loadIec101LocalhostConfigFromFile(const QString &filePath);
     void loadIec101LocalhostConfigFromJson(const QJsonObject &root);
     void clearIec101ConfigPage();
@@ -817,7 +818,10 @@ private:
     QLineEdit *m_northMqttPasswordEdit = nullptr;
     // IEC101 配置页面控件
     QComboBox *m_iec101CommModeCombo = nullptr;
+    QComboBox *m_iec101TcpRoleCombo = nullptr;
     QLineEdit *m_iec101ComAddrEdit = nullptr;
+    QLabel *m_iec101CodeIpLabel = nullptr;
+    QLineEdit *m_iec101CodeIpEdit = nullptr;
     QLineEdit *m_iec101CodePortEdit = nullptr;
     // 串口连接参数
     QGroupBox *m_iec101SerialParamsGroup = nullptr;

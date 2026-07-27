@@ -1,5 +1,7 @@
 #include "mainwindow_config_p.h"
 
+#include <QHostAddress>
+
 using namespace cepb_config_helpers;
 
 // ============================================================
@@ -10,7 +12,18 @@ void MainWindow::onIec101CommModeChanged(int index)
 {
     const int mode = m_iec101CommModeCombo->itemData(index).toInt();
     const bool needSerial = (mode == 0 || mode == 2);
+    const bool needTcp = (mode == 1 || mode == 2);
+    const bool tcpClient = needTcp
+        && m_iec101TcpRoleCombo->currentData().toString() == QStringLiteral("client");
     m_iec101SerialParamsGroup->setVisible(needSerial);
+    m_iec101TcpRoleCombo->setEnabled(needTcp);
+    m_iec101CodePortEdit->setEnabled(needTcp);
+    m_iec101CodeIpLabel->setText(tcpClient ? QStringLiteral("主站 IP:")
+                                          : QStringLiteral("监听地址:"));
+    m_iec101CodeIpEdit->setEnabled(tcpClient);
+    if (needTcp && !tcpClient && m_iec101CodeIpEdit->text().trimmed().isEmpty()) {
+        m_iec101CodeIpEdit->setText(QStringLiteral("0.0.0.0"));
+    }
 }
 
 void MainWindow::onRefreshIec101PointsClicked()
@@ -570,7 +583,14 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
     const int commMode = m_iec101CommModeCombo->currentData().toInt();
     root[QStringLiteral("communication_mode")] = QString::number(commMode);
     root[QStringLiteral("com_addr")] = m_iec101ComAddrEdit->text().trimmed();
-    root[QStringLiteral("code_port")] = m_iec101CodePortEdit->text().trimmed();
+    if (commMode == 1 || commMode == 2) {
+        const QString tcpRole = m_iec101TcpRoleCombo->currentData().toString();
+        root[QStringLiteral("tcp_role")] = tcpRole;
+        root[QStringLiteral("code_ip")] = tcpRole == QStringLiteral("client")
+            ? m_iec101CodeIpEdit->text().trimmed()
+            : QStringLiteral("0.0.0.0");
+        root[QStringLiteral("code_port")] = m_iec101CodePortEdit->text().trimmed();
+    }
 
     // ---- 串口连接参数 (按需输出) ----
     if (commMode == 0 || commMode == 2) {
@@ -667,6 +687,38 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
     return root;
 }
 
+bool MainWindow::validateIec101Config(QString *errorMessage) const
+{
+    const int commMode = m_iec101CommModeCombo->currentData().toInt();
+    if (commMode != 1 && commMode != 2) {
+        return true;
+    }
+
+    bool portOk = false;
+    const int port = m_iec101CodePortEdit->text().trimmed().toInt(&portOk);
+    if (!portOk || port < 1 || port > 65535) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("TCP 端口必须是 1～65535 的整数。");
+        }
+        return false;
+    }
+
+    const QString tcpRole = m_iec101TcpRoleCombo->currentData().toString();
+    if (tcpRole == QStringLiteral("client")) {
+        QHostAddress address;
+        const QString targetIp = m_iec101CodeIpEdit->text().trimmed();
+        if (!address.setAddress(targetIp)
+            || address.protocol() != QAbstractSocket::IPv4Protocol
+            || address == QHostAddress::AnyIPv4) {
+            if (errorMessage) {
+                *errorMessage = QStringLiteral("TCP 客户端模式必须填写有效的主站 IPv4 地址。");
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
 void MainWindow::clearIec101ConfigPage()
 {
     if (!m_iec101ConfigPage) {
@@ -675,7 +727,9 @@ void MainWindow::clearIec101ConfigPage()
 
     // 基本设置
     m_iec101CommModeCombo->setCurrentIndex(1); // TCP
+    m_iec101TcpRoleCombo->setCurrentIndex(0);  // 服务端
     m_iec101ComAddrEdit->clear();
+    m_iec101CodeIpEdit->setText(QStringLiteral("0.0.0.0"));
     m_iec101CodePortEdit->setText(QStringLiteral("2404"));
 
     // 串口参数
@@ -729,9 +783,22 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
     if (commModeIdx >= 0) {
         m_iec101CommModeCombo->setCurrentIndex(commModeIdx);
     }
+    QString tcpRole = root.value(QStringLiteral("tcp_role")).toString().trimmed().toLower();
+    if (tcpRole != QStringLiteral("client")) {
+        tcpRole = QStringLiteral("server");
+    }
+    const int tcpRoleIdx = m_iec101TcpRoleCombo->findData(tcpRole);
+    if (tcpRoleIdx >= 0) {
+        m_iec101TcpRoleCombo->setCurrentIndex(tcpRoleIdx);
+    }
     m_iec101ComAddrEdit->setText(root.value(QStringLiteral("com_addr")).toString());
+    const QString codeIp = root.value(QStringLiteral("code_ip")).toString().trimmed();
+    m_iec101CodeIpEdit->setText(codeIp.isEmpty() && tcpRole == QStringLiteral("server")
+                                    ? QStringLiteral("0.0.0.0")
+                                    : codeIp);
     const QString codePort = root.value(QStringLiteral("code_port")).toString();
     m_iec101CodePortEdit->setText(codePort.isEmpty() ? QStringLiteral("2404") : codePort);
+    onIec101CommModeChanged(m_iec101CommModeCombo->currentIndex());
 
     // ---- 串口连接参数 ----
     m_iec101UsartNameEdit->setText(root.value(QStringLiteral("code_usart_name")).toString());

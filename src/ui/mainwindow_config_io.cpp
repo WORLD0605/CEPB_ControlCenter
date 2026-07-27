@@ -229,6 +229,8 @@ QList<configtool::ImportIssue> networkEndpointConflictIssues(
     const QString &northMqttBrokerIp,
     const QString &northMqttBrokerPort,
     int iec101CommunicationMode,
+    const QString &iec101TcpRole,
+    const QString &iec101CodeIp,
     const QString &iec101CodePort,
     const QString &iec104CodeIp,
     const QString &iec104CodePort)
@@ -302,12 +304,21 @@ QList<configtool::ImportIssue> networkEndpointConflictIssues(
            northCepDataPort,
            QDir(projectPath).filePath(QStringLiteral("North_CEP/etc/mainstation.json")));
     if (iec101CommunicationMode == 1 || iec101CommunicationMode == 2) {
-        addUse(listenerUses,
-               QStringLiteral("North_101"),
-               QStringLiteral("TCP 通道"),
-               QStringLiteral("0.0.0.0"),
-               iec101CodePort,
-               QDir(projectPath).filePath(QStringLiteral("North_101/config/localhost.json")));
+        if (iec101TcpRole == QStringLiteral("client")) {
+            addUse(clientUses,
+                   QStringLiteral("North_101"),
+                   QStringLiteral("主站"),
+                   iec101CodeIp,
+                   iec101CodePort,
+                   QDir(projectPath).filePath(QStringLiteral("North_101/config/localhost.json")));
+        } else {
+            addUse(listenerUses,
+                   QStringLiteral("North_101"),
+                   QStringLiteral("TCP 通道"),
+                   QStringLiteral("0.0.0.0"),
+                   iec101CodePort,
+                   QDir(projectPath).filePath(QStringLiteral("North_101/config/localhost.json")));
+        }
     }
     addUse(listenerUses,
            QStringLiteral("North_104"),
@@ -1244,6 +1255,8 @@ void MainWindow::onExportIec104ConfigClicked()
         m_northMqttBrokerIpEdit ? m_northMqttBrokerIpEdit->text() : QString(),
         m_northMqttPortEdit ? m_northMqttPortEdit->text() : QString(),
         m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
+        m_iec101TcpRoleCombo ? m_iec101TcpRoleCombo->currentData().toString() : QStringLiteral("server"),
+        m_iec101CodeIpEdit ? m_iec101CodeIpEdit->text() : QString(),
         m_iec101CodePortEdit ? m_iec101CodePortEdit->text() : QString(),
         m_iec104CodeIpEdit ? m_iec104CodeIpEdit->text() : QString(),
         m_iec104CodePortEdit ? m_iec104CodePortEdit->text() : QString());
@@ -1272,6 +1285,14 @@ void MainWindow::onExportIec104ConfigClicked()
         showNorthConfigPage(m_northMqttConfigPage);
         QMessageBox::warning(this, QStringLiteral("MQTT配置"), northMqttError);
         statusBar()->showMessage(QStringLiteral("MQTT 配置校验失败"), 5000);
+        return;
+    }
+
+    QString iec101Error;
+    if (!validateIec101Config(&iec101Error)) {
+        showNorthConfigPage(m_iec101ConfigPage);
+        QMessageBox::warning(this, QStringLiteral("IEC101配置"), iec101Error);
+        statusBar()->showMessage(QStringLiteral("IEC101 配置校验失败"), 5000);
         return;
     }
 
@@ -1559,6 +1580,13 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                     QStringLiteral("North_Mqtt 配置：%1").arg(northMqttError));
     }
 
+    QString iec101Error;
+    if (!validateIec101Config(&iec101Error)) {
+        appendIssue(configtool::ImportIssueSeverity::Error,
+                    QDir(projectPath).filePath(QStringLiteral("North_101/config/localhost.json")),
+                    QStringLiteral("North_101 配置：%1").arg(iec101Error));
+    }
+
     const QStringList serialConflicts = serialPortConflictDescriptions(
         project,
         m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
@@ -1577,6 +1605,8 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
         m_northMqttBrokerIpEdit ? m_northMqttBrokerIpEdit->text() : QString(),
         m_northMqttPortEdit ? m_northMqttPortEdit->text() : QString(),
         m_iec101CommModeCombo ? m_iec101CommModeCombo->currentData().toInt() : 1,
+        m_iec101TcpRoleCombo ? m_iec101TcpRoleCombo->currentData().toString() : QStringLiteral("server"),
+        m_iec101CodeIpEdit ? m_iec101CodeIpEdit->text() : QString(),
         m_iec101CodePortEdit ? m_iec101CodePortEdit->text() : QString(),
         m_iec104CodeIpEdit ? m_iec104CodeIpEdit->text() : QString(),
         m_iec104CodePortEdit ? m_iec104CodePortEdit->text() : QString()));

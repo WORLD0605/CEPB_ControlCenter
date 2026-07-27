@@ -2261,11 +2261,24 @@ MainWindow::MainWindow(QWidget *parent)
     iec101BasicGrid->addWidget(new QLabel(QStringLiteral("链路地址:"), this), 0, 2);
     iec101BasicGrid->addWidget(m_iec101ComAddrEdit, 0, 3);
 
+    m_iec101TcpRoleCombo = new QComboBox(this);
+    m_iec101TcpRoleCombo->addItem(QStringLiteral("服务端（等待主站连接）"), QStringLiteral("server"));
+    m_iec101TcpRoleCombo->addItem(QStringLiteral("客户端（主动连接主站）"), QStringLiteral("client"));
+    iec101BasicGrid->addWidget(new QLabel(QStringLiteral("TCP 角色:"), this), 1, 0);
+    iec101BasicGrid->addWidget(m_iec101TcpRoleCombo, 1, 1);
+
+    m_iec101CodeIpLabel = new QLabel(QStringLiteral("监听地址:"), this);
+    m_iec101CodeIpEdit = new QLineEdit(this);
+    m_iec101CodeIpEdit->setPlaceholderText(QStringLiteral("客户端模式填写主站 IP"));
+    m_iec101CodeIpEdit->setText(QStringLiteral("0.0.0.0"));
+    iec101BasicGrid->addWidget(m_iec101CodeIpLabel, 1, 2);
+    iec101BasicGrid->addWidget(m_iec101CodeIpEdit, 1, 3);
+
     m_iec101CodePortEdit = new QLineEdit(this);
     m_iec101CodePortEdit->setPlaceholderText(QStringLiteral("2404"));
     m_iec101CodePortEdit->setText(QStringLiteral("2404"));
-    iec101BasicGrid->addWidget(new QLabel(QStringLiteral("端口:"), this), 1, 0);
-    iec101BasicGrid->addWidget(m_iec101CodePortEdit, 1, 1);
+    iec101BasicGrid->addWidget(new QLabel(QStringLiteral("端口:"), this), 2, 0);
+    iec101BasicGrid->addWidget(m_iec101CodePortEdit, 2, 1);
     iec101BasicGrid->setColumnStretch(1, 1);
     iec101BasicGrid->setColumnStretch(3, 1);
 
@@ -2489,6 +2502,10 @@ MainWindow::MainWindow(QWidget *parent)
     // ---- 连接信号 ----
     connect(m_iec101CommModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onIec101CommModeChanged);
+    connect(m_iec101TcpRoleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int) {
+                onIec101CommModeChanged(m_iec101CommModeCombo->currentIndex());
+            });
     connect(m_refreshIec101PointsBtn, &QPushButton::clicked,
             this, &MainWindow::onRefreshIec101PointsClicked);
     connect(m_sortIec101PointsBtn, &QPushButton::clicked,
