@@ -404,18 +404,7 @@ QString dlt645IniSetLine(const Dlt645SetPoint &setPoint)
 
 QString modelFileNameForExport(const ModelTemplate &model)
 {
-    const QFileInfo sourceInfo(model.source.filePath);
-    if (!model.source.fileName.trimmed().isEmpty()
-        && sourceInfo.exists()
-        && sourceInfo.suffix().compare(QStringLiteral("json"), Qt::CaseInsensitive) == 0) {
-        return model.source.fileName;
-    }
-
-    const QString stem = !model.displayName.trimmed().isEmpty()
-        ? model.displayName
-        : model.modelId;
-    return QStringLiteral("model_%1.json")
-        .arg(safeFileSegment(stem, QStringLiteral("model")));
+    return model.modelId.trimmed() + QStringLiteral(".json");
 }
 
 QString deviceFileNameForExport(const ProtocolDeviceInstance &device)

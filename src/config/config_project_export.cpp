@@ -3,6 +3,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QSet>
 
 namespace configtool {
@@ -18,6 +19,24 @@ QString exportModelIdFromFileName(const QString &fileName)
         return info.completeBaseName();
     }
     return fileName;
+}
+
+bool modelIdCanBeUsedAsFileName(const ModelTemplate &model)
+{
+    const QString modelId = model.modelId.trimmed();
+    if (modelId.isEmpty()
+        || modelId == QStringLiteral(".")
+        || modelId == QStringLiteral("..")
+        || modelId.endsWith(QLatin1Char('.'))
+        || modelId.endsWith(QLatin1Char(' '))
+        || modelId.contains(QRegularExpression(QStringLiteral("[\\x00-\\x1f\\\\/:*?\"<>|]")))) {
+        return false;
+    }
+
+    static const QRegularExpression windowsReservedName(
+        QStringLiteral("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$"),
+        QRegularExpression::CaseInsensitiveOption);
+    return !windowsReservedName.match(modelId).hasMatch();
 }
 
 QHash<QString, QString> buildExportModelIdMap(const QList<ModelTemplate> &models,
@@ -75,6 +94,10 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
     for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在模型 modelId 为空，无法导出"));
+        } else if (!modelIdCanBeUsedAsFileName(model)) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            model.source.filePath.isEmpty() ? model.modelId : model.source.filePath,
+                            QStringLiteral("模型ID包含文件名不支持的字符：%1").arg(model.modelId));
         }
 
         const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
@@ -235,6 +258,10 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
     for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在 Modbus 模型 modelId 为空，无法导出"));
+        } else if (!modelIdCanBeUsedAsFileName(model)) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            model.source.filePath.isEmpty() ? model.modelId : model.source.filePath,
+                            QStringLiteral("Modbus 模型ID包含文件名不支持的字符：%1").arg(model.modelId));
         }
         const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
         if (!duplicateRefs.isEmpty()) {
@@ -441,6 +468,10 @@ bool ConfigProjectManager::exportDlt645AppDirectory(const QString &appDir,
     for (const ModelTemplate &model : exportModels) {
         if (model.modelId.trimmed().isEmpty()) {
             report.addIssue(ImportIssueSeverity::Error, appDir, QStringLiteral("存在 DLT645 模型 modelId 为空，无法导出"));
+        } else if (!modelIdCanBeUsedAsFileName(model)) {
+            report.addIssue(ImportIssueSeverity::Error,
+                            model.source.filePath.isEmpty() ? model.modelId : model.source.filePath,
+                            QStringLiteral("DLT645 模型ID包含文件名不支持的字符：%1").arg(model.modelId));
         }
         const QSet<QString> duplicateRefs = duplicateDataRefsForModel(model);
         if (!duplicateRefs.isEmpty()) {
