@@ -736,6 +736,8 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
         == QStringLiteral("归一化值");
     root[QStringLiteral("3_teleadjust_type")] =
         m_iec101TeleadjustTypeCombo->currentData().toString();
+    root[QStringLiteral("3_teleadjust_normalized_mode")] =
+        m_iec101TeleadjustNormalizedModeCombo->currentData().toString();
     root[QStringLiteral("sequence")] = m_iec101SequenceCombo->currentData().toString();
     root[QStringLiteral("YX_use_double_value")] = m_iec101YxUseDoubleValueCombo->currentData().toString();
     root[QStringLiteral("YX_all_s_trans_d_flag")] = m_iec101YxAllSTransDFlagCombo->currentData().toString();
@@ -908,6 +910,8 @@ void MainWindow::clearIec101ConfigPage()
     m_iec101TelecontrolTypeCombo->setCurrentIndex(1); // 单命令
     m_iec101TelemetryTypeCombo->setCurrentIndex(2);   // 短浮点数
     m_iec101TeleadjustTypeCombo->setCurrentIndex(0);  // 短浮点数
+    m_iec101TeleadjustNormalizedModeCombo->setCurrentIndex(0); // 标准量程换算
+    m_iec101TeleadjustNormalizedModeCombo->setEnabled(false);
     m_iec101SequenceCombo->setCurrentIndex(1);        // 1 — 连续地址批量打包
     m_iec101YxUseDoubleValueCombo->setCurrentIndex(0);
     m_iec101YxAllSTransDFlagCombo->setCurrentIndex(0);
@@ -1012,6 +1016,18 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
             : QStringLiteral("短浮点数");
     }
     setComboByStringData(m_iec101TeleadjustTypeCombo, teleadjustType);
+    QString teleadjustNormalizedMode =
+        root.value(QStringLiteral("3_teleadjust_normalized_mode"))
+            .toString()
+            .trimmed()
+            .toLower();
+    if (teleadjustNormalizedMode != QStringLiteral("raw_engineering")) {
+        teleadjustNormalizedMode = QStringLiteral("standard");
+    }
+    setComboByStringData(
+        m_iec101TeleadjustNormalizedModeCombo, teleadjustNormalizedMode);
+    m_iec101TeleadjustNormalizedModeCombo->setEnabled(
+        teleadjustType == QStringLiteral("归一化值"));
 
     setComboByIntData(m_iec101SequenceCombo, root.value(QStringLiteral("sequence")).toString().toInt());
     setComboByIntData(m_iec101YxUseDoubleValueCombo, root.value(QStringLiteral("YX_use_double_value")).toString().toInt());

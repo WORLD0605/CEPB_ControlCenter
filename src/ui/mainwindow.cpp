@@ -2413,6 +2413,21 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101YxAllSTransDFlagCombo->addItem(QStringLiteral("1 — 双命令值转双点格式"), 1);
     iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("双命令遥信转换:"), this), 4, 0);
     iec101ProtoGrid->addWidget(m_iec101YxAllSTransDFlagCombo, 4, 1);
+
+    m_iec101TeleadjustNormalizedModeCombo = new QComboBox(this);
+    m_iec101TeleadjustNormalizedModeCombo->addItem(
+        QStringLiteral("标准量程换算"), QStringLiteral("standard"));
+    m_iec101TeleadjustNormalizedModeCombo->addItem(
+        QStringLiteral("原码直接作为工程值（非标准主站兼容）"),
+        QStringLiteral("raw_engineering"));
+    m_iec101TeleadjustNormalizedModeCombo->setToolTip(QStringLiteral(
+        "仅作用于归一化遥调。兼容模式下，C_SE_NA_1 的有符号 16 位原码"
+        "直接作为工程值，例如 14 00 按十进制 20 处理；"
+        "点位工程量上下限仍用于越界保护。"));
+    iec101ProtoGrid->addWidget(
+        new QLabel(QStringLiteral("归一化遥调解释:"), this), 5, 0);
+    iec101ProtoGrid->addWidget(
+        m_iec101TeleadjustNormalizedModeCombo, 5, 1, 1, 3);
     iec101ProtoGrid->setColumnStretch(1, 1);
     iec101ProtoGrid->setColumnStretch(3, 1);
 
@@ -2529,7 +2544,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_iec101TelemetryTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this]() { highlightIec101DuplicateAddresses(); });
     connect(m_iec101TeleadjustTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this]() { highlightIec101DuplicateAddresses(); });
+            this, [this]() {
+                const bool normalized =
+                    m_iec101TeleadjustTypeCombo->currentData().toString()
+                    == QStringLiteral("归一化值");
+                m_iec101TeleadjustNormalizedModeCombo->setEnabled(normalized);
+                highlightIec101DuplicateAddresses();
+            });
     connect(m_iec101PointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onIec101PointFilterChanged);
     connect(m_iec101PointDataRefFilterEdit, &QLineEdit::textChanged,
@@ -2538,6 +2559,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 初始化连接参数显隐（默认选中 TCP=index 1）
     m_iec101CommModeCombo->setCurrentIndex(1);
     onIec101CommModeChanged(1);
+    m_iec101TeleadjustNormalizedModeCombo->setEnabled(false);
     setupIec104ConfigPage();
 
     // ============================================================
