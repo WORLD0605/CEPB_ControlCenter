@@ -840,6 +840,7 @@ private:
     QComboBox *m_iec101LinkAddrCombo = nullptr;
     QComboBox *m_iec101TelecontrolTypeCombo = nullptr;
     QComboBox *m_iec101TelemetryTypeCombo = nullptr;
+    QComboBox *m_iec101TeleadjustTypeCombo = nullptr;
     QComboBox *m_iec101SequenceCombo = nullptr;
     QComboBox *m_iec101YxUseDoubleValueCombo = nullptr;
     QComboBox *m_iec101YxAllSTransDFlagCombo = nullptr;

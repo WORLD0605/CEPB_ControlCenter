@@ -123,6 +123,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString dataRef;
         QString description;
         int category = 0; // ModelServiceType: 0=Measurement, 1=Status, 2=Control
+        bool remoteAdjust = false;
         QString engineeringMin;
         QString engineeringMax;
     };
@@ -131,6 +132,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
         // 预解析设备模型，建立 pointRef → category 映射
         QHash<QString, int> pointCategoryMap;
+        QHash<QString, bool> pointRemoteAdjustMap;
         QHash<QString, QString> pointMinMap;
         QHash<QString, QString> pointMaxMap;
         for (const configtool::ModelTemplate &model : project.models) {
@@ -140,6 +142,9 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             for (const configtool::ServiceTemplate &service : model.services) {
                 for (const configtool::PointTemplate &pt : service.points) {
                     pointCategoryMap[pt.pointRef(model.modelId)] = static_cast<int>(pt.category);
+                    pointRemoteAdjustMap[pt.pointRef(model.modelId)] =
+                        pt.category == configtool::ModelServiceType::Control
+                        && pt.controlKind == configtool::ControlKind::RemoteAdjust;
                     pointMinMap[pt.pointRef(model.modelId)] = pt.min.trimmed();
                     pointMaxMap[pt.pointRef(model.modelId)] = pt.max.trimmed();
                 }
@@ -156,6 +161,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
             dp.description = binding.descriptionOverride.isEmpty()
                 ? binding.dataRef : binding.descriptionOverride;
             dp.category = pointCategoryMap.value(binding.pointRef, 0);
+            dp.remoteAdjust = pointRemoteAdjustMap.value(binding.pointRef, false);
             dp.engineeringMin = pointMinMap.value(binding.pointRef);
             dp.engineeringMax = pointMaxMap.value(binding.pointRef);
             const QString key = dp.deviceId + QStringLiteral("|") + dp.dataRef;
@@ -198,8 +204,9 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         QString deviceaddr;
         QString deathzoneType = QStringLiteral("0");
         QString deathzone = QStringLiteral("0.2");
-        QString normalizationMin = dp.category == 0 ? dp.engineeringMin : QString();
-        QString normalizationMax = dp.category == 0 ? dp.engineeringMax : QString();
+        const bool usesEngineeringRange = dp.category == 0 || dp.remoteAdjust;
+        QString normalizationMin = usesEngineeringRange ? dp.engineeringMin : QString();
+        QString normalizationMax = usesEngineeringRange ? dp.engineeringMax : QString();
         bool enabled = true;
         if (existingSettings.contains(key)) {
             const PointSettings &s = existingSettings[key];
@@ -226,6 +233,7 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         checkItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
         checkItem->setCheckState(enabled ? Qt::Checked : Qt::Unchecked);
         checkItem->setData(Qt::UserRole, dp.category);
+        checkItem->setData(Qt::UserRole + 1, dp.remoteAdjust);
         m_iec101PointsTable->setItem(row, Iec101PointColumnEnabled, checkItem);
 
         // Col 2: DeviceId (read-only)
@@ -258,15 +266,17 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
         // Col 7: 死区值
         m_iec101PointsTable->setItem(row, Iec101PointColumnDeadzone, new QTableWidgetItem(deathzone));
 
-        // Col 8-9: 归一化遥测使用的工程量量程。首次生成时沿用模型点位 min/max。
+        // Col 8-9: 归一化遥测/遥调使用的工程量量程。首次生成时沿用模型点位 min/max。
         auto *normalizationMinItem = new QTableWidgetItem(normalizationMin);
         auto *normalizationMaxItem = new QTableWidgetItem(normalizationMax);
         const QString normalizationToolTip = dp.category == 0
             ? QStringLiteral("遥测类型为“归一化值”时必填，且工程量下限必须小于上限")
-            : QStringLiteral("仅遥测点使用工程量量程");
+            : (dp.remoteAdjust
+                   ? QStringLiteral("归一化遥调读写使用，且工程量下限必须小于上限")
+                   : QStringLiteral("仅遥测点和遥调点使用工程量量程"));
         normalizationMinItem->setToolTip(normalizationToolTip);
         normalizationMaxItem->setToolTip(normalizationToolTip);
-        if (dp.category != 0) {
+        if (!usesEngineeringRange) {
             normalizationMinItem->setFlags(normalizationMinItem->flags() & ~Qt::ItemIsEditable);
             normalizationMaxItem->setFlags(normalizationMaxItem->flags() & ~Qt::ItemIsEditable);
         }
@@ -292,6 +302,7 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
         QString dataRef;
         QString description;
         int category = 0;
+        bool remoteAdjust = false;
         bool enabled = true;
         QString deviceaddr;
         QString deathzoneType = QStringLiteral("0");
@@ -311,6 +322,7 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
             ? m_iec101PointsTable->item(row, Iec101PointColumnDescription)->text().trimmed() : QString();
         QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
         rs.category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
+        rs.remoteAdjust = checkItem ? checkItem->data(Qt::UserRole + 1).toBool() : false;
         rs.enabled = checkItem ? (checkItem->checkState() == Qt::Checked) : true;
         rs.deviceaddr = m_iec101PointsTable->item(row, Iec101PointColumnAddress)
             ? m_iec101PointsTable->item(row, Iec101PointColumnAddress)->text().trimmed() : QString();
@@ -353,6 +365,7 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
         checkItem->setFlags(Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
         checkItem->setCheckState(rs.enabled ? Qt::Checked : Qt::Unchecked);
         checkItem->setData(Qt::UserRole, rs.category);
+        checkItem->setData(Qt::UserRole + 1, rs.remoteAdjust);
         m_iec101PointsTable->setItem(row, Iec101PointColumnEnabled, checkItem);
 
         auto *devIdItem = new QTableWidgetItem(rs.deviceId);
@@ -381,10 +394,12 @@ void MainWindow::rebuildIec101PointRowsInOrder(const QList<int> &sourceRows)
         auto *normalizationMaxItem = new QTableWidgetItem(rs.normalizationMax);
         const QString normalizationToolTip = rs.category == 0
             ? QStringLiteral("遥测类型为“归一化值”时必填，且工程量下限必须小于上限")
-            : QStringLiteral("仅遥测点使用工程量量程");
+            : (rs.remoteAdjust
+                   ? QStringLiteral("归一化遥调读写使用，且工程量下限必须小于上限")
+                   : QStringLiteral("仅遥测点和遥调点使用工程量量程"));
         normalizationMinItem->setToolTip(normalizationToolTip);
         normalizationMaxItem->setToolTip(normalizationToolTip);
-        if (rs.category != 0) {
+        if (rs.category != 0 && !rs.remoteAdjust) {
             normalizationMinItem->setFlags(normalizationMinItem->flags() & ~Qt::ItemIsEditable);
             normalizationMaxItem->setFlags(normalizationMaxItem->flags() & ~Qt::ItemIsEditable);
         }
@@ -716,21 +731,27 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
     root[QStringLiteral("3_link_addr_length")] = m_iec101LinkAddrCombo->currentData().toString();
     root[QStringLiteral("3_telecontrol_type")] = m_iec101TelecontrolTypeCombo->currentData().toString();
     root[QStringLiteral("3_telemetry_type")] = m_iec101TelemetryTypeCombo->currentData().toString();
+    const bool normalizedTeleadjust =
+        m_iec101TeleadjustTypeCombo->currentData().toString()
+        == QStringLiteral("归一化值");
+    root[QStringLiteral("3_teleadjust_type")] =
+        m_iec101TeleadjustTypeCombo->currentData().toString();
     root[QStringLiteral("sequence")] = m_iec101SequenceCombo->currentData().toString();
     root[QStringLiteral("YX_use_double_value")] = m_iec101YxUseDoubleValueCombo->currentData().toString();
     root[QStringLiteral("YX_all_s_trans_d_flag")] = m_iec101YxAllSTransDFlagCombo->currentData().toString();
 
     // ---- 3_Cmd_* 命令码（固定默认值，不在 UI 中编辑） ----
-    root[QStringLiteral("3_Cmd_Read_Single_ShortF")] = 102;
-    root[QStringLiteral("3_Cmd_Read_Multi_ShortF")] = 132;
-    root[QStringLiteral("3_Cmd_Read_Signle_Normal")] = -1;
-    root[QStringLiteral("3_Cmd_Read_Multi_Normal")] = -2;
+    root[QStringLiteral("3_Cmd_Read_Single_ShortF")] = normalizedTeleadjust ? -1 : 102;
+    root[QStringLiteral("3_Cmd_Read_Multi_ShortF")] = normalizedTeleadjust ? -2 : 132;
+    root[QStringLiteral("3_Cmd_Read_Signle_Normal")] = normalizedTeleadjust ? 102 : -1;
+    root[QStringLiteral("3_Cmd_Read_Multi_Normal")] = normalizedTeleadjust ? 132 : -2;
     root[QStringLiteral("3_Cmd_Read_Signle_Scaled")] = -3;
     root[QStringLiteral("3_Cmd_Read_Multi_Scaled")] = -4;
-    root[QStringLiteral("3_Cmd_Set_Single_ShortF")] = 50;
-    root[QStringLiteral("3_Cmd_Set_Multi_ShortF")] = 136;
-    root[QStringLiteral("3_Cmd_Set_Signle_Normal")] = -5;
-    root[QStringLiteral("3_Cmd_Set_Multi_Normal")] = -6;
+    root[QStringLiteral("3_Cmd_Set_Single_ShortF")] = normalizedTeleadjust ? -5 : 50;
+    root[QStringLiteral("3_Cmd_Set_Multi_ShortF")] = normalizedTeleadjust ? -6 : 136;
+    // IEC 60870-5-101 C_SE_NA_1（48）通过 VSQ 数量同时支持单点和多点归一化遥调。
+    root[QStringLiteral("3_Cmd_Set_Signle_Normal")] = normalizedTeleadjust ? 48 : -5;
+    root[QStringLiteral("3_Cmd_Set_Multi_Normal")] = normalizedTeleadjust ? 48 : -6;
     root[QStringLiteral("3_Cmd_Set_Signle_Scaled")] = -7;
     root[QStringLiteral("3_Cmd_Set_Multi_Scaled")] = -8;
 
@@ -787,7 +808,9 @@ QJsonObject MainWindow::serializeIec101LocalhostConfig() const
 
             QTableWidgetItem *checkItem = m_iec101PointsTable->item(row, Iec101PointColumnEnabled);
             const int category = checkItem ? checkItem->data(Qt::UserRole).toInt() : 0;
-            if (category == 0) {
+            const bool remoteAdjust = checkItem
+                && checkItem->data(Qt::UserRole + 1).toBool();
+            if (category == 0 || remoteAdjust) {
                 if (!normalizationMin.isEmpty()) {
                     point[QStringLiteral("normalization_min")] = normalizationMin;
                 }
@@ -820,7 +843,7 @@ bool MainWindow::validateIec101Config(QString *errorMessage) const
     if (!normalizationErrors.isEmpty()) {
         if (errorMessage) {
             *errorMessage = QStringLiteral(
-                "遥测类型为“归一化值”时，每个已配置的启用遥测点都必须填写有效工程量上下限"
+                "归一化遥测/遥调点必须填写有效工程量上下限"
                 "（下限 < 上限）。\n%1")
                                 .arg(normalizationErrors.first());
         }
@@ -884,6 +907,7 @@ void MainWindow::clearIec101ConfigPage()
     m_iec101LinkAddrCombo->setCurrentIndex(0); // 1
     m_iec101TelecontrolTypeCombo->setCurrentIndex(1); // 单命令
     m_iec101TelemetryTypeCombo->setCurrentIndex(2);   // 短浮点数
+    m_iec101TeleadjustTypeCombo->setCurrentIndex(0);  // 短浮点数
     m_iec101SequenceCombo->setCurrentIndex(1);        // 1 — 连续地址批量打包
     m_iec101YxUseDoubleValueCombo->setCurrentIndex(0);
     m_iec101YxAllSTransDFlagCombo->setCurrentIndex(0);
@@ -976,6 +1000,18 @@ void MainWindow::loadIec101LocalhostConfigFromJson(const QJsonObject &root)
     };
     setComboByStringData(m_iec101TelecontrolTypeCombo, root.value(QStringLiteral("3_telecontrol_type")).toString());
     setComboByStringData(m_iec101TelemetryTypeCombo, root.value(QStringLiteral("3_telemetry_type")).toString());
+    QString teleadjustType =
+        root.value(QStringLiteral("3_teleadjust_type")).toString().trimmed();
+    if (teleadjustType.isEmpty()) {
+        const int normalizedReadType =
+            root.value(QStringLiteral("3_Cmd_Read_Signle_Normal")).toInt(-1);
+        const int normalizedSetType =
+            root.value(QStringLiteral("3_Cmd_Set_Signle_Normal")).toInt(-1);
+        teleadjustType = (normalizedReadType == 102 || normalizedSetType == 48)
+            ? QStringLiteral("归一化值")
+            : QStringLiteral("短浮点数");
+    }
+    setComboByStringData(m_iec101TeleadjustTypeCombo, teleadjustType);
 
     setComboByIntData(m_iec101SequenceCombo, root.value(QStringLiteral("sequence")).toString().toInt());
     setComboByIntData(m_iec101YxUseDoubleValueCombo, root.value(QStringLiteral("YX_use_double_value")).toString().toInt());
@@ -1238,16 +1274,26 @@ QStringList MainWindow::checkIec101NormalizationRangeErrors() const
 {
     QStringList errors;
     if (!m_iec101PointsTable || !m_iec101TelemetryTypeCombo
-        || m_iec101TelemetryTypeCombo->currentData().toString()
-               != QStringLiteral("归一化值")) {
+        || !m_iec101TeleadjustTypeCombo) {
         return errors;
     }
 
+    const bool normalizedTelemetry =
+        m_iec101TelemetryTypeCombo->currentData().toString()
+        == QStringLiteral("归一化值");
+    const bool normalizedTeleadjust =
+        m_iec101TeleadjustTypeCombo->currentData().toString()
+        == QStringLiteral("归一化值");
     for (int row = 0; row < m_iec101PointsTable->rowCount(); ++row) {
         QTableWidgetItem *checkItem = m_iec101PointsTable->item(
             row, Iec101PointColumnEnabled);
-        if (!checkItem || checkItem->checkState() != Qt::Checked
-            || checkItem->data(Qt::UserRole).toInt() != 0) {
+        if (!checkItem || checkItem->checkState() != Qt::Checked) {
+            continue;
+        }
+        const int category = checkItem->data(Qt::UserRole).toInt();
+        const bool remoteAdjust = checkItem->data(Qt::UserRole + 1).toBool();
+        if (!((category == 0 && normalizedTelemetry)
+              || (remoteAdjust && normalizedTeleadjust))) {
             continue;
         }
 
@@ -1288,8 +1334,13 @@ QStringList MainWindow::checkIec101NormalizationRangeErrors() const
             ? m_iec101PointsTable->item(
                   row, Iec101PointColumnDataRef)->text().trimmed()
             : QStringLiteral("?");
-        errors.append(QStringLiteral("%1/%2 工程量范围“%3 ～ %4”无效")
-                          .arg(deviceId, dataRef, minText, maxText));
+        errors.append(QStringLiteral("%1/%2（%3）工程量范围“%4 ～ %5”无效")
+                          .arg(deviceId,
+                               dataRef,
+                               remoteAdjust ? QStringLiteral("遥调")
+                                            : QStringLiteral("遥测"),
+                               minText,
+                               maxText));
     }
     return errors;
 }

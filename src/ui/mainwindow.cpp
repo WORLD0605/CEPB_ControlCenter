@@ -2390,6 +2390,12 @@ MainWindow::MainWindow(QWidget *parent)
     iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥测类型:"), this), 2, 2);
     iec101ProtoGrid->addWidget(m_iec101TelemetryTypeCombo, 2, 3);
 
+    m_iec101TeleadjustTypeCombo = new QComboBox(this);
+    m_iec101TeleadjustTypeCombo->addItem(QStringLiteral("短浮点数"), QStringLiteral("短浮点数"));
+    m_iec101TeleadjustTypeCombo->addItem(QStringLiteral("归一化值"), QStringLiteral("归一化值"));
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥调类型:"), this), 3, 2);
+    iec101ProtoGrid->addWidget(m_iec101TeleadjustTypeCombo, 3, 3);
+
     m_iec101SequenceCombo = new QComboBox(this);
     m_iec101SequenceCombo->addItem(QStringLiteral("0 — 逐点发送"), 0);
     m_iec101SequenceCombo->addItem(QStringLiteral("1 — 连续地址批量打包"), 1);
@@ -2399,8 +2405,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_iec101YxUseDoubleValueCombo = new QComboBox(this);
     m_iec101YxUseDoubleValueCombo->addItem(QStringLiteral("0 — 不转换"), 0);
     m_iec101YxUseDoubleValueCombo->addItem(QStringLiteral("1 — 转为双点标准格式"), 1);
-    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥信双点转换:"), this), 3, 2);
-    iec101ProtoGrid->addWidget(m_iec101YxUseDoubleValueCombo, 3, 3);
+    iec101ProtoGrid->addWidget(new QLabel(QStringLiteral("遥信双点转换:"), this), 4, 2);
+    iec101ProtoGrid->addWidget(m_iec101YxUseDoubleValueCombo, 4, 3);
 
     m_iec101YxAllSTransDFlagCombo = new QComboBox(this);
     m_iec101YxAllSTransDFlagCombo->addItem(QStringLiteral("0 — 不转换"), 0);
@@ -2521,6 +2527,8 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_iec101PointsTable, &QTableWidget::itemChanged,
             this, &MainWindow::onIec101PointItemChanged);
     connect(m_iec101TelemetryTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this]() { highlightIec101DuplicateAddresses(); });
+    connect(m_iec101TeleadjustTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this]() { highlightIec101DuplicateAddresses(); });
     connect(m_iec101PointFilterTabBar, &QTabBar::currentChanged,
             this, &MainWindow::onIec101PointFilterChanged);
