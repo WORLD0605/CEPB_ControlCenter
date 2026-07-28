@@ -42,6 +42,7 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -2341,8 +2342,28 @@ MainWindow::MainWindow(QWidget *parent)
     iec101Layout->addWidget(m_iec101SerialParamsGroup);
 
     // ---- 协议参数 ----
-    auto *iec101ProtoFrame = new QFrame(this);
-    iec101ProtoFrame->setFrameShape(QFrame::StyledPanel);
+    auto *iec101ProtoSection = new QFrame(this);
+    iec101ProtoSection->setFrameShape(QFrame::StyledPanel);
+    auto *iec101ProtoSectionLayout = new QVBoxLayout(iec101ProtoSection);
+    iec101ProtoSectionLayout->setContentsMargins(0, 0, 0, 0);
+    iec101ProtoSectionLayout->setSpacing(0);
+
+    auto *iec101ProtoToggle = new QToolButton(this);
+    iec101ProtoToggle->setText(QStringLiteral("IEC101 协议参数"));
+    iec101ProtoToggle->setCheckable(true);
+    iec101ProtoToggle->setChecked(false);
+    iec101ProtoToggle->setArrowType(Qt::RightArrow);
+    iec101ProtoToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    iec101ProtoToggle->setSizePolicy(
+        QSizePolicy::Expanding, QSizePolicy::Fixed);
+    iec101ProtoToggle->setStyleSheet(QStringLiteral(
+        "QToolButton { border: none; padding: 7px 9px; text-align: left; "
+        "font-weight: 600; }"));
+    iec101ProtoToggle->setToolTip(QStringLiteral("点击展开或收起 IEC101 协议参数"));
+    iec101ProtoSectionLayout->addWidget(iec101ProtoToggle);
+
+    auto *iec101ProtoFrame = new QFrame(iec101ProtoSection);
+    iec101ProtoFrame->setFrameShape(QFrame::NoFrame);
     auto *iec101ProtoGrid = new QGridLayout(iec101ProtoFrame);
     iec101ProtoGrid->setContentsMargins(8, 6, 8, 6);
     iec101ProtoGrid->setHorizontalSpacing(24);
@@ -2431,7 +2452,15 @@ MainWindow::MainWindow(QWidget *parent)
     iec101ProtoGrid->setColumnStretch(1, 1);
     iec101ProtoGrid->setColumnStretch(3, 1);
 
-    iec101Layout->addWidget(iec101ProtoFrame);
+    iec101ProtoFrame->setVisible(false);
+    connect(iec101ProtoToggle, &QToolButton::toggled,
+            this, [iec101ProtoToggle, iec101ProtoFrame](bool expanded) {
+                iec101ProtoToggle->setArrowType(
+                    expanded ? Qt::DownArrow : Qt::RightArrow);
+                iec101ProtoFrame->setVisible(expanded);
+            });
+    iec101ProtoSectionLayout->addWidget(iec101ProtoFrame);
+    iec101Layout->addWidget(iec101ProtoSection);
 
     // ---- 点表 meas_points ----
     auto *iec101PointsFrame = new QFrame(this);
