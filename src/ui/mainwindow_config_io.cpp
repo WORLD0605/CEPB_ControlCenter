@@ -1,5 +1,6 @@
 #include "mainwindow_config_p.h"
 #include "network/ssh_client.h"
+#include "ui/data_upload_policy_editor.h"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -16,6 +17,8 @@ const QString kDefaultGatewayName = QStringLiteral("南网科技边缘网关");
 const QString kDefaultNorthMqttGatewayId = QStringLiteral("000100020003000400051234");
 const QString kDefaultNorthMqttBrokerIp = QStringLiteral("192.168.0.16");
 const QString kDefaultNorthMqttPort = QStringLiteral("1883");
+const QString kNorthCepPoliciesMetadataKey = QStringLiteral("northCepDataUploadPolicies");
+const QString kNorthMqttPoliciesMetadataKey = QStringLiteral("northMqttDataUploadPolicies");
 
 struct ConfigAppDirMigration {
     QString newName;
@@ -661,6 +664,8 @@ void MainWindow::clearNorthCepConfigPage()
     if (m_northCepDataPortEdit) {
         m_northCepDataPortEdit->setText(QStringLiteral("9902"));
     }
+    m_configProjectManager.project().metadata.remove(kNorthCepPoliciesMetadataKey);
+    refreshNorthCepDataUploadEditor();
 }
 
 void MainWindow::loadNorthCepMainstationConfig(const QString &filePath, configtool::ImportReport &report)
@@ -733,6 +738,8 @@ void MainWindow::clearNorthMqttConfigPage()
     if (m_northMqttPasswordEdit) {
         m_northMqttPasswordEdit->clear();
     }
+    m_configProjectManager.project().metadata.remove(kNorthMqttPoliciesMetadataKey);
+    refreshMqttDataUploadSummary();
 }
 
 void MainWindow::loadNorthMqttMainstationConfig(const QString &filePath,
@@ -800,6 +807,176 @@ void MainWindow::loadNorthMqttMainstationConfig(const QString &filePath,
         station.value(QStringLiteral("username")).toString());
     m_northMqttPasswordEdit->setText(
         station.value(QStringLiteral("password")).toString());
+}
+
+void MainWindow::loadNorthMqttSubDataConfig(const QString &filePath,
+                                            configtool::ImportReport &report)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("无法读取 North_Mqtt 数据上送策略: %1")
+                            .arg(file.errorString()));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_Mqtt subData.cfg 格式无效: %1")
+                            .arg(parseError.errorString()));
+        return;
+    }
+
+    m_configProjectManager.project().metadata.insert(
+        kNorthMqttPoliciesMetadataKey,
+        DataUploadPolicyEditor::importBusinessPolicies(document.object()));
+    refreshMqttDataUploadSummary();
+}
+
+void MainWindow::loadNorthCepSubDataConfig(const QString &filePath,
+                                           configtool::ImportReport &report)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("无法读取 North_CEP 数据上送策略: %1")
+                            .arg(file.errorString()));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        report.addIssue(configtool::ImportIssueSeverity::Warning,
+                        filePath,
+                        QStringLiteral("North_CEP subData.cfg 格式无效: %1")
+                            .arg(parseError.errorString()));
+        return;
+    }
+
+    m_configProjectManager.project().metadata.insert(
+        kNorthCepPoliciesMetadataKey,
+        DataUploadPolicyEditor::importBusinessPolicies(document.object()));
+    refreshNorthCepDataUploadEditor();
+}
+
+bool MainWindow::writeNorthCepSubDataConfig(const QString &projectRoot,
+                                            configtool::ExportReport &report) const
+{
+    const QString cfgDirPath = QDir(projectRoot).filePath(QStringLiteral("North_CEP/cfg"));
+    const QString filePath = QDir(cfgDirPath).filePath(QStringLiteral("subData.cfg"));
+    if (!QDir().mkpath(cfgDirPath)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法创建 North_CEP 数据策略目录: %1").arg(cfgDirPath));
+        return false;
+    }
+
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const QJsonObject savedPolicies = m_northCepDataUploadEditor
+        ? m_northCepDataUploadEditor->policies()
+        : project.metadata.value(kNorthCepPoliciesMetadataKey).toObject();
+    const QJsonObject subData = DataUploadPolicyEditor::buildSubDataConfig(
+        project, savedPolicies);
+
+    QSaveFile output(filePath);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法写入 North_CEP 数据上送策略: %1")
+                            .arg(output.errorString()));
+        return false;
+    }
+    const QByteArray data = QJsonDocument(subData).toJson(QJsonDocument::Indented);
+    if (output.write(data) != data.size()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("写入 North_CEP 数据上送策略失败: %1")
+                            .arg(output.errorString()));
+        output.cancelWriting();
+        return false;
+    }
+    if (!output.commit()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("提交 North_CEP 数据上送策略失败: %1")
+                            .arg(output.errorString()));
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::refreshNorthCepDataUploadEditor()
+{
+    if (!m_northCepDataUploadEditor) {
+        return;
+    }
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    m_northCepDataUploadEditor->setProject(
+        project.projectId.trimmed().isEmpty() ? nullptr : &project,
+        project.metadata.value(kNorthCepPoliciesMetadataKey).toObject());
+}
+
+bool MainWindow::writeNorthMqttSubDataConfig(const QString &projectRoot,
+                                             configtool::ExportReport &report) const
+{
+    const QString cfgDirPath = QDir(projectRoot).filePath(QStringLiteral("North_Mqtt/cfg"));
+    const QString filePath = QDir(cfgDirPath).filePath(QStringLiteral("subData.cfg"));
+    if (!QDir().mkpath(cfgDirPath)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法创建 North_Mqtt 数据策略目录: %1").arg(cfgDirPath));
+        return false;
+    }
+
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    const QJsonObject savedPolicies = m_northMqttDataUploadEditor
+        ? m_northMqttDataUploadEditor->policies()
+        : project.metadata.value(kNorthMqttPoliciesMetadataKey).toObject();
+    const QJsonObject subData = DataUploadPolicyEditor::buildSubDataConfig(
+        project, savedPolicies);
+
+    QSaveFile output(filePath);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("无法写入 North_Mqtt 数据上送策略: %1")
+                            .arg(output.errorString()));
+        return false;
+    }
+    const QByteArray data = QJsonDocument(subData).toJson(QJsonDocument::Indented);
+    if (output.write(data) != data.size()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("写入 North_Mqtt 数据上送策略失败: %1")
+                            .arg(output.errorString()));
+        output.cancelWriting();
+        return false;
+    }
+    if (!output.commit()) {
+        report.addIssue(configtool::ImportIssueSeverity::Error,
+                        filePath,
+                        QStringLiteral("提交 North_Mqtt 数据上送策略失败: %1")
+                            .arg(output.errorString()));
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::refreshMqttDataUploadSummary()
+{
+    if (!m_northMqttDataUploadEditor) {
+        return;
+    }
+    const configtool::ConfigProject &project = m_configProjectManager.project();
+    m_northMqttDataUploadEditor->setProject(
+        project.projectId.trimmed().isEmpty() ? nullptr : &project,
+        project.metadata.value(kNorthMqttPoliciesMetadataKey).toObject());
 }
 
 void MainWindow::loadNorthCepSystemConfig(const QString &filePath,
@@ -1182,6 +1359,13 @@ void MainWindow::onImportIec104ConfigClicked()
         } else {
             clearNorthCepConfigPage();
         }
+        const QString subDataPath = QDir(northCepAppDir)
+            .filePath(QStringLiteral("cfg/subData.cfg"));
+        if (QFileInfo::exists(subDataPath)) {
+            loadNorthCepSubDataConfig(subDataPath, report);
+        } else {
+            refreshNorthCepDataUploadEditor();
+        }
     } else {
         clearNorthCepConfigPage();
     }
@@ -1196,6 +1380,13 @@ void MainWindow::onImportIec104ConfigClicked()
             loadNorthMqttMainstationConfig(mainstationPath, report);
         } else {
             clearNorthMqttConfigPage();
+        }
+        const QString subDataPath = QDir(northMqttAppDir)
+            .filePath(QStringLiteral("cfg/subData.cfg"));
+        if (QFileInfo::exists(subDataPath)) {
+            loadNorthMqttSubDataConfig(subDataPath, report);
+        } else {
+            refreshMqttDataUploadSummary();
         }
     } else {
         clearNorthMqttConfigPage();
@@ -1339,6 +1530,7 @@ void MainWindow::onExportIec104ConfigClicked()
                                         m_northCepManagementPortEdit->text().trimmed(),
                                         m_northCepDataPortEdit->text().trimmed(),
                                         report) && ok;
+    ok = writeNorthCepSubDataConfig(projectRoot, report) && ok;
     ok = writeNorthMqttMainstationConfig(
         projectRoot,
         m_northMqttGatewayIdEdit->text().trimmed(),
@@ -1347,6 +1539,7 @@ void MainWindow::onExportIec104ConfigClicked()
         m_northMqttUsernameEdit->text(),
         m_northMqttPasswordEdit->text(),
         report) && ok;
+    ok = writeNorthMqttSubDataConfig(projectRoot, report) && ok;
 
     // ---- IEC101 配置导出 ----
     const QString iec101ExportDir = QDir(projectRoot).filePath(QStringLiteral("North_101"));

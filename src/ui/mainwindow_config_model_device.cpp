@@ -3287,6 +3287,8 @@ void MainWindow::refreshConfigObjectViews()
     refreshLogicAgcAvcPage();
     refreshLogicComputationPointPage();
     refreshLogicControlRulePage();
+    refreshNorthCepDataUploadEditor();
+    refreshMqttDataUploadSummary();
 }
 
 

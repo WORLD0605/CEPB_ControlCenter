@@ -1,5 +1,6 @@
 ﻿#include "mainwindow.h"
 #include "mainwindow_config_p.h"
+#include "ui/data_upload_policy_editor.h"
 
 #include <QAction>
 #include <QApplication>
@@ -2194,6 +2195,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *northCepFrame = new QFrame(this);
     northCepFrame->setFrameShape(QFrame::StyledPanel);
+    northCepFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     auto *northCepForm = new QFormLayout(northCepFrame);
     northCepForm->setContentsMargins(12, 10, 12, 10);
     northCepForm->setHorizontalSpacing(24);
@@ -2221,15 +2223,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_northCepDataPortEdit->setMaximumWidth(240);
     northCepForm->addRow(QStringLiteral("数据通道端口:"), m_northCepDataPortEdit);
 
-    auto *northCepHintLabel = new QLabel(
-        QStringLiteral("网关 ID 和名称导出到工程 etc/system.json；端口导出到 North_CEP/etc/mainstation.json。"
-                       "上传修改后需重启 North_CEP 生效。"),
-        this);
-    northCepHintLabel->setWordWrap(true);
-    northCepForm->addRow(QString(), northCepHintLabel);
-
     northCepLayout->addWidget(northCepFrame);
-    northCepLayout->addStretch();
+    m_northCepDataUploadEditor = new DataUploadPolicyEditor(this);
+    m_northCepDataUploadEditor->setSizePolicy(
+        QSizePolicy::Expanding, QSizePolicy::Expanding);
+    northCepLayout->addWidget(m_northCepDataUploadEditor, 1);
+    connect(m_northCepDataUploadEditor, &DataUploadPolicyEditor::policiesChanged,
+            this, [this](const QJsonObject &policies) {
+                m_configProjectManager.project().metadata.insert(
+                    QStringLiteral("northCepDataUploadPolicies"), policies);
+            });
 
     // ============================================================
     // North_Mqtt 配置页面
@@ -2241,6 +2244,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *northMqttFrame = new QFrame(this);
     northMqttFrame->setFrameShape(QFrame::StyledPanel);
+    northMqttFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     auto *northMqttForm = new QFormLayout(northMqttFrame);
     northMqttForm->setContentsMargins(12, 10, 12, 10);
     northMqttForm->setHorizontalSpacing(24);
@@ -2273,16 +2277,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_northMqttPasswordEdit->setPlaceholderText(QStringLiteral("允许留空"));
     northMqttForm->addRow(QStringLiteral("密码:"), m_northMqttPasswordEdit);
 
-    auto *northMqttHintLabel = new QLabel(
-        QStringLiteral("以上参数导出到 North_Mqtt/etc/mainstation.json；上传后的设备路径为 "
-                       "/home/cepgateway/app/North_Mqtt/etc/mainstation.json。"
-                       "修改后需重启 North_Mqtt 生效。"),
-        this);
-    northMqttHintLabel->setWordWrap(true);
-    northMqttForm->addRow(QString(), northMqttHintLabel);
-
     northMqttLayout->addWidget(northMqttFrame);
-    northMqttLayout->addStretch();
+    m_northMqttDataUploadEditor = new DataUploadPolicyEditor(this);
+    m_northMqttDataUploadEditor->setSizePolicy(
+        QSizePolicy::Expanding, QSizePolicy::Expanding);
+    northMqttLayout->addWidget(m_northMqttDataUploadEditor, 1);
+    connect(m_northMqttDataUploadEditor, &DataUploadPolicyEditor::policiesChanged,
+            this, [this](const QJsonObject &policies) {
+                m_configProjectManager.project().metadata.insert(
+                    QStringLiteral("northMqttDataUploadPolicies"), policies);
+            });
 
     // ============================================================
     // IEC101 配置页面

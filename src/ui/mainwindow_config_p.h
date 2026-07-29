@@ -815,7 +815,9 @@ inline QStringList configTransferPathList()
         QStringLiteral("LogicCenter/etc"),
         QStringLiteral("etc"),
         QStringLiteral("North_CEP/etc"),
+        QStringLiteral("North_CEP/cfg"),
         QStringLiteral("North_Mqtt/etc"),
+        QStringLiteral("North_Mqtt/cfg"),
         QStringLiteral("North_101/config"),
         QStringLiteral("North_104/config")
     };
@@ -835,7 +837,9 @@ inline QList<QStringList> configDownloadPathCandidateGroups()
         {QStringLiteral("South_645/etc"), QStringLiteral("cepdlt645/etc")},
         {QStringLiteral("LogicCenter/etc"), QStringLiteral("cepLogicCenter/etc")},
         {QStringLiteral("North_CEP/etc"), QStringLiteral("ServiceChannel/etc")},
+        {QStringLiteral("North_CEP/cfg"), QStringLiteral("ServiceChannel/cfg")},
         {QStringLiteral("North_Mqtt/etc"), QStringLiteral("MqttServiceChannel/etc")},
+        {QStringLiteral("North_Mqtt/cfg"), QStringLiteral("MqttServiceChannel/cfg")},
         {QStringLiteral("North_101/config"), QStringLiteral("IEC101ServiceChannel/config")},
         {QStringLiteral("North_104/config"), QStringLiteral("IEC104ServiceChannel/config")}
     };

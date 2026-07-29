@@ -50,6 +50,7 @@ set(SOURCES
     src/ui/mainwindow_control_priority.cpp
     src/ui/program_control_ssh_worker.cpp
     src/ui/point_selector_dialog.cpp
+    src/ui/data_upload_policy_editor.cpp
     src/ui/app_icon/app_icon.qrc
     src/ui/theme_icons.qrc
 )
@@ -64,6 +65,7 @@ set(HEADERS
     src/ui/mainwindow.h
     src/ui/program_control_ssh_worker.h
     src/ui/point_selector_dialog.h
+    src/ui/data_upload_policy_editor.h
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})

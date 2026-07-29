@@ -34,6 +34,7 @@ class QProgressBar;
 class QToolButton;
 class QWidget;
 class ProgramControlSshWorker;
+class DataUploadPolicyEditor;
 
 enum class AppViewMode {
     Terminal,
@@ -352,12 +353,20 @@ private:
     void clearNorthCepConfigPage();
     void loadNorthCepMainstationConfig(const QString &filePath, configtool::ImportReport &report);
     void loadNorthCepSystemConfig(const QString &filePath, configtool::ImportReport &report);
+    void loadNorthCepSubDataConfig(const QString &filePath, configtool::ImportReport &report);
     bool validateNorthCepConfig(QString *errorMessage = nullptr) const;
     bool writeNorthCepSystemConfig(const QString &projectRoot,
                                    configtool::ExportReport &report) const;
+    bool writeNorthCepSubDataConfig(const QString &projectRoot,
+                                    configtool::ExportReport &report) const;
+    void refreshNorthCepDataUploadEditor();
     void clearNorthMqttConfigPage();
     void loadNorthMqttMainstationConfig(const QString &filePath, configtool::ImportReport &report);
+    void loadNorthMqttSubDataConfig(const QString &filePath, configtool::ImportReport &report);
     bool validateNorthMqttConfig(QString *errorMessage = nullptr) const;
+    bool writeNorthMqttSubDataConfig(const QString &projectRoot,
+                                     configtool::ExportReport &report) const;
+    void refreshMqttDataUploadSummary();
     QJsonObject serializeIec101LocalhostConfig() const;
     bool validateIec101Config(QString *errorMessage = nullptr) const;
     void loadIec101LocalhostConfigFromFile(const QString &filePath);
@@ -822,12 +831,14 @@ private:
     QLineEdit *m_northCepGatewayNameEdit = nullptr;
     QLineEdit *m_northCepManagementPortEdit = nullptr;
     QLineEdit *m_northCepDataPortEdit = nullptr;
+    DataUploadPolicyEditor *m_northCepDataUploadEditor = nullptr;
     // North_Mqtt 配置页面控件
     QLineEdit *m_northMqttGatewayIdEdit = nullptr;
     QLineEdit *m_northMqttBrokerIpEdit = nullptr;
     QLineEdit *m_northMqttPortEdit = nullptr;
     QLineEdit *m_northMqttUsernameEdit = nullptr;
     QLineEdit *m_northMqttPasswordEdit = nullptr;
+    DataUploadPolicyEditor *m_northMqttDataUploadEditor = nullptr;
     // IEC101 配置页面控件
     QComboBox *m_iec101CommModeCombo = nullptr;
     QComboBox *m_iec101TcpRoleCombo = nullptr;
