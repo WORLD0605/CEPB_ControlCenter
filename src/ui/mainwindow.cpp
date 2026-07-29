@@ -1409,8 +1409,24 @@ MainWindow::MainWindow(QWidget *parent)
     deviceNavLayout->addWidget(m_deviceEditorCombo, 1);
     deviceEditorLayout->addLayout(deviceNavLayout);
 
-    m_modbusGlobalParamsGroupBox = new QGroupBox(QStringLiteral("Modbus 全局参数"), this);
-    auto *modbusGlobalParamsLayout = new QHBoxLayout(m_modbusGlobalParamsGroupBox);
+    m_modbusGlobalParamsGroupBox = new QGroupBox(this);
+    auto *modbusGlobalSectionLayout = new QVBoxLayout(m_modbusGlobalParamsGroupBox);
+    modbusGlobalSectionLayout->setContentsMargins(0, 0, 0, 0);
+    modbusGlobalSectionLayout->setSpacing(0);
+    m_modbusGlobalParamsToggle = new QToolButton(this);
+    m_modbusGlobalParamsToggle->setText(QStringLiteral("Modbus 全局参数"));
+    m_modbusGlobalParamsToggle->setCheckable(true);
+    m_modbusGlobalParamsToggle->setChecked(false);
+    m_modbusGlobalParamsToggle->setArrowType(Qt::RightArrow);
+    m_modbusGlobalParamsToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_modbusGlobalParamsToggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_modbusGlobalParamsToggle->setStyleSheet(QStringLiteral(
+        "QToolButton { border: none; padding: 7px 9px; text-align: left; "
+        "font-weight: 600; }"));
+    m_modbusGlobalParamsToggle->setToolTip(QStringLiteral("点击展开或收起 Modbus 全局参数"));
+    modbusGlobalSectionLayout->addWidget(m_modbusGlobalParamsToggle);
+    m_modbusGlobalParamsContent = new QWidget(m_modbusGlobalParamsGroupBox);
+    auto *modbusGlobalParamsLayout = new QHBoxLayout(m_modbusGlobalParamsContent);
     modbusGlobalParamsLayout->setContentsMargins(10, 6, 10, 6);
     modbusGlobalParamsLayout->setSpacing(8);
     m_modbusFrameIntervalEdit = new QLineEdit(this);
@@ -1425,6 +1441,14 @@ MainWindow::MainWindow(QWidget *parent)
         QStringLiteral("全局生效；一帧请求结束后，等待该时长再调度下一帧。"), this);
     modbusFrameIntervalHint->setStyleSheet(QStringLiteral("QLabel { color: #666666; }"));
     modbusGlobalParamsLayout->addWidget(modbusFrameIntervalHint, 1);
+    m_modbusGlobalParamsContent->setVisible(false);
+    connect(m_modbusGlobalParamsToggle, &QToolButton::toggled,
+            this, [this](bool expanded) {
+                m_modbusGlobalParamsToggle->setArrowType(
+                    expanded ? Qt::DownArrow : Qt::RightArrow);
+                m_modbusGlobalParamsContent->setVisible(expanded);
+            });
+    modbusGlobalSectionLayout->addWidget(m_modbusGlobalParamsContent);
     deviceEditorLayout->addWidget(m_modbusGlobalParamsGroupBox);
     auto *deviceTopPanel = new QWidget(this);
     auto *deviceTopLayout = new QHBoxLayout(deviceTopPanel);
@@ -1441,6 +1465,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceModelEdit = new QLineEdit(this);
     m_deviceModelEdit->setReadOnly(true);
     m_deviceStationAddressEdit = new QLineEdit(this);
+    m_modbusTypeEditLabel = new QLabel(QStringLiteral("类型:"), this);
+    m_modbusTypeCombo = new QComboBox(this);
+    m_modbusTypeCombo->addItem(QStringLiteral("TCP"));
+    m_modbusTypeCombo->addItem(QStringLiteral("RTU"));
+    m_modbusTypeCombo->addItem(QStringLiteral("VIRTUAL"));
+    m_modbusTypeCombo->setItemData(2,
+                                  QStringLiteral("虚拟设备不需要 IP、端口或串口参数；点位也可以不填写寄存器地址。"),
+                                  Qt::ToolTipRole);
     m_deviceIpEditLabel = new QLabel(QStringLiteral("IP:"), this);
     m_deviceIpEdit = new QLineEdit(this);
     m_devicePortEditLabel = new QLabel(QStringLiteral("端口:"), this);
@@ -1449,47 +1481,42 @@ MainWindow::MainWindow(QWidget *parent)
     deviceFormLayout->addRow("设备描述:", m_deviceDescEdit);
     deviceFormLayout->addRow("模型:", m_deviceModelEdit);
     deviceFormLayout->addRow("协议地址:", m_deviceStationAddressEdit);
+    deviceFormLayout->addRow(m_modbusTypeEditLabel, m_modbusTypeCombo);
     deviceFormLayout->addRow(m_deviceIpEditLabel, m_deviceIpEdit);
     deviceFormLayout->addRow(m_devicePortEditLabel, m_devicePortEdit);
     deviceTopLayout->addWidget(deviceFormFrame, 2);
 
-    m_deviceOnlineLinkGroupBox = new QGroupBox(QStringLiteral("在线状态联动"), this);
-    m_deviceOnlineLinkGroupBox->setCheckable(true);
-    m_deviceOnlineLinkGroupBox->setChecked(false);
-    m_deviceOnlineLinkGroupBox->setMaximumHeight(220);
-    auto *deviceOnlineLinkLayout = new QVBoxLayout(m_deviceOnlineLinkGroupBox);
-    deviceOnlineLinkLayout->setContentsMargins(10, 8, 10, 8);
-    deviceOnlineLinkLayout->setSpacing(6);
-    m_deviceOnlineLinkContent = new QWidget(m_deviceOnlineLinkGroupBox);
-    auto *deviceOnlineLinkContentLayout = new QFormLayout(m_deviceOnlineLinkContent);
-    deviceOnlineLinkContentLayout->setContentsMargins(0, 0, 0, 0);
-    deviceOnlineLinkContentLayout->setHorizontalSpacing(8);
-    deviceOnlineLinkContentLayout->setVerticalSpacing(6);
-    m_deviceOnlineLinkTargetCombo = new QComboBox(m_deviceOnlineLinkContent);
+    m_deviceOnlineLinkCheckBox = new QCheckBox(QStringLiteral("在线状态联动"), deviceFormFrame);
+    m_deviceOnlineLinkCheckBox->setChecked(false);
+    m_deviceOnlineLinkCheckBox->setToolTip(
+        QStringLiteral("启用后，当前设备的在线状态将跟随所选设备；取消勾选时不会导出在线联动规则。"));
+    m_deviceOnlineLinkTargetCombo = new QComboBox(deviceFormFrame);
     m_deviceOnlineLinkTargetCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_deviceOnlineLinkTargetCombo->setMinimumWidth(220);
-    deviceOnlineLinkContentLayout->addRow(QStringLiteral("跟随设备:"), m_deviceOnlineLinkTargetCombo);
-    m_deviceOnlineLinkHintLabel = new QLabel(m_deviceOnlineLinkContent);
-    m_deviceOnlineLinkHintLabel->setWordWrap(true);
-    m_deviceOnlineLinkHintLabel->setStyleSheet(QStringLiteral("QLabel { color: #666666; }"));
-    deviceOnlineLinkContentLayout->addRow(QString(), m_deviceOnlineLinkHintLabel);
-    deviceOnlineLinkLayout->addWidget(m_deviceOnlineLinkContent);
-    m_deviceOnlineLinkContent->setVisible(false);
-    deviceTopLayout->addWidget(m_deviceOnlineLinkGroupBox, 1);
+    m_deviceOnlineLinkTargetCombo->setMinimumContentsLength(16);
+    m_deviceOnlineLinkTargetCombo->setToolTip(
+        QStringLiteral("选择当前设备需要跟随其在线状态的设备；选择“不联动”不会导出联动规则。"));
+    deviceFormLayout->addRow(m_deviceOnlineLinkCheckBox, m_deviceOnlineLinkTargetCombo);
 
     m_modbusParamsGroupBox = new QGroupBox(QStringLiteral("Modbus 参数"), this);
     m_modbusParamsGroupBox->setMaximumHeight(220);
-    auto *modbusParamsLayout = new QGridLayout(m_modbusParamsGroupBox);
+    auto *modbusParamsLayout = new QVBoxLayout(m_modbusParamsGroupBox);
     modbusParamsLayout->setContentsMargins(10, 8, 10, 8);
-    modbusParamsLayout->setHorizontalSpacing(8);
-    modbusParamsLayout->setVerticalSpacing(4);
-    m_modbusTypeCombo = new QComboBox(this);
-    m_modbusTypeCombo->addItem(QStringLiteral("TCP"));
-    m_modbusTypeCombo->addItem(QStringLiteral("RTU"));
-    m_modbusTypeCombo->addItem(QStringLiteral("VIRTUAL"));
-    m_modbusTypeCombo->setItemData(2,
-                                  QStringLiteral("虚拟设备不需要 IP、端口或串口参数；点位也可以不填写寄存器地址。"),
-                                  Qt::ToolTipRole);
+    modbusParamsLayout->setSpacing(6);
+    m_modbusTcpParamsWidget = new QWidget(this);
+    auto *modbusTcpParamsLayout = new QFormLayout(m_modbusTcpParamsWidget);
+    modbusTcpParamsLayout->setContentsMargins(0, 0, 0, 0);
+    modbusTcpParamsLayout->setHorizontalSpacing(8);
+    modbusTcpParamsLayout->setVerticalSpacing(6);
+    m_modbusTcpIpEdit = new QLineEdit(this);
+    m_modbusTcpPortEdit = new QLineEdit(this);
+    modbusTcpParamsLayout->addRow(QStringLiteral("IP:"), m_modbusTcpIpEdit);
+    modbusTcpParamsLayout->addRow(QStringLiteral("端口:"), m_modbusTcpPortEdit);
+    modbusParamsLayout->addWidget(m_modbusTcpParamsWidget);
+    m_modbusRtuParamsWidget = new QWidget(this);
+    auto *modbusRtuParamsLayout = new QGridLayout(m_modbusRtuParamsWidget);
+    modbusRtuParamsLayout->setContentsMargins(0, 0, 0, 0);
+    modbusRtuParamsLayout->setHorizontalSpacing(8);
+    modbusRtuParamsLayout->setVerticalSpacing(4);
     m_modbusSerialPortCombo = new QComboBox(this);
     for (int i = 1; i <= 8; ++i) {
         m_modbusSerialPortCombo->addItem(QStringLiteral("RS485_%1").arg(i));
@@ -1505,41 +1532,47 @@ MainWindow::MainWindow(QWidget *parent)
                                 QStringLiteral("230400")}) {
         m_modbusBaudCombo->addItem(baud);
     }
+    m_modbusBaudCombo->setCurrentText(QStringLiteral("9600"));
     m_modbusDataBitsCombo = new QComboBox(this);
     for (const QString &dataBits : {QStringLiteral("5"), QStringLiteral("6"), QStringLiteral("7"), QStringLiteral("8")}) {
         m_modbusDataBitsCombo->addItem(dataBits);
     }
+    m_modbusDataBitsCombo->setCurrentText(QStringLiteral("8"));
     m_modbusStopBitsCombo = new QComboBox(this);
     for (const QString &stopBits : {QStringLiteral("1"), QStringLiteral("2")}) {
         m_modbusStopBitsCombo->addItem(stopBits);
     }
+    m_modbusStopBitsCombo->setCurrentText(QStringLiteral("1"));
     m_modbusParityCombo = new QComboBox(this);
     for (const QString &parity : {QStringLiteral("N"), QStringLiteral("E"), QStringLiteral("O")}) {
         m_modbusParityCombo->addItem(parity);
     }
+    m_modbusParityCombo->setCurrentText(QStringLiteral("N"));
     m_modbusResponseTimeoutEdit = new QLineEdit(this);
     m_modbusResponseTimeoutEdit->setValidator(new QIntValidator(1, 3600000, m_modbusResponseTimeoutEdit));
     m_modbusResponseTimeoutEdit->setText(QStringLiteral("500"));
     m_modbusResponseTimeoutEdit->setPlaceholderText(QStringLiteral("500"));
     m_modbusResponseTimeoutEdit->setToolTip(QStringLiteral("当前设备等待一帧 Modbus 响应的最长时间，单位毫秒"));
     m_modbusDebugCheck = new QCheckBox(QStringLiteral("debug"), this);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("类型:"), this), 0, 0);
-    modbusParamsLayout->addWidget(m_modbusTypeCombo, 0, 1);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("串口:"), this), 0, 2);
-    modbusParamsLayout->addWidget(m_modbusSerialPortCombo, 0, 3);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("波特率:"), this), 0, 4);
-    modbusParamsLayout->addWidget(m_modbusBaudCombo, 0, 5);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("数据位:"), this), 1, 0);
-    modbusParamsLayout->addWidget(m_modbusDataBitsCombo, 1, 1);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("停止位:"), this), 1, 2);
-    modbusParamsLayout->addWidget(m_modbusStopBitsCombo, 1, 3);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("校验:"), this), 1, 4);
-    modbusParamsLayout->addWidget(m_modbusParityCombo, 1, 5);
-    modbusParamsLayout->addWidget(m_modbusDebugCheck, 1, 6);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("硬件型号:"), this), 2, 0);
-    modbusParamsLayout->addWidget(m_modbusHwVariantCombo, 2, 1, 1, 3);
-    modbusParamsLayout->addWidget(new QLabel(QStringLiteral("帧超时(ms):"), this), 2, 4);
-    modbusParamsLayout->addWidget(m_modbusResponseTimeoutEdit, 2, 5, 1, 2);
+    modbusRtuParamsLayout->addWidget(new QLabel(QStringLiteral("串口:"), this), 0, 0);
+    modbusRtuParamsLayout->addWidget(m_modbusSerialPortCombo, 0, 1);
+    modbusRtuParamsLayout->addWidget(new QLabel(QStringLiteral("波特率:"), this), 0, 2);
+    modbusRtuParamsLayout->addWidget(m_modbusBaudCombo, 0, 3);
+    modbusRtuParamsLayout->addWidget(new QLabel(QStringLiteral("数据位:"), this), 1, 0);
+    modbusRtuParamsLayout->addWidget(m_modbusDataBitsCombo, 1, 1);
+    modbusRtuParamsLayout->addWidget(new QLabel(QStringLiteral("停止位:"), this), 1, 2);
+    modbusRtuParamsLayout->addWidget(m_modbusStopBitsCombo, 1, 3);
+    modbusRtuParamsLayout->addWidget(new QLabel(QStringLiteral("校验:"), this), 1, 4);
+    modbusRtuParamsLayout->addWidget(m_modbusParityCombo, 1, 5);
+    modbusRtuParamsLayout->addWidget(new QLabel(QStringLiteral("硬件型号:"), this), 2, 0);
+    modbusRtuParamsLayout->addWidget(m_modbusHwVariantCombo, 2, 1, 1, 5);
+    modbusParamsLayout->addWidget(m_modbusRtuParamsWidget);
+    auto *modbusCommonParamsLayout = new QHBoxLayout;
+    modbusCommonParamsLayout->setContentsMargins(0, 0, 0, 0);
+    modbusCommonParamsLayout->addWidget(new QLabel(QStringLiteral("帧超时(ms):"), this));
+    modbusCommonParamsLayout->addWidget(m_modbusResponseTimeoutEdit, 1);
+    modbusCommonParamsLayout->addWidget(m_modbusDebugCheck);
+    modbusParamsLayout->addLayout(modbusCommonParamsLayout);
     deviceTopLayout->addWidget(m_modbusParamsGroupBox, 1);
 
     m_dlt645ParamsGroupBox = new QGroupBox(QStringLiteral("DLT645 参数"), this);
@@ -2937,6 +2970,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_devicePortEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusTcpIpEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
+    connect(m_modbusTcpPortEdit, &QLineEdit::textEdited,
+            this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusFrameIntervalEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_modbusTypeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
@@ -2975,7 +3012,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onDeviceFieldEdited);
     connect(m_dlt645PasswordEdit, &QLineEdit::textEdited,
             this, &MainWindow::onDeviceFieldEdited);
-    connect(m_deviceOnlineLinkGroupBox, &QGroupBox::toggled,
+    connect(m_deviceOnlineLinkCheckBox, &QCheckBox::toggled,
             this, &MainWindow::onDeviceOnlineLinkEnabledChanged);
     connect(m_deviceOnlineLinkTargetCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onDeviceOnlineLinkTargetChanged);

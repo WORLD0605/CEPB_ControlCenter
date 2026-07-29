@@ -1,6 +1,7 @@
 #include "mainwindow_config_p.h"
 
 #include <QIntValidator>
+#include <QToolButton>
 
 using namespace cepb_config_helpers;
 
@@ -40,8 +41,27 @@ void MainWindow::setupIec104ConfigPage()
     basicGrid->setColumnStretch(3, 1);
     pageLayout->addWidget(basicFrame);
 
-    auto *protocolFrame = new QFrame(this);
-    protocolFrame->setFrameShape(QFrame::StyledPanel);
+    auto *protocolSection = new QFrame(this);
+    protocolSection->setFrameShape(QFrame::StyledPanel);
+    auto *protocolSectionLayout = new QVBoxLayout(protocolSection);
+    protocolSectionLayout->setContentsMargins(0, 0, 0, 0);
+    protocolSectionLayout->setSpacing(0);
+
+    auto *protocolToggle = new QToolButton(this);
+    protocolToggle->setText(QStringLiteral("IEC104 协议参数"));
+    protocolToggle->setCheckable(true);
+    protocolToggle->setChecked(false);
+    protocolToggle->setArrowType(Qt::RightArrow);
+    protocolToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    protocolToggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    protocolToggle->setStyleSheet(QStringLiteral(
+        "QToolButton { border: none; padding: 7px 9px; text-align: left; "
+        "font-weight: 600; }"));
+    protocolToggle->setToolTip(QStringLiteral("点击展开或收起 IEC104 协议参数"));
+    protocolSectionLayout->addWidget(protocolToggle);
+
+    auto *protocolFrame = new QFrame(protocolSection);
+    protocolFrame->setFrameShape(QFrame::NoFrame);
     auto *protocolGrid = new QGridLayout(protocolFrame);
     protocolGrid->setContentsMargins(8, 6, 8, 6);
     protocolGrid->setHorizontalSpacing(24);
@@ -99,10 +119,37 @@ void MainWindow::setupIec104ConfigPage()
     protocolGrid->addWidget(m_iec104YxAllSTransDFlagCombo, 4, 1);
     protocolGrid->setColumnStretch(1, 1);
     protocolGrid->setColumnStretch(3, 1);
-    pageLayout->addWidget(protocolFrame);
+    protocolFrame->setVisible(false);
+    connect(protocolToggle, &QToolButton::toggled,
+            this, [protocolToggle, protocolFrame](bool expanded) {
+                protocolToggle->setArrowType(
+                    expanded ? Qt::DownArrow : Qt::RightArrow);
+                protocolFrame->setVisible(expanded);
+            });
+    protocolSectionLayout->addWidget(protocolFrame);
+    pageLayout->addWidget(protocolSection);
 
-    auto *linkFrame = new QFrame(this);
-    linkFrame->setFrameShape(QFrame::StyledPanel);
+    auto *linkSection = new QFrame(this);
+    linkSection->setFrameShape(QFrame::StyledPanel);
+    auto *linkSectionLayout = new QVBoxLayout(linkSection);
+    linkSectionLayout->setContentsMargins(0, 0, 0, 0);
+    linkSectionLayout->setSpacing(0);
+
+    auto *linkToggle = new QToolButton(this);
+    linkToggle->setText(QStringLiteral("IEC104 链路参数"));
+    linkToggle->setCheckable(true);
+    linkToggle->setChecked(false);
+    linkToggle->setArrowType(Qt::RightArrow);
+    linkToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    linkToggle->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    linkToggle->setStyleSheet(QStringLiteral(
+        "QToolButton { border: none; padding: 7px 9px; text-align: left; "
+        "font-weight: 600; }"));
+    linkToggle->setToolTip(QStringLiteral("点击展开或收起 IEC104 链路参数"));
+    linkSectionLayout->addWidget(linkToggle);
+
+    auto *linkFrame = new QFrame(linkSection);
+    linkFrame->setFrameShape(QFrame::NoFrame);
     auto *linkGrid = new QGridLayout(linkFrame);
     linkGrid->setContentsMargins(8, 6, 8, 6);
     linkGrid->setHorizontalSpacing(24);
@@ -130,7 +177,15 @@ void MainWindow::setupIec104ConfigPage()
         linkGrid->addWidget(linkFields.at(i).second, row, col + 1);
         linkGrid->setColumnStretch(col + 1, 1);
     }
-    pageLayout->addWidget(linkFrame);
+    linkFrame->setVisible(false);
+    connect(linkToggle, &QToolButton::toggled,
+            this, [linkToggle, linkFrame](bool expanded) {
+                linkToggle->setArrowType(
+                    expanded ? Qt::DownArrow : Qt::RightArrow);
+                linkFrame->setVisible(expanded);
+            });
+    linkSectionLayout->addWidget(linkFrame);
+    pageLayout->addWidget(linkSection);
 
     auto *pointsFrame = new QFrame(this);
     pointsFrame->setFrameShape(QFrame::StyledPanel);

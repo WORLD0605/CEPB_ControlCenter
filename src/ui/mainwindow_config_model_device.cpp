@@ -1760,8 +1760,13 @@ void MainWindow::onDeviceFieldEdited()
     device.deviceId = newDeviceId;
     device.deviceDesc = m_deviceDescEdit->text().trimmed();
     device.transport.stationAddress = m_deviceStationAddressEdit->text().trimmed();
-    device.transport.ip = m_deviceIpEdit->text().trimmed();
-    device.transport.port = m_devicePortEdit->text().trimmed();
+    if (isModbusDevice(device)) {
+        device.transport.ip = m_modbusTcpIpEdit ? m_modbusTcpIpEdit->text().trimmed() : QString();
+        device.transport.port = m_modbusTcpPortEdit ? m_modbusTcpPortEdit->text().trimmed() : QString();
+    } else {
+        device.transport.ip = m_deviceIpEdit->text().trimmed();
+        device.transport.port = m_devicePortEdit->text().trimmed();
+    }
     if (isModbusDevice(device)) {
         if (m_modbusFrameIntervalEdit) {
             const QString frameInterval = m_modbusFrameIntervalEdit->text().trimmed();
@@ -1978,8 +1983,8 @@ void MainWindow::onDeviceOnlineLinkEnabledChanged(bool checked)
         return;
     }
 
-    if (m_deviceOnlineLinkContent) {
-        m_deviceOnlineLinkContent->setVisible(checked);
+    if (m_deviceOnlineLinkTargetCombo) {
+        m_deviceOnlineLinkTargetCombo->setEnabled(checked);
     }
     if (!checked) {
         setCurrentDeviceOnlineLinkTarget(QString());
@@ -2003,14 +2008,14 @@ void MainWindow::onDeviceOnlineLinkTargetChanged(int index)
     const QString targetDeviceId = m_deviceOnlineLinkTargetCombo
         ? m_deviceOnlineLinkTargetCombo->itemData(index).toString().trimmed()
         : QString();
-    if (m_deviceOnlineLinkGroupBox && !m_deviceOnlineLinkGroupBox->isChecked() && targetDeviceId.isEmpty()) {
+    if (m_deviceOnlineLinkCheckBox && !m_deviceOnlineLinkCheckBox->isChecked() && targetDeviceId.isEmpty()) {
         return;
     }
-    if (m_deviceOnlineLinkGroupBox && !m_deviceOnlineLinkGroupBox->isChecked()) {
-        QSignalBlocker blocker(m_deviceOnlineLinkGroupBox);
-        m_deviceOnlineLinkGroupBox->setChecked(true);
-        if (m_deviceOnlineLinkContent) {
-            m_deviceOnlineLinkContent->setVisible(true);
+    if (m_deviceOnlineLinkCheckBox && !m_deviceOnlineLinkCheckBox->isChecked()) {
+        QSignalBlocker blocker(m_deviceOnlineLinkCheckBox);
+        m_deviceOnlineLinkCheckBox->setChecked(true);
+        if (m_deviceOnlineLinkTargetCombo) {
+            m_deviceOnlineLinkTargetCombo->setEnabled(true);
         }
     }
     setCurrentDeviceOnlineLinkTarget(targetDeviceId);
@@ -4051,20 +4056,12 @@ void MainWindow::refreshDeviceOnlineLinkPanel(int deviceIndex)
         } else {
             m_deviceOnlineLinkTargetCombo->setCurrentIndex(0);
         }
-        m_deviceOnlineLinkTargetCombo->setEnabled(hasDevice);
+        m_deviceOnlineLinkTargetCombo->setEnabled(hasDevice && !linkedDeviceId.isEmpty());
     }
 
-    if (m_deviceOnlineLinkGroupBox) {
-        m_deviceOnlineLinkGroupBox->setEnabled(hasDevice);
-        m_deviceOnlineLinkGroupBox->setChecked(hasDevice && !linkedDeviceId.isEmpty());
-    }
-    if (m_deviceOnlineLinkContent) {
-        m_deviceOnlineLinkContent->setVisible(hasDevice && !linkedDeviceId.isEmpty());
-    }
-    if (m_deviceOnlineLinkHintLabel) {
-        m_deviceOnlineLinkHintLabel->setText(hasDevice
-            ? QStringLiteral("启用后，当前设备的在线状态将跟随所选设备；选择“不联动”或取消勾选时不会导出在线联动规则。")
-            : QStringLiteral("请选择一个设备后配置在线状态联动。"));
+    if (m_deviceOnlineLinkCheckBox) {
+        m_deviceOnlineLinkCheckBox->setEnabled(hasDevice);
+        m_deviceOnlineLinkCheckBox->setChecked(hasDevice && !linkedDeviceId.isEmpty());
     }
 
     m_updatingDeviceOnlineLinkPanel = false;
@@ -4141,7 +4138,8 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
         for (QLineEdit *edit : {m_deviceIdEdit, m_deviceDescEdit, m_deviceModelEdit,
                                 m_deviceStationAddressEdit, m_deviceIpEdit,
-                                m_devicePortEdit, m_modbusResponseTimeoutEdit}) {
+                                m_devicePortEdit, m_modbusTcpIpEdit, m_modbusTcpPortEdit,
+                                m_modbusResponseTimeoutEdit}) {
             if (edit) {
                 edit->clear();
             }
@@ -4154,6 +4152,12 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         }
         if (m_dlt645ParamsGroupBox) {
             m_dlt645ParamsGroupBox->setVisible(false);
+        }
+        if (m_modbusTypeEditLabel) {
+            m_modbusTypeEditLabel->setVisible(false);
+        }
+        if (m_modbusTypeCombo) {
+            m_modbusTypeCombo->setVisible(false);
         }
         if (m_deviceIpEditLabel) {
             m_deviceIpEditLabel->setVisible(true);
@@ -4228,24 +4232,20 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
                       qMakePair(m_deviceModelEdit, device.modelId),
                       qMakePair(m_deviceStationAddressEdit, device.transport.stationAddress),
                       qMakePair(m_deviceIpEdit, device.transport.ip),
-                      qMakePair(m_devicePortEdit, device.transport.port)}) {
+                      qMakePair(m_devicePortEdit, device.transport.port),
+                      qMakePair(m_modbusTcpIpEdit, device.transport.ip),
+                      qMakePair(m_modbusTcpPortEdit, device.transport.port)}) {
         QSignalBlocker blocker(pair.first);
         pair.first->setText(pair.second);
     }
 
     const bool modbusDevice = isModbusDevice(device);
     const bool dlt645Device = isDlt645Device(device);
-    if (m_deviceIpEditLabel) {
-        m_deviceIpEditLabel->setVisible(!dlt645Device);
+    if (m_modbusTypeEditLabel) {
+        m_modbusTypeEditLabel->setVisible(modbusDevice);
     }
-    if (m_deviceIpEdit) {
-        m_deviceIpEdit->setVisible(!dlt645Device);
-    }
-    if (m_devicePortEditLabel) {
-        m_devicePortEditLabel->setVisible(!dlt645Device);
-    }
-    if (m_devicePortEdit) {
-        m_devicePortEdit->setVisible(!dlt645Device);
+    if (m_modbusTypeCombo) {
+        m_modbusTypeCombo->setVisible(modbusDevice);
     }
     const bool virtualModbusDevice = modbusDevice
         && device.transport.protocolOptions.value(QStringLiteral("type"))
@@ -4280,6 +4280,7 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             const int typeIndex = m_modbusTypeCombo->findText(modbusTransportType);
             m_modbusTypeCombo->setCurrentIndex(typeIndex >= 0 ? typeIndex : 0);
         }
+        refreshModbusTransportFields(modbusTransportType);
         const QJsonObject rtu = device.transport.serial;
         {
             QSignalBlocker blocker(m_modbusSerialPortCombo);
@@ -4293,10 +4294,14 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
             const int hwIndex = m_modbusHwVariantCombo->findData(hwVariant);
             m_modbusHwVariantCombo->setCurrentIndex(hwIndex >= 0 ? hwIndex : 0);
         }
-        for (auto pair : {qMakePair(m_modbusBaudCombo, uiJsonValueToString(rtu.value(QStringLiteral("baud")))),
-                          qMakePair(m_modbusDataBitsCombo, uiJsonValueToString(rtu.value(QStringLiteral("dataBits")))),
-                          qMakePair(m_modbusStopBitsCombo, uiJsonValueToString(rtu.value(QStringLiteral("stopBits")))),
-                          qMakePair(m_modbusParityCombo, uiJsonValueToString(rtu.value(QStringLiteral("parity"))))}) {
+        const QString baud = uiJsonValueToString(rtu.value(QStringLiteral("baud"))).trimmed();
+        const QString dataBits = uiJsonValueToString(rtu.value(QStringLiteral("dataBits"))).trimmed();
+        const QString stopBits = uiJsonValueToString(rtu.value(QStringLiteral("stopBits"))).trimmed();
+        const QString parity = uiJsonValueToString(rtu.value(QStringLiteral("parity"))).trimmed();
+        for (auto pair : {qMakePair(m_modbusBaudCombo, baud.isEmpty() ? QStringLiteral("9600") : baud),
+                          qMakePair(m_modbusDataBitsCombo, dataBits.isEmpty() ? QStringLiteral("8") : dataBits),
+                          qMakePair(m_modbusStopBitsCombo, stopBits.isEmpty() ? QStringLiteral("1") : stopBits),
+                          qMakePair(m_modbusParityCombo, parity.isEmpty() ? QStringLiteral("N") : parity)}) {
             QSignalBlocker blocker(pair.first);
             const int index = pair.first->findText(pair.second);
             pair.first->setCurrentIndex(index >= 0 ? index : 0);
@@ -4311,6 +4316,20 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         const QString responseTimeoutMs = uiJsonValueToString(
             device.transport.protocolOptions.value(QStringLiteral("responseTimeoutMs"))).trimmed();
         m_modbusResponseTimeoutEdit->setText(responseTimeoutMs.isEmpty() ? QStringLiteral("500") : responseTimeoutMs);
+    } else {
+        const bool showNetworkFields = !dlt645Device;
+        if (m_deviceIpEditLabel) {
+            m_deviceIpEditLabel->setVisible(showNetworkFields);
+        }
+        if (m_deviceIpEdit) {
+            m_deviceIpEdit->setVisible(showNetworkFields);
+        }
+        if (m_devicePortEditLabel) {
+            m_devicePortEditLabel->setVisible(showNetworkFields);
+        }
+        if (m_devicePortEdit) {
+            m_devicePortEdit->setVisible(showNetworkFields);
+        }
     }
     if (dlt645Device) {
         const QJsonObject rtu = device.transport.serial;
@@ -5279,6 +5298,37 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
     } else {
         m_deviceValidationLabel->setStyleSheet("QLabel { color: #2e7d32; }");
         m_deviceValidationLabel->setText(QStringLiteral("当前同通道设备地址分配未发现重复。"));
+    }
+}
+
+void MainWindow::refreshModbusTransportFields(const QString &transportType)
+{
+    const QString normalizedType = transportType.trimmed().toUpper();
+    const bool tcp = normalizedType.isEmpty() || normalizedType == QStringLiteral("TCP");
+    const bool rtu = normalizedType == QStringLiteral("RTU");
+
+    if (m_deviceIpEditLabel) {
+        m_deviceIpEditLabel->setVisible(false);
+    }
+    if (m_deviceIpEdit) {
+        m_deviceIpEdit->setVisible(false);
+    }
+    if (m_devicePortEditLabel) {
+        m_devicePortEditLabel->setVisible(false);
+    }
+    if (m_devicePortEdit) {
+        m_devicePortEdit->setVisible(false);
+    }
+    if (m_modbusTcpParamsWidget) {
+        m_modbusTcpParamsWidget->setVisible(tcp);
+    }
+    if (m_modbusRtuParamsWidget) {
+        m_modbusRtuParamsWidget->setVisible(rtu);
+    }
+    if (m_modbusParamsGroupBox) {
+        m_modbusParamsGroupBox->setTitle(rtu
+            ? QStringLiteral("Modbus RTU 参数")
+            : (tcp ? QStringLiteral("Modbus TCP 参数") : QStringLiteral("Modbus 通用参数")));
     }
 }
 
