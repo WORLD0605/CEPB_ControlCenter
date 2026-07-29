@@ -784,7 +784,9 @@ private:
     QLineEdit *m_deviceDescEdit = nullptr;
     QLineEdit *m_deviceModelEdit = nullptr;
     QLineEdit *m_deviceStationAddressEdit = nullptr;
+    QLabel *m_deviceIpEditLabel = nullptr;
     QLineEdit *m_deviceIpEdit = nullptr;
+    QLabel *m_devicePortEditLabel = nullptr;
     QLineEdit *m_devicePortEdit = nullptr;
     QGroupBox *m_modbusGlobalParamsGroupBox = nullptr;
     QLineEdit *m_modbusFrameIntervalEdit = nullptr;

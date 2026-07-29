@@ -48,11 +48,11 @@ dataIndex = (group_no << 16) + (i + 1);
 ```ini
 [dev_645Dev_1]
 yc_poll_num=1
-yc_poll1=poll_1_11_020201FF_3
+yc_poll1=poll_1_11_0202FF00_3
 yc_type1=BCD_X
 ```
 
-含义保持不变：读取 `020201FF`，每条数据固定 3 字节，类型 `BCD_X`，返回第 `i` 条映射到 `dataIndex=(1<<16)+(i+1)`。
+含义保持不变：读取 `0202FF00`（A/B/C 相电流数据块），每条数据固定 3 字节，类型 `BCD_X`，返回第 `i` 条映射到 `dataIndex=(1<<16)+(i+1)`。
 
 ### 新格式：poll + item 子项表
 
@@ -405,4 +405,3 @@ yc_poll1_item2=item_12_0400040C_6_10_ASCII
 458753 = (7 << 16) + 1
 458764 = (7 << 16) + 12
 ```
-

@@ -298,13 +298,23 @@ bool isDlt645EightDigitHexDi(const QString &di)
     return pattern.match(normalizedDlt645Di(di)).hasMatch();
 }
 
-QString dlt645FfPollDiForPointDi(const QString &pointDi)
+QString dlt645FfPollDiForPointDi(const QString &pointDi, int wildcardByteIndex)
 {
     const QString normalized = normalizedDlt645Di(pointDi);
-    if (!isDlt645EightDigitHexDi(normalized)) {
+    if (!isDlt645EightDigitHexDi(normalized)
+        || wildcardByteIndex < 0
+        || wildcardByteIndex >= 4) {
         return QString();
     }
-    return normalized.left(6) + QStringLiteral("FF");
+
+    const int charIndex = wildcardByteIndex * 2;
+    if (normalized.mid(charIndex, 2) == QStringLiteral("FF")) {
+        return QString();
+    }
+
+    QString pollDi = normalized;
+    pollDi.replace(charIndex, 2, QStringLiteral("FF"));
+    return pollDi;
 }
 
 int dlt645WildcardEntryNo(const QString &pointDi, const QString &pollDi)
@@ -312,18 +322,33 @@ int dlt645WildcardEntryNo(const QString &pointDi, const QString &pollDi)
     const QString normalizedPointDi = normalizedDlt645Di(pointDi);
     const QString normalizedPollDi = normalizedDlt645Di(pollDi);
     if (!isDlt645EightDigitHexDi(normalizedPointDi)
-        || !isDlt645EightDigitHexDi(normalizedPollDi)
-        || !normalizedPollDi.endsWith(QStringLiteral("FF"))
-        || normalizedPointDi.left(6) != normalizedPollDi.left(6)) {
+        || !isDlt645EightDigitHexDi(normalizedPollDi)) {
+        return 0;
+    }
+
+    int wildcardByteIndex = -1;
+    for (int byteIndex = 0; byteIndex < 4; ++byteIndex) {
+        const QString pointByte = normalizedPointDi.mid(byteIndex * 2, 2);
+        const QString pollByte = normalizedPollDi.mid(byteIndex * 2, 2);
+        if (pollByte == QStringLiteral("FF")) {
+            if (wildcardByteIndex >= 0) {
+                return 0;
+            }
+            wildcardByteIndex = byteIndex;
+        } else if (pointByte != pollByte) {
+            return 0;
+        }
+    }
+    if (wildcardByteIndex < 0) {
         return 0;
     }
 
     bool ok = false;
-    const int lowByte = normalizedPointDi.right(2).toInt(&ok, 16);
+    const int entryByte = normalizedPointDi.mid(wildcardByteIndex * 2, 2).toInt(&ok, 16);
     if (!ok) {
         return 0;
     }
-    return lowByte <= 0 ? 1 : lowByte;
+    return entryByte <= 0 ? 1 : entryByte;
 }
 
 } // namespace
@@ -2746,8 +2771,15 @@ void MainWindow::autoMergeDlt645FfPollGroups()
         return;
     }
 
-    QList<int> bindingIndexes;
-    QList<QString> pollDis;
+    struct MergeCandidate
+    {
+        int bindingIndex = -1;
+        QString pointDi;
+        QString signature;
+    };
+
+    QList<MergeCandidate> candidates;
+    QHash<QString, QSet<QString>> candidateMemberDis;
     QSet<QString> ffPollDis;
     for (int index = 0; index < device.bindings.size(); ++index) {
         const configtool::PointBinding &binding = device.bindings.at(index);
@@ -2761,42 +2793,100 @@ void MainWindow::autoMergeDlt645FfPollGroups()
         }
 
         const QString pointDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PointDI")));
-        const QString ffPollDi = dlt645FfPollDiForPointDi(pointDi);
-        if (ffPollDi.isEmpty()) {
+        if (!isDlt645EightDigitHexDi(pointDi)) {
             continue;
         }
 
-        const QString currentPollDi = normalizedDlt645Di(dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), pointDi));
-        if (currentPollDi == ffPollDi) {
-            ffPollDis.insert(ffPollDi);
-            continue;
+        const QString dataType = normalizedDlt645DataType(
+            dlt645BindingString(binding,
+                                QStringLiteral("dlt645DataType"),
+                                defaultDlt645DataTypeForKind(kind)),
+            kind);
+        const int funCode = dlt645BindingInt(binding,
+                                             QStringLiteral("dlt645FunctionCode"),
+                                             defaultDlt645FunctionCodeForKind(kind));
+        const int dataLength = qMax(1, dlt645BindingInt(binding,
+                                                        QStringLiteral("dlt645DataLength"),
+                                                        defaultDlt645DataLengthForKind(kind)));
+        const QString signature = QStringLiteral("%1|%2|%3|%4")
+                                      .arg(kind,
+                                           QString::number(funCode),
+                                           dataType,
+                                           QString::number(dataLength));
+        candidates.append({index, pointDi, signature});
+        for (int byteIndex = 0; byteIndex < 4; ++byteIndex) {
+            const QString ffPollDi = dlt645FfPollDiForPointDi(pointDi, byteIndex);
+            if (!ffPollDi.isEmpty()) {
+                candidateMemberDis[signature + QStringLiteral("|") + ffPollDi].insert(pointDi);
+            }
         }
-
-        bindingIndexes.append(index);
-        pollDis.append(ffPollDi);
-        ffPollDis.insert(ffPollDi);
     }
 
-    if (bindingIndexes.isEmpty()) {
-        statusBar()->showMessage(QStringLiteral("没有可自动合并的 DLT645 读点；请确认点位DI为8位十六进制。"), 3000);
+    QList<int> bindingIndexes;
+    QList<QString> pollDis;
+    for (const MergeCandidate &candidate : candidates) {
+        QString bestPollDi;
+        int bestMemberCount = 1;
+        int bestWildcardByteIndex = -1;
+        for (int byteIndex = 0; byteIndex < 4; ++byteIndex) {
+            const QString ffPollDi = dlt645FfPollDiForPointDi(candidate.pointDi, byteIndex);
+            if (ffPollDi.isEmpty()) {
+                continue;
+            }
+            const int memberCount = candidateMemberDis.value(
+                candidate.signature + QStringLiteral("|") + ffPollDi).size();
+            if (memberCount > bestMemberCount
+                || (memberCount == bestMemberCount && byteIndex > bestWildcardByteIndex)) {
+                bestMemberCount = memberCount;
+                bestPollDi = ffPollDi;
+                bestWildcardByteIndex = byteIndex;
+            }
+        }
+        if (bestMemberCount < 2 || bestPollDi.isEmpty()) {
+            continue;
+        }
+
+        ffPollDis.insert(bestPollDi);
+        const configtool::PointBinding &binding = device.bindings.at(candidate.bindingIndex);
+        const QString currentPollDi = normalizedDlt645Di(
+            dlt645BindingString(binding, QStringLiteral("dlt645PollDI"), candidate.pointDi));
+        if (currentPollDi != bestPollDi) {
+            bindingIndexes.append(candidate.bindingIndex);
+            pollDis.append(bestPollDi);
+        }
+    }
+
+    if (ffPollDis.isEmpty()) {
+        statusBar()->showMessage(
+            QStringLiteral("没有可自动合并的 DLT645 读点；同一 FF 块至少需要两个数据类型、字节数相同且仅一个 DI 字节不同的点。"),
+            4000);
         return;
     }
 
-    pushConfigUndoSnapshot();
-    for (int i = 0; i < bindingIndexes.size(); ++i) {
-        configtool::PointBinding &binding = device.bindings[bindingIndexes.at(i)];
-        binding.extensions.insert(QStringLiteral("dlt645PollDI"), pollDis.at(i));
-        binding.extensions.remove(QStringLiteral("dlt645GroupNo"));
-        binding.extensions.remove(QStringLiteral("dlt645EntryNo"));
+    if (!bindingIndexes.isEmpty()) {
+        pushConfigUndoSnapshot();
+        for (int i = 0; i < bindingIndexes.size(); ++i) {
+            configtool::PointBinding &binding = device.bindings[bindingIndexes.at(i)];
+            binding.extensions.insert(QStringLiteral("dlt645PollDI"), pollDis.at(i));
+            binding.extensions.remove(QStringLiteral("dlt645GroupNo"));
+            binding.extensions.remove(QStringLiteral("dlt645EntryNo"));
+        }
+
+        rebuildDlt645DeviceConfig(device);
+        refreshDeviceDetail(deviceIndex);
+        refreshDeviceEditor(deviceIndex);
     }
 
-    rebuildDlt645DeviceConfig(device);
-    refreshDeviceDetail(deviceIndex);
-    refreshDeviceEditor(deviceIndex);
-    statusBar()->showMessage(QStringLiteral("已将 %1 个 DLT645 读点合并到 %2 个 FF 采集块。")
-                                 .arg(bindingIndexes.size())
-                                 .arg(ffPollDis.size()),
-                             4000);
+    if (bindingIndexes.isEmpty()) {
+        statusBar()->showMessage(QStringLiteral("当前 DLT645 读点已经合并到 %1 个 FF 采集块。")
+                                     .arg(ffPollDis.size()),
+                                 4000);
+    } else {
+        statusBar()->showMessage(QStringLiteral("已将 %1 个 DLT645 读点合并到 %2 个 FF 采集块。")
+                                     .arg(bindingIndexes.size())
+                                     .arg(ffPollDis.size()),
+                                 4000);
+    }
 }
 
 void MainWindow::pasteClipboardIntoModelPointsTable()
@@ -4065,6 +4155,18 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
         if (m_dlt645ParamsGroupBox) {
             m_dlt645ParamsGroupBox->setVisible(false);
         }
+        if (m_deviceIpEditLabel) {
+            m_deviceIpEditLabel->setVisible(true);
+        }
+        if (m_deviceIpEdit) {
+            m_deviceIpEdit->setVisible(true);
+        }
+        if (m_devicePortEditLabel) {
+            m_devicePortEditLabel->setVisible(true);
+        }
+        if (m_devicePortEdit) {
+            m_devicePortEdit->setVisible(true);
+        }
         if (m_autoMergeDlt645FfBtn) {
             m_autoMergeDlt645FfBtn->setVisible(false);
         }
@@ -4133,6 +4235,18 @@ void MainWindow::refreshDeviceEditor(int deviceIndex)
 
     const bool modbusDevice = isModbusDevice(device);
     const bool dlt645Device = isDlt645Device(device);
+    if (m_deviceIpEditLabel) {
+        m_deviceIpEditLabel->setVisible(!dlt645Device);
+    }
+    if (m_deviceIpEdit) {
+        m_deviceIpEdit->setVisible(!dlt645Device);
+    }
+    if (m_devicePortEditLabel) {
+        m_devicePortEditLabel->setVisible(!dlt645Device);
+    }
+    if (m_devicePortEdit) {
+        m_devicePortEdit->setVisible(!dlt645Device);
+    }
     const bool virtualModbusDevice = modbusDevice
         && device.transport.protocolOptions.value(QStringLiteral("type"))
                .toString(QStringLiteral("TCP")).trimmed().compare(QStringLiteral("VIRTUAL"), Qt::CaseInsensitive) == 0;

@@ -410,6 +410,8 @@ QString themeStyleSheet(bool darkMode)
             "  border: 1px solid #566171;"
             "  padding: 2px 19px 2px 5px;"
             "  min-height: 20px;"
+            "  selection-background-color: #151a20;"
+            "  selection-color: #f0f4f8;"
             "}"
             "QComboBox[tableCellCombo=\"true\"]:hover {"
             "  background-color: #151a20;"
@@ -421,6 +423,10 @@ QString themeStyleSheet(bool darkMode)
             "}"
             "QComboBox[tableCellCombo=\"true\"]::drop-down { width: 18px; }"
             "QComboBox[tableCellCombo=\"true\"]::drop-down:hover { background-color: #202630; }"
+            "QComboBox[tableCellCombo=\"true\"] QAbstractItemView {"
+            "  selection-background-color: #2f80d0;"
+            "  selection-color: #ffffff;"
+            "}"
             "QComboBox[tableCellCombo=\"true\"]::down-arrow {"
             "  width: 9px;"
             "  height: 9px;"
@@ -672,6 +678,8 @@ QString themeStyleSheet(bool darkMode)
         "  border: 1px solid #9aa8b8;"
         "  padding: 2px 19px 2px 5px;"
         "  min-height: 20px;"
+        "  selection-background-color: #ffffff;"
+        "  selection-color: #111820;"
         "}"
         "QComboBox[tableCellCombo=\"true\"]:hover {"
         "  background-color: #ffffff;"
@@ -683,6 +691,10 @@ QString themeStyleSheet(bool darkMode)
         "}"
         "QComboBox[tableCellCombo=\"true\"]::drop-down { width: 18px; }"
         "QComboBox[tableCellCombo=\"true\"]::drop-down:hover { background-color: #eef3f8; }"
+        "QComboBox[tableCellCombo=\"true\"] QAbstractItemView {"
+        "  selection-background-color: #1f6fb8;"
+        "  selection-color: #ffffff;"
+        "}"
         "QComboBox[tableCellCombo=\"true\"]::down-arrow {"
         "  width: 9px;"
         "  height: 9px;"
@@ -1429,14 +1441,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceModelEdit = new QLineEdit(this);
     m_deviceModelEdit->setReadOnly(true);
     m_deviceStationAddressEdit = new QLineEdit(this);
+    m_deviceIpEditLabel = new QLabel(QStringLiteral("IP:"), this);
     m_deviceIpEdit = new QLineEdit(this);
+    m_devicePortEditLabel = new QLabel(QStringLiteral("端口:"), this);
     m_devicePortEdit = new QLineEdit(this);
     deviceFormLayout->addRow("DeviceId:", m_deviceIdEdit);
     deviceFormLayout->addRow("设备描述:", m_deviceDescEdit);
     deviceFormLayout->addRow("模型:", m_deviceModelEdit);
     deviceFormLayout->addRow("协议地址:", m_deviceStationAddressEdit);
-    deviceFormLayout->addRow("IP:", m_deviceIpEdit);
-    deviceFormLayout->addRow("端口:", m_devicePortEdit);
+    deviceFormLayout->addRow(m_deviceIpEditLabel, m_deviceIpEdit);
+    deviceFormLayout->addRow(m_devicePortEditLabel, m_devicePortEdit);
     deviceTopLayout->addWidget(deviceFormFrame, 2);
 
     m_deviceOnlineLinkGroupBox = new QGroupBox(QStringLiteral("在线状态联动"), this);
@@ -1609,7 +1623,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_deviceBindingDataRefFilterEdit->setMinimumWidth(320);
     bindingToolbar->addWidget(m_deviceBindingDataRefFilterEdit, 1);
     m_autoMergeDlt645FfBtn = new QPushButton(QStringLiteral("自动合并FF块读取"), this);
-    m_autoMergeDlt645FfBtn->setToolTip(QStringLiteral("按点位DI前3字节生成 xxxxFF 采集DI，并把同一采集DI下的645读点合并到同一采集帧"));
+    m_autoMergeDlt645FfBtn->setToolTip(QStringLiteral("查找数据类型、字节数相同且仅一个DI字节不同的读点，将差异字节替换为FF并合并到同一采集帧"));
     m_autoMergeDlt645FfBtn->setVisible(false);
     bindingToolbar->addWidget(m_autoMergeDlt645FfBtn);
     deviceEditorLayout->addLayout(bindingToolbar);
