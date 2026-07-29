@@ -1915,6 +1915,8 @@ MainWindow::MainWindow(QWidget *parent)
     const QStringList logicTemplateButtons = {
         QStringLiteral("单点映射/改名"),
         QStringLiteral("原点缩放"),
+        QStringLiteral("遥信取反"),
+        QStringLiteral("加减固定值"),
         QStringLiteral("遥信 OR"),
         QStringLiteral("遥信 AND"),
         QStringLiteral("多点求和"),

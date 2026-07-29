@@ -1874,7 +1874,9 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                 }
             }
             for (const configtool::PointBinding &binding : device.bindings) {
-                if (binding.enabled && binding.address.trimmed().isEmpty()) {
+                if (binding.enabled
+                    && !configtool::isVirtualPointBinding(binding)
+                    && binding.address.trimmed().isEmpty()) {
                     appendIssue(configtool::ImportIssueSeverity::Error,
                                 devicePath,
                                 QStringLiteral("设备 %1 存在启用但未填写地址的点位：%2")
@@ -1926,7 +1928,9 @@ QList<configtool::ImportIssue> MainWindow::collectCurrentConfigIssues() const
                 }
             }
             for (const configtool::PointBinding &binding : device.bindings) {
-                if (!binding.enabled || virtualDevice) {
+                if (!binding.enabled
+                    || virtualDevice
+                    || configtool::isVirtualPointBinding(binding)) {
                     continue;
                 }
                 if (binding.address.trimmed().isEmpty()) {

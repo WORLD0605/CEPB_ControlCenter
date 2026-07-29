@@ -376,6 +376,15 @@ struct PointBinding {
     SourceInfo source;
 };
 
+inline bool isVirtualPointBinding(const PointBinding &binding)
+{
+    const QString normalized = binding.selfSignalFlag.trimmed().toLower();
+    return normalized == QStringLiteral("1")
+        || normalized == QStringLiteral("true")
+        || normalized == QStringLiteral("yes")
+        || normalized == QStringLiteral("on");
+}
+
 struct ProtocolDeviceInstance {
     QString deviceUid;
     QString appType;

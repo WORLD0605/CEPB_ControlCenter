@@ -459,6 +459,8 @@ private:
     void generateLogicComputationTemplate(int templateIndex);
     void generateLogicSinglePointTemplateVisual();
     void generateLogicSourcePointScaleTemplateVisual();
+    void generateLogicStatusInvertTemplateVisual();
+    void generateLogicMeasurementOffsetTemplateVisual();
     void generateLogicStatusOrTemplateVisual();
     void generateLogicStatusAndTemplateVisual();
     void generateLogicMultiPointSumTemplateVisual();

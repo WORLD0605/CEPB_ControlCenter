@@ -344,6 +344,8 @@ void MainWindow::generateLogicComputationTemplate(int templateIndex)
     const QStringList templateNames = {
         QStringLiteral("单点映射/改名"),
         QStringLiteral("原点缩放"),
+        QStringLiteral("遥信取反"),
+        QStringLiteral("加减固定值"),
         QStringLiteral("遥信 OR"),
         QStringLiteral("遥信 AND"),
         QStringLiteral("多点求和"),
@@ -362,18 +364,26 @@ void MainWindow::generateLogicComputationTemplate(int templateIndex)
         return;
     }
     if (templateIndex == 2) {
-        generateLogicStatusOrTemplateVisual();
+        generateLogicStatusInvertTemplateVisual();
         return;
     }
     if (templateIndex == 3) {
-        generateLogicStatusAndTemplateVisual();
+        generateLogicMeasurementOffsetTemplateVisual();
         return;
     }
     if (templateIndex == 4) {
-        generateLogicMultiPointSumTemplateVisual();
+        generateLogicStatusOrTemplateVisual();
         return;
     }
     if (templateIndex == 5) {
+        generateLogicStatusAndTemplateVisual();
+        return;
+    }
+    if (templateIndex == 6) {
+        generateLogicMultiPointSumTemplateVisual();
+        return;
+    }
+    if (templateIndex == 7) {
         generateLogicPowerFactorTemplateVisual();
         return;
     }
@@ -623,6 +633,227 @@ void MainWindow::generateLogicSourcePointScaleTemplateVisual()
     point.description = QStringLiteral("可视化模板生成: 原点缩放");
     point.operands.append(pointRef);
     point.formula = QStringLiteral("{1} * %1").arg(doubleToUiText(coefficientEdit->value()));
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    pushConfigUndoSnapshot();
+    const bool inserted = configtool::upsertLogicComputationPoint(logic, point);
+    refreshLogicCenterOverview();
+    refreshLogicComputationPointPage();
+    statusBar()->showMessage(inserted
+        ? QStringLiteral("已生成计算点 %1#%2").arg(point.deviceId, point.dataRef)
+        : QStringLiteral("已更新计算点 %1#%2").arg(point.deviceId, point.dataRef),
+        5000);
+}
+
+void MainWindow::generateLogicStatusInvertTemplateVisual()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("遥信取反 模板"));
+    dialog.resize(620, 300);
+
+    configtool::LogicOperand pointRef;
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
+
+    auto selectStatusPoint = [this](configtool::LogicOperand &point) {
+        PointSelectorDialog selector(this);
+        selector.setProject(&m_configProjectManager.project());
+        selector.setServiceTypeFilter(configtool::ModelServiceType::Status);
+        selector.setWindowTitle(QStringLiteral("选择遥信点"));
+        if (selector.exec() != QDialog::Accepted) {
+            return false;
+        }
+
+        const PointSelectorDialog::SelectedPoint selected = selector.selectedPoint();
+        if (!selected.valid) {
+            return false;
+        }
+
+        point.deviceId = selected.deviceId;
+        point.dataRef = selected.dataRef;
+        return true;
+    };
+
+    auto *mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(12);
+
+    auto *titleLabel = new QLabel(QStringLiteral("对遥信点取反，计算结果仍写回同一个点"), &dialog);
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    mainLayout->addWidget(titleLabel);
+
+    auto *sceneLayout = new QHBoxLayout();
+    sceneLayout->setSpacing(14);
+
+    auto *pointBtn = new QPushButton(&dialog);
+    pointBtn->setMinimumSize(220, 110);
+    pointBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    sceneLayout->addWidget(pointBtn, 1);
+
+    auto *formulaLabel = new QLabel(QStringLiteral("1 - {1}\n=> 同一点"), &dialog);
+    formulaLabel->setAlignment(Qt::AlignCenter);
+    QFont formulaFont = formulaLabel->font();
+    formulaFont.setBold(true);
+    formulaFont.setPointSize(15);
+    formulaLabel->setFont(formulaFont);
+    sceneLayout->addWidget(formulaLabel);
+    mainLayout->addLayout(sceneLayout, 1);
+
+    auto updatePoint = [&]() {
+        updateLogicPointButton(pointBtn, QStringLiteral("遥信点"), pointRef, displayResolver);
+    };
+    connect(pointBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (selectStatusPoint(pointRef)) {
+            updatePoint();
+        }
+    });
+    updatePoint();
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("生成"));
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    mainLayout->addWidget(buttonBox);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (pointRef.deviceId.trimmed().isEmpty() || pointRef.dataRef.trimmed().isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("遥信取反"), QStringLiteral("请先选择遥信点。"));
+            return;
+        }
+        dialog.accept();
+    });
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    configtool::LogicComputationPoint point;
+    point.deviceId = pointRef.deviceId;
+    point.dataRef = pointRef.dataRef;
+    point.dropOperands = true;
+    point.description = QStringLiteral("可视化模板生成: 遥信取反");
+    point.operands.append(pointRef);
+    point.formula = QStringLiteral("1-{1}");
+
+    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
+    pushConfigUndoSnapshot();
+    const bool inserted = configtool::upsertLogicComputationPoint(logic, point);
+    refreshLogicCenterOverview();
+    refreshLogicComputationPointPage();
+    statusBar()->showMessage(inserted
+        ? QStringLiteral("已生成计算点 %1#%2").arg(point.deviceId, point.dataRef)
+        : QStringLiteral("已更新计算点 %1#%2").arg(point.deviceId, point.dataRef),
+        5000);
+}
+
+void MainWindow::generateLogicMeasurementOffsetTemplateVisual()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("加减固定值 模板"));
+    dialog.resize(680, 320);
+
+    configtool::LogicOperand pointRef;
+    const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
+
+    auto selectMeasurementPoint = [this](configtool::LogicOperand &point) {
+        PointSelectorDialog selector(this);
+        selector.setProject(&m_configProjectManager.project());
+        selector.setServiceTypeFilter(configtool::ModelServiceType::Measurement);
+        selector.setWindowTitle(QStringLiteral("选择遥测点"));
+        if (selector.exec() != QDialog::Accepted) {
+            return false;
+        }
+
+        const PointSelectorDialog::SelectedPoint selected = selector.selectedPoint();
+        if (!selected.valid) {
+            return false;
+        }
+
+        point.deviceId = selected.deviceId;
+        point.dataRef = selected.dataRef;
+        return true;
+    };
+
+    auto *mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setContentsMargins(16, 16, 16, 16);
+    mainLayout->setSpacing(12);
+
+    auto *titleLabel = new QLabel(
+        QStringLiteral("遥测点加上固定值后，计算结果仍写回同一个点；填写负数即为减法"),
+        &dialog);
+    QFont titleFont = titleLabel->font();
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    titleLabel->setWordWrap(true);
+    mainLayout->addWidget(titleLabel);
+
+    auto *sceneLayout = new QHBoxLayout();
+    sceneLayout->setSpacing(14);
+
+    auto *pointBtn = new QPushButton(&dialog);
+    pointBtn->setMinimumSize(220, 110);
+    pointBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    sceneLayout->addWidget(pointBtn, 1);
+
+    auto *middlePanel = new QWidget(&dialog);
+    auto *middleLayout = new QVBoxLayout(middlePanel);
+    middleLayout->setContentsMargins(0, 0, 0, 0);
+    middleLayout->setSpacing(8);
+    auto *plusLabel = new QLabel(QStringLiteral("+"), &dialog);
+    plusLabel->setAlignment(Qt::AlignCenter);
+    QFont opFont = plusLabel->font();
+    opFont.setBold(true);
+    opFont.setPointSize(18);
+    plusLabel->setFont(opFont);
+    auto *fixedValueEdit = new QDoubleSpinBox(&dialog);
+    fixedValueEdit->setDecimals(6);
+    fixedValueEdit->setRange(-1000000000.0, 1000000000.0);
+    fixedValueEdit->setValue(0.0);
+    fixedValueEdit->setSingleStep(1.0);
+    fixedValueEdit->setPrefix(QStringLiteral("固定值 "));
+    fixedValueEdit->setMinimumWidth(190);
+    auto *equalsLabel = new QLabel(QStringLiteral("=> 同一点"), &dialog);
+    equalsLabel->setAlignment(Qt::AlignCenter);
+    middleLayout->addWidget(plusLabel);
+    middleLayout->addWidget(fixedValueEdit);
+    middleLayout->addWidget(equalsLabel);
+    sceneLayout->addWidget(middlePanel);
+    mainLayout->addLayout(sceneLayout, 1);
+
+    auto updatePoint = [&]() {
+        updateLogicPointButton(pointBtn, QStringLiteral("遥测点"), pointRef, displayResolver);
+    };
+    connect(pointBtn, &QPushButton::clicked, &dialog, [&]() {
+        if (selectMeasurementPoint(pointRef)) {
+            updatePoint();
+        }
+    });
+    updatePoint();
+
+    auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(QStringLiteral("生成"));
+    buttonBox->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    mainLayout->addWidget(buttonBox);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, [&]() {
+        if (pointRef.deviceId.trimmed().isEmpty() || pointRef.dataRef.trimmed().isEmpty()) {
+            QMessageBox::information(&dialog, QStringLiteral("加减固定值"), QStringLiteral("请先选择遥测点。"));
+            return;
+        }
+        dialog.accept();
+    });
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    configtool::LogicComputationPoint point;
+    point.deviceId = pointRef.deviceId;
+    point.dataRef = pointRef.dataRef;
+    point.dropOperands = true;
+    point.description = QStringLiteral("可视化模板生成: 加减固定值");
+    point.operands.append(pointRef);
+    point.formula = QStringLiteral("{1} + %1").arg(doubleToUiText(fixedValueEdit->value()));
 
     configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
     pushConfigUndoSnapshot();

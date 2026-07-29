@@ -682,7 +682,10 @@ QList<PointBinding> bindingsForExport(const ProtocolDeviceInstance &device,
 
     for (int index = 0; index < device.bindings.size(); ++index) {
         const PointBinding &binding = device.bindings.at(index);
-        if (!binding.enabled || (!allowEmptyAddress && binding.address.trimmed().isEmpty())) {
+        if (!binding.enabled
+            || (!allowEmptyAddress
+                && !isVirtualPointBinding(binding)
+                && binding.address.trimmed().isEmpty())) {
             continue;
         }
 
@@ -1293,7 +1296,7 @@ QSet<QString> duplicateBindingAddresses(const ProtocolDeviceInstance &device)
     QSet<QString> duplicateAddresses;
 
     for (const PointBinding &binding : device.bindings) {
-        if (!binding.enabled) {
+        if (!binding.enabled || isVirtualPointBinding(binding)) {
             continue;
         }
 
@@ -1343,7 +1346,7 @@ QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(const QLi
         QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
 
         for (const PointBinding &binding : device.bindings) {
-            if (!binding.enabled) {
+            if (!binding.enabled || isVirtualPointBinding(binding)) {
                 continue;
             }
 
@@ -1467,7 +1470,9 @@ QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalChannel(
         QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
 
         for (const PointBinding &binding : device.bindings) {
-            if (!binding.enabled || !binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
+            if (!binding.enabled
+                || isVirtualPointBinding(binding)
+                || !binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
                 continue;
             }
 

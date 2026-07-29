@@ -142,7 +142,9 @@ bool ConfigProjectManager::exportIec104AppDirectory(const QString &appDir,
         }
 
         for (const PointBinding &binding : device.bindings) {
-            if (binding.enabled && binding.address.trimmed().isEmpty()) {
+            if (binding.enabled
+                && !isVirtualPointBinding(binding)
+                && binding.address.trimmed().isEmpty()) {
                 report.addIssue(ImportIssueSeverity::Error,
                                 device.source.filePath.isEmpty() ? device.deviceId : device.source.filePath,
                                 QStringLiteral("设备 %1 存在启用但未填写地址的点位：%2")
@@ -334,7 +336,7 @@ bool ConfigProjectManager::exportModbusAppDirectory(const QString &appDir,
         }
 
         for (const PointBinding &binding : device.bindings) {
-            if (!binding.enabled || virtualDevice) {
+            if (!binding.enabled || virtualDevice || isVirtualPointBinding(binding)) {
                 continue;
             }
             if (binding.address.trimmed().isEmpty()) {
@@ -510,7 +512,7 @@ bool ConfigProjectManager::exportDlt645AppDirectory(const QString &appDir,
         }
 
         for (const PointBinding &binding : device.bindings) {
-            if (!binding.enabled) {
+            if (!binding.enabled || isVirtualPointBinding(binding)) {
                 continue;
             }
             if (binding.address.trimmed().isEmpty()) {

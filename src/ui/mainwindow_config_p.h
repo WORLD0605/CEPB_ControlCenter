@@ -68,7 +68,7 @@ inline constexpr int Iec104ColumnAddress = 3;
 inline constexpr int Iec104ColumnSelfSignal = 4;
 inline constexpr int Iec104ColumnInitValue = 5;
 inline constexpr int Iec104ColumnRetain = 6;
-inline constexpr int ModbusBindingColumnCount = 11;
+inline constexpr int ModbusBindingColumnCount = 12;
 inline constexpr int ModbusColumnEnabled = 0;
 inline constexpr int ModbusColumnKind = 1;
 inline constexpr int ModbusColumnDataRef = 2;
@@ -77,9 +77,10 @@ inline constexpr int ModbusColumnFunCode = 4;
 inline constexpr int ModbusColumnRegister = 5;
 inline constexpr int ModbusColumnDataType = 6;
 inline constexpr int ModbusColumnScale = 7;
-inline constexpr int ModbusColumnPrecontrolPoint = 8;
-inline constexpr int ModbusColumnPrecontrolValue = 9;
-inline constexpr int ModbusColumnAdvanced = 10;
+inline constexpr int ModbusColumnSelfSignal = 8;
+inline constexpr int ModbusColumnInitValue = 9;
+inline constexpr int ModbusColumnRetain = 10;
+inline constexpr int ModbusColumnAdvanced = 11;
 inline constexpr int Dlt645BindingColumnCount = 15;
 inline constexpr int Dlt645ColumnEnabled = 0;
 inline constexpr int Dlt645ColumnKind = 1;
@@ -224,7 +225,7 @@ inline QHash<QString, QSet<QString>> duplicateIec104BindingAddressesByChannel(
         QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
 
         for (const configtool::PointBinding &binding : device.bindings) {
-            if (!binding.enabled) {
+            if (!binding.enabled || configtool::isVirtualPointBinding(binding)) {
                 continue;
             }
 
@@ -361,7 +362,9 @@ inline QHash<QString, QSet<QString>> duplicateModbusRegisterAddressesByPhysicalC
         QSet<QString> &duplicateAddresses = duplicateAddressesByChannel[channelKey];
 
         for (const configtool::PointBinding &binding : device.bindings) {
-            if (!binding.enabled || !binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
+            if (!binding.enabled
+                || configtool::isVirtualPointBinding(binding)
+                || !binding.extensions.contains(QStringLiteral("modbusRegisterAddress"))) {
                 continue;
             }
 
