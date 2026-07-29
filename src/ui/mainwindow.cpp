@@ -1301,7 +1301,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_modelManufacturerIdEdit = new QLineEdit(this);
     m_modelManufacturerDescEdit = new QLineEdit(this);
     m_modelSchemaEdit = new QLineEdit(this);
-    m_modelNorthVisibleCheck = new QCheckBox(QStringLiteral("北向可见"), this);
+    m_modelNorthVisibleCheck = new QCheckBox(QStringLiteral("用于控制北向CEP主站是否可见该模型"), this);
     m_modelNorthVisibleCheck->setChecked(true);
     for (QLineEdit *edit : {m_modelIdEdit,
                             m_modelDisplayNameEdit,
@@ -1319,7 +1319,7 @@ MainWindow::MainWindow(QWidget *parent)
     modelFormLayout->addRow("厂家ID:", m_modelManufacturerIdEdit);
     modelFormLayout->addRow("厂家描述:", m_modelManufacturerDescEdit);
     modelFormLayout->addRow("Schema:", m_modelSchemaEdit);
-    modelFormLayout->addRow(QStringLiteral("北向:"), m_modelNorthVisibleCheck);
+    modelFormLayout->addRow(QStringLiteral("北向可见:"), m_modelNorthVisibleCheck);
     modelDetailLayout->addWidget(modelFormFrame);
     auto *pointToolbar = new QHBoxLayout();
     pointToolbar->setSpacing(8);

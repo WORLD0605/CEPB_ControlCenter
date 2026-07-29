@@ -2302,8 +2302,7 @@ void MainWindow::onUploadConfigClicked()
     }
 
     progress.setValue(4);
-    statusBar()->showMessage(QStringLiteral("配置上传完成"), 8000);
-    QMessageBox::information(this, QStringLiteral("上传配置"), QStringLiteral("配置上传完成。"));
+    statusBar()->showMessage(QStringLiteral("配置上传成功"), 8000);
 }
 
 void MainWindow::onDownloadConfigClicked()
