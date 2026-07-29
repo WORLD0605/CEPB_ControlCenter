@@ -5,6 +5,138 @@ using namespace cepb_config_helpers;
 
 namespace {
 
+struct ModelPointCellEdit {
+    int row = -1;
+    int column = -1;
+    QString text;
+};
+
+void applyModelPointCellValue(configtool::PointTemplate &point,
+                              int column,
+                              const QString &text)
+{
+    const QString value = text.trimmed();
+    switch (column) {
+    case ModelPointColumnDoName:
+        point.name = value;
+        point.doName = value;
+        break;
+    case ModelPointColumnDescription:
+        point.description = value;
+        break;
+    case ModelPointColumnLdName:
+        point.ldName = value;
+        break;
+    case ModelPointColumnLnType:
+        point.lnType = value;
+        break;
+    case ModelPointColumnLnInst:
+        point.lnInst = value;
+        break;
+    case ModelPointColumnDataType:
+        point.dataType = normalizedModelDataType(point.category, value);
+        updateModelPointControlKind(point);
+        break;
+    case ModelPointColumnUnit:
+        point.unit = value;
+        break;
+    default:
+        break;
+    }
+}
+
+QHash<QString, int> modelDataRefCounts(const configtool::ModelTemplate &model)
+{
+    QHash<QString, int> counts;
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            const QString dataRef = point.dataRef().trimmed();
+            if (!dataRef.isEmpty()) {
+                counts[dataRef] += 1;
+            }
+        }
+    }
+    return counts;
+}
+
+QString newlyIntroducedDuplicateDataRef(const configtool::ModelTemplate &before,
+                                        const configtool::ModelTemplate &after)
+{
+    const QHash<QString, int> beforeCounts = modelDataRefCounts(before);
+    const QHash<QString, int> afterCounts = modelDataRefCounts(after);
+    for (auto it = afterCounts.constBegin(); it != afterCounts.constEnd(); ++it) {
+        if (it.value() > 1 && it.value() > beforeCounts.value(it.key())) {
+            return it.key();
+        }
+    }
+    return QString();
+}
+
+bool modelUsesDataRefOutsidePoint(const configtool::ModelTemplate &model,
+                                  const QString &pointId,
+                                  const QString &dataRef);
+
+QString conflictingChangedDataRef(const configtool::ModelTemplate &before,
+                                  const configtool::ModelTemplate &after)
+{
+    QHash<QString, QString> oldDataRefsByPointId;
+    for (const configtool::ServiceTemplate &service : before.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            oldDataRefsByPointId.insert(point.pointId, point.dataRef().trimmed());
+        }
+    }
+
+    for (const configtool::ServiceTemplate &service : after.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            const QString newDataRef = point.dataRef().trimmed();
+            if (newDataRef != oldDataRefsByPointId.value(point.pointId)
+                && modelUsesDataRefOutsidePoint(before, point.pointId, newDataRef)) {
+                return newDataRef;
+            }
+        }
+    }
+    return QString();
+}
+
+bool modelUsesDataRefOutsidePoint(const configtool::ModelTemplate &model,
+                                  const QString &pointId,
+                                  const QString &dataRef)
+{
+    const QString targetDataRef = dataRef.trimmed();
+    if (targetDataRef.isEmpty()) {
+        return false;
+    }
+
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            if (point.pointId != pointId && point.dataRef().trimmed() == targetDataRef) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+QString uniqueModelPointDoName(const configtool::ModelTemplate &model,
+                               const configtool::PointTemplate &point,
+                               const QString &preferredDoName)
+{
+    const QString baseName = preferredDoName.trimmed().isEmpty()
+        ? QStringLiteral("NewPoint")
+        : preferredDoName.trimmed();
+    QString candidateName = baseName;
+    int suffix = 2;
+    while (true) {
+        configtool::PointTemplate candidate = point;
+        candidate.name = candidateName;
+        candidate.doName = candidateName;
+        if (!modelUsesDataRefOutsidePoint(model, point.pointId, candidate.dataRef())) {
+            return candidateName;
+        }
+        candidateName = QStringLiteral("%1%2").arg(baseName).arg(suffix++);
+    }
+}
+
 void configureCompactTableButton(QPushButton *button, bool warning = false)
 {
     if (!button) {
@@ -1057,7 +1189,7 @@ void MainWindow::onAddPointClicked()
     point.category = newPointType;
     point.signalType = signalTypeForModelService(newPointType);
     point.controlKind = controlKindFromModelPointUiType(newPointUiType);
-    const int nextIndex = service->points.size() + 1;
+    int nextIndex = service->points.size() + 1;
     point.name = QStringLiteral("NewPoint%1").arg(nextIndex);
     point.description = QStringLiteral("新建点位%1").arg(nextIndex);
     point.ldName = QStringLiteral("PROT");
@@ -1066,6 +1198,12 @@ void MainWindow::onAddPointClicked()
     point.doName = point.name;
     point.doType = defaultModelDoTypeForUiType(newPointUiType);
     point.dataType = defaultModelDataTypeForUiType(newPointUiType);
+    while (modelUsesDataRefOutsidePoint(model, point.pointId, point.dataRef())) {
+        point.name = QStringLiteral("NewPoint%1").arg(++nextIndex);
+        point.doName = point.name;
+        point.description = QStringLiteral("新建点位%1").arg(nextIndex);
+    }
+    point.doName = point.name;
     service->points.append(point);
     const int syncedBindingCount = syncDeviceBindingsForModel(model.modelId);
 
@@ -1198,7 +1336,9 @@ void MainWindow::onCopyPointClicked()
 
     configtool::PointTemplate copied = service.points.at(pointLocation.second);
     copied.pointId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    copied.name += QStringLiteral("_copy");
+    copied.name = uniqueModelPointDoName(model,
+                                        copied,
+                                        copied.doName + QStringLiteral("_copy"));
     copied.doName = copied.name;
     copied.description += QStringLiteral("-副本");
     service.points.insert(pointLocation.second + 1, copied);
@@ -2055,10 +2195,30 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
         return;
     }
 
-    pushConfigUndoSnapshot();
     const int editedRow = item->row();
     const int editedColumn = item->column();
     const QString pointId = service.points.at(pointIndex).pointId;
+    if (editedColumn != ModelPointColumnNorthVisible) {
+        configtool::PointTemplate candidate = service.points.at(pointIndex);
+        const QString oldDataRef = candidate.dataRef().trimmed();
+        applyModelPointCellValue(candidate, editedColumn, item->text());
+        const QString newDataRef = candidate.dataRef().trimmed();
+        if (newDataRef != oldDataRef
+            && modelUsesDataRefOutsidePoint(model, pointId, newDataRef)) {
+            refreshModelDetail(modelIndex);
+            selectModelPointById(pointId);
+            m_modelPointsTable->setCurrentCell(editedRow, editedColumn);
+            QMessageBox::warning(
+                this,
+                QStringLiteral("DataRef 重复"),
+                QStringLiteral("修改已取消：同一模型内已存在 DataRef“%1”。\n"
+                               "请调整 LDname、LNtype、LNinst 或 DOname。")
+                    .arg(newDataRef));
+            return;
+        }
+    }
+
+    pushConfigUndoSnapshot();
     if (editedColumn == ModelPointColumnNorthVisible) {
         service.points[pointIndex].northVisible = item->checkState() == Qt::Checked;
     } else {
@@ -2103,41 +2263,25 @@ void MainWindow::applyModelPointCellText(int row, int column, const QString &tex
     configtool::PointTemplate &point = service.points[pointIndex];
     const QString oldDataRef = point.dataRef();
     const QString oldDescription = point.description;
-    const QString value = text.trimmed();
+    configtool::PointTemplate updatedPoint = point;
+    applyModelPointCellValue(updatedPoint, column, text);
+    const QString newDataRef = updatedPoint.dataRef();
+    if (!m_updatingModelPointsTable
+        && newDataRef.trimmed() != oldDataRef.trimmed()
+        && modelUsesDataRefOutsidePoint(model, point.pointId, newDataRef)) {
+        return;
+    }
+
+    point = updatedPoint;
     int descriptionSyncCount = 0;
-    switch (column) {
-    case ModelPointColumnDoName:
-        point.name = value;
-        point.doName = point.name;
-        break;
-    case ModelPointColumnDescription:
-        point.description = value;
+    if (column == ModelPointColumnDescription) {
         descriptionSyncCount = syncModelPointDescriptionToDeviceBindings(model.modelId,
                                                                          point,
                                                                          oldDescription,
                                                                          point.description);
-        break;
-    case ModelPointColumnLdName:
-        point.ldName = value;
-        break;
-    case ModelPointColumnLnType:
-        point.lnType = value;
-        break;
-    case ModelPointColumnLnInst:
-        point.lnInst = value;
-        break;
-    case ModelPointColumnDataType:
-        point.dataType = normalizedModelDataType(point.category, value);
-        updateModelPointControlKind(point);
+    } else if (column == ModelPointColumnDataType) {
         syncModelPointCategoryToDeviceBindings(model.modelId, point);
-        break;
-    case ModelPointColumnUnit:
-        point.unit = value;
-        break;
-    default:
-        break;
     }
-    const QString newDataRef = point.dataRef();
     const int renamedReferenceCount = renameModelPointReferences(model.modelId, oldDataRef, newDataRef);
     if (renamedReferenceCount > 0) {
         statusBar()->showMessage(QStringLiteral("已同步更新 %1 处点位引用").arg(renamedReferenceCount), 5000);
@@ -2909,27 +3053,24 @@ void MainWindow::pasteClipboardIntoModelPointsTable()
         return;
     }
 
-    pushConfigUndoSnapshot();
-    m_updatingModelPointsTable = true;
+    QList<ModelPointCellEdit> edits;
+    auto appendEdit = [&](int row, int column, const QString &value) {
+        QTableWidgetItem *item = m_modelPointsTable->item(row, column);
+        if (item && (item->flags() & Qt::ItemIsEditable)) {
+            edits.append(ModelPointCellEdit{row, column, value});
+        }
+    };
     if (useSelectedCells && clipboardRows.size() == 1 && clipboardRows.first().size() == 1) {
         const QString value = clipboardRows.first().first();
         for (const QModelIndex &target : targets) {
-            if (QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
-                item && (item->flags() & Qt::ItemIsEditable)) {
-                item->setText(value);
-                applyModelPointCellText(target.row(), target.column(), value);
-            }
+            appendEdit(target.row(), target.column(), value);
         }
     } else if (useSelectedCells && clipboardRows.size() * clipboardRows.first().size() == targets.size()) {
         int valueIndex = 0;
         for (const QStringList &clipboardRow : clipboardRows) {
             for (const QString &value : clipboardRow) {
                 const QModelIndex target = targets.at(valueIndex++);
-                if (QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
-                    item && (item->flags() & Qt::ItemIsEditable)) {
-                    item->setText(value);
-                    applyModelPointCellText(target.row(), target.column(), value);
-                }
+                appendEdit(target.row(), target.column(), value);
             }
         }
     } else {
@@ -2943,25 +3084,62 @@ void MainWindow::pasteClipboardIntoModelPointsTable()
                 if (column >= m_modelPointsTable->columnCount()) {
                     break;
                 }
-                if (QTableWidgetItem *item = m_modelPointsTable->item(row, column);
-                    item && (item->flags() & Qt::ItemIsEditable)) {
-                    const QString value = clipboardRows.at(rowOffset).at(columnOffset);
-                    item->setText(value);
-                    applyModelPointCellText(row, column, value);
-                }
+                appendEdit(row, column, clipboardRows.at(rowOffset).at(columnOffset));
             }
+        }
+    }
+
+    const int modelIndex = currentConfigModelIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (edits.isEmpty() || modelIndex < 0 || modelIndex >= project.models.size()) {
+        return;
+    }
+
+    const configtool::ModelTemplate beforeModel = project.models.at(modelIndex);
+    configtool::ModelTemplate candidateModel = beforeModel;
+    for (const ModelPointCellEdit &edit : edits) {
+        QTableWidgetItem *anchorItem = m_modelPointsTable->item(edit.row, ModelPointColumnDragHandle);
+        if (!anchorItem) {
+            continue;
+        }
+        const int serviceIndex = anchorItem->data(Qt::UserRole).toInt();
+        const int pointIndex = anchorItem->data(Qt::UserRole + 1).toInt();
+        if (serviceIndex >= 0
+            && serviceIndex < candidateModel.services.size()
+            && pointIndex >= 0
+            && pointIndex < candidateModel.services.at(serviceIndex).points.size()) {
+            applyModelPointCellValue(candidateModel.services[serviceIndex].points[pointIndex],
+                                     edit.column,
+                                     edit.text);
+        }
+    }
+
+    QString duplicateDataRef = newlyIntroducedDuplicateDataRef(beforeModel, candidateModel);
+    if (duplicateDataRef.isEmpty()) {
+        duplicateDataRef = conflictingChangedDataRef(beforeModel, candidateModel);
+    }
+    if (!duplicateDataRef.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("DataRef 重复"),
+            QStringLiteral("粘贴已取消：操作会在同一模型内产生重复 DataRef“%1”。\n"
+                           "请调整 LDname、LNtype、LNinst 或 DOname 后重试。")
+                .arg(duplicateDataRef));
+        return;
+    }
+
+    pushConfigUndoSnapshot();
+    m_updatingModelPointsTable = true;
+    for (const ModelPointCellEdit &edit : edits) {
+        if (QTableWidgetItem *item = m_modelPointsTable->item(edit.row, edit.column)) {
+            item->setText(edit.text);
+            applyModelPointCellText(edit.row, edit.column, edit.text);
         }
     }
     m_updatingModelPointsTable = false;
 
-    const int modelIndex = currentConfigModelIndex();
     int syncedBindingCount = 0;
-    if (modelIndex >= 0) {
-        configtool::ConfigProject &project = m_configProjectManager.project();
-        if (modelIndex < project.models.size()) {
-            syncedBindingCount = syncDeviceBindingsForModel(project.models.at(modelIndex).modelId);
-        }
-    }
+    syncedBindingCount = syncDeviceBindingsForModel(project.models.at(modelIndex).modelId);
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
@@ -3060,6 +3238,46 @@ void MainWindow::clearSelectedModelPointCells()
         return;
     }
 
+    const int modelIndex = currentConfigModelIndex();
+    configtool::ConfigProject &project = m_configProjectManager.project();
+    if (modelIndex < 0 || modelIndex >= project.models.size()) {
+        return;
+    }
+
+    const configtool::ModelTemplate beforeModel = project.models.at(modelIndex);
+    configtool::ModelTemplate candidateModel = beforeModel;
+    for (const QModelIndex &target : targets) {
+        QTableWidgetItem *item = m_modelPointsTable->item(target.row(), target.column());
+        QTableWidgetItem *anchorItem = m_modelPointsTable->item(target.row(), ModelPointColumnDragHandle);
+        if (!item || !(item->flags() & Qt::ItemIsEditable) || item->text().isEmpty() || !anchorItem) {
+            continue;
+        }
+        const int serviceIndex = anchorItem->data(Qt::UserRole).toInt();
+        const int pointIndex = anchorItem->data(Qt::UserRole + 1).toInt();
+        if (serviceIndex >= 0
+            && serviceIndex < candidateModel.services.size()
+            && pointIndex >= 0
+            && pointIndex < candidateModel.services.at(serviceIndex).points.size()) {
+            applyModelPointCellValue(candidateModel.services[serviceIndex].points[pointIndex],
+                                     target.column(),
+                                     QString());
+        }
+    }
+
+    QString duplicateDataRef = newlyIntroducedDuplicateDataRef(beforeModel, candidateModel);
+    if (duplicateDataRef.isEmpty()) {
+        duplicateDataRef = conflictingChangedDataRef(beforeModel, candidateModel);
+    }
+    if (!duplicateDataRef.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("DataRef 重复"),
+            QStringLiteral("清空已取消：操作会在同一模型内产生重复 DataRef“%1”。\n"
+                           "请保留唯一的 LDname、LNtype、LNinst 或 DOname。")
+                .arg(duplicateDataRef));
+        return;
+    }
+
     pushConfigUndoSnapshot();
     m_updatingModelPointsTable = true;
     for (const QModelIndex &target : targets) {
@@ -3071,14 +3289,8 @@ void MainWindow::clearSelectedModelPointCells()
     }
     m_updatingModelPointsTable = false;
 
-    const int modelIndex = currentConfigModelIndex();
     int syncedBindingCount = 0;
-    if (modelIndex >= 0) {
-        configtool::ConfigProject &project = m_configProjectManager.project();
-        if (modelIndex < project.models.size()) {
-            syncedBindingCount = syncDeviceBindingsForModel(project.models.at(modelIndex).modelId);
-        }
-    }
+    syncedBindingCount = syncDeviceBindingsForModel(project.models.at(modelIndex).modelId);
     refreshConfigObjectViews();
     if (modelIndex < m_configModelTable->rowCount()) {
         m_configModelTable->selectRow(modelIndex);
