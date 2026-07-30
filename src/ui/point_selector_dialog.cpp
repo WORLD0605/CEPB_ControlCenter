@@ -139,6 +139,17 @@ void PointSelectorDialog::setServiceTypeFilter(configtool::ModelServiceType type
     }
 }
 
+void PointSelectorDialog::setRequireKnownServiceType(bool required)
+{
+    m_requireKnownServiceType = required;
+    if (required) {
+        const int allTypesIndex = m_typeCombo->findData(-1);
+        m_typeCombo->setCurrentIndex(allTypesIndex >= 0 ? allTypesIndex : 0);
+        saveFilterState();
+    }
+    refreshPointTable();
+}
+
 void PointSelectorDialog::setFixedDeviceFilter(const QString &deviceId)
 {
     const int index = m_deviceCombo->findData(deviceId.trimmed());
@@ -325,6 +336,9 @@ void PointSelectorDialog::refreshPointTable()
 
     int visibleRow = 0;
     for (const PointRow &row : rows) {
+        if (m_requireKnownServiceType && !row.hasServiceType) {
+            continue;
+        }
         if (m_filterAllowedDataRefs && !m_allowedDataRefs.contains(row.dataRef.trimmed())) {
             continue;
         }

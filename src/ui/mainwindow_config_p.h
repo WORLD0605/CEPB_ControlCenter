@@ -2,6 +2,7 @@
 
 #include "mainwindow.h"
 #include "config/modbus_mapping_utils.h"
+#include "config/simple_expression_evaluator.h"
 #include "ui/point_selector_dialog.h"
 
 #include <algorithm>
@@ -172,11 +173,10 @@ inline constexpr int LogicControlRuleColumnDevice = 0;
 inline constexpr int LogicControlRuleColumnPoint = 1;
 inline constexpr int LogicControlRuleColumnTargetCount = 2;
 inline constexpr int LogicControlRuleColumnDescription = 3;
-inline constexpr int LogicControlTargetColumnType = 0;
-inline constexpr int LogicControlTargetColumnDevice = 1;
-inline constexpr int LogicControlTargetColumnPoint = 2;
-inline constexpr int LogicControlTargetColumnExpr = 3;
-inline constexpr int LogicControlTargetColumnPreview = 4;
+inline constexpr int LogicControlTargetColumnDevice = 0;
+inline constexpr int LogicControlTargetColumnPoint = 1;
+inline constexpr int LogicControlTargetColumnExpr = 2;
+inline constexpr int LogicControlTargetColumnPreview = 3;
 inline constexpr int ConfigIssueRoleTargetType = Qt::UserRole + 1;
 inline constexpr int ConfigIssueRoleTargetKey = Qt::UserRole + 2;
 inline constexpr const char *ModelEditorOriginalModelIdProperty = "originalModelId";
@@ -1106,12 +1106,27 @@ inline bool isLogicControlTotalTarget(const configtool::LogicControlTarget &targ
         || target.dataRef.contains(QStringLiteral("TotalQ_Ctrl"), Qt::CaseInsensitive);
 }
 
-inline QString expandedLogicControlExpression(const QString &expr, const QString &xValue)
+inline QString logicControlExpressionResult(const QString &expr, const QString &xValue)
 {
+    bool xOk = false;
+    const double x = xValue.trimmed().toDouble(&xOk);
+    if (!xOk) {
+        return QStringLiteral("无法计算：模拟 CtrlVal 不是有效数值");
+    }
+
     QString expanded = expr;
-    expanded.replace(QStringLiteral("{x}"), xValue.trimmed().isEmpty() ? QStringLiteral("0") : xValue.trimmed());
     static const QRegularExpression realtimeRefPattern(QStringLiteral("\\{rt:([^{}]+)\\}"));
-    return expanded.replace(realtimeRefPattern, QStringLiteral("<实时:$1>"));
+    const QRegularExpressionMatch realtimeMatch = realtimeRefPattern.match(expanded);
+    if (realtimeMatch.hasMatch()) {
+        return QStringLiteral("无法计算：缺少实时值 %1").arg(realtimeMatch.captured(1).trimmed());
+    }
+
+    expanded.replace(QStringLiteral("{x}"), QString::number(x, 'g', 15));
+    double result = 0.0;
+    if (!configtool::evaluateSimpleExpression(expanded, &result)) {
+        return QStringLiteral("计算失败：请检查表达式");
+    }
+    return doubleToUiText(result);
 }
 
 // formulaOperandCount was originally defined in the middle of the file;

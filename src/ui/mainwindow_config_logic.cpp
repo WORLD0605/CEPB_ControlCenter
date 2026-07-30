@@ -101,6 +101,48 @@ QString logicPointToolTip(const QString &deviceId, const QString &dataRef)
     return QStringLiteral("点位标识：%1#%2").arg(deviceId.trimmed(), dataRef.trimmed());
 }
 
+QString logicControlTargetType(configtool::ModelServiceType serviceType)
+{
+    return serviceType == configtool::ModelServiceType::Control
+        ? QStringLiteral("ctrlcmd")
+        : QStringLiteral("data_write");
+}
+
+bool resolveLogicPointServiceType(const configtool::ConfigProject &project,
+                                  const QString &deviceId,
+                                  const QString &dataRef,
+                                  configtool::ModelServiceType *serviceType)
+{
+    QString modelId;
+    for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        if (device.deviceId.trimmed() == deviceId.trimmed()) {
+            modelId = device.modelId.trimmed();
+            break;
+        }
+    }
+    if (modelId.isEmpty()) {
+        return false;
+    }
+
+    for (const configtool::ModelTemplate &model : project.models) {
+        if (model.modelId.trimmed() != modelId) {
+            continue;
+        }
+        for (const configtool::ServiceTemplate &service : model.services) {
+            for (const configtool::PointTemplate &point : service.points) {
+                if (point.dataRef().trimmed() == dataRef.trimmed()) {
+                    if (serviceType) {
+                        *serviceType = service.type;
+                    }
+                    return true;
+                }
+            }
+        }
+        break;
+    }
+    return false;
+}
+
 void updateLogicPointButton(QPushButton *button,
                             const QString &title,
                             const configtool::LogicOperand &point,
@@ -2018,14 +2060,10 @@ void MainWindow::refreshLogicControlTargetTable()
     m_logicControlTargetTable->setRowCount(targets.size());
     for (int row = 0; row < targets.size(); ++row) {
         const configtool::LogicControlTarget &target = targets.at(row);
-        const QString targetType = target.targetType.trimmed().isEmpty()
-            ? QStringLiteral("ctrlcmd")
-            : target.targetType.trimmed().toLower();
-        const QString preview = expandedLogicControlExpression(
+        const QString preview = logicControlExpressionResult(
             target.expr,
             m_logicControlPreviewValueEdit ? m_logicControlPreviewValueEdit->text() : QStringLiteral("1"));
         const QStringList values = {
-            targetType,
             target.deviceId,
             displayResolver.displayText(target.deviceId, target.dataRef),
             target.expr,
@@ -2033,9 +2071,6 @@ void MainWindow::refreshLogicControlTargetTable()
         };
         for (int column = 0; column < values.size(); ++column) {
             auto *item = new QTableWidgetItem(values.at(column));
-            if (column == LogicControlTargetColumnType) {
-                item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-            }
             if (column == LogicControlTargetColumnPreview) {
                 item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             }
@@ -2052,60 +2087,6 @@ void MainWindow::refreshLogicControlTargetTable()
             }
             m_logicControlTargetTable->setItem(row, column, item);
         }
-
-        auto *typeCombo = new QComboBox(m_logicControlTargetTable);
-        typeCombo->setObjectName(QStringLiteral("logicControlTargetTypeCombo"));
-        configureTableCellCombo(typeCombo, this);
-        typeCombo->addItem(QStringLiteral("ctrlcmd"), QStringLiteral("ctrlcmd"));
-        typeCombo->addItem(QStringLiteral("datawrite"), QStringLiteral("data_write"));
-        typeCombo->setPlaceholderText(QStringLiteral("请选择"));
-        QString typeToolTip = QStringLiteral("ctrlcmd：生成控制命令\ndatawrite：生成内部 DataWrite（配置值 data_write）");
-        if (isLogicControlTotalTarget(target)) {
-            typeToolTip += QStringLiteral("\n该目标会进入 AGC/AVC 总控分配逻辑。");
-        }
-        typeCombo->setToolTip(typeToolTip);
-        typeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-
-        const QString configuredType = targetType;
-        int typeIndex = typeCombo->findData(configuredType);
-        if (typeIndex < 0 && configuredType == QStringLiteral("datawrite")) {
-            typeIndex = typeCombo->findData(QStringLiteral("data_write"));
-        }
-        typeCombo->setCurrentIndex(typeIndex);
-
-        connect(typeCombo,
-                qOverload<int>(&QComboBox::currentIndexChanged),
-                this,
-                [this, typeCombo, ruleIndex, row](int index) {
-                    if (m_updatingLogicControlRulePage || m_restoringConfigUndo || index < 0) {
-                        return;
-                    }
-
-                    configtool::LogicCenterConfig &logic = m_configProjectManager.project().logicCenter;
-                    if (ruleIndex < 0 || ruleIndex >= logic.controlRules.size()
-                        || row < 0 || row >= logic.controlRules.at(ruleIndex).targets.size()) {
-                        return;
-                    }
-
-                    const QString selectedType = typeCombo->itemData(index).toString();
-                    configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
-                    if (target.targetType == selectedType) {
-                        return;
-                    }
-
-                    pushConfigUndoSnapshot();
-                    target.targetType = selectedType;
-                    refreshLogicCenterOverview();
-                    refreshLogicControlRulePage();
-                    m_logicControlRuleTable->selectRow(ruleIndex);
-                    if (row < m_logicControlTargetTable->rowCount()) {
-                        m_logicControlTargetTable->selectRow(row);
-                        m_logicControlTargetTable->setCurrentCell(row, LogicControlTargetColumnType);
-                    }
-                });
-
-        hideComboBackedItemText(m_logicControlTargetTable->item(row, LogicControlTargetColumnType));
-        m_logicControlTargetTable->setCellWidget(row, LogicControlTargetColumnType, typeCombo);
     }
     refreshLogicControlPreview();
 }
@@ -2274,6 +2255,13 @@ void MainWindow::onLogicControlTargetItemChanged(QTableWidgetItem *item)
     const QString text = item->text().trimmed();
     if (column == LogicControlTargetColumnDevice) {
         target.deviceId = text;
+        configtool::ModelServiceType serviceType;
+        if (resolveLogicPointServiceType(m_configProjectManager.project(),
+                                         target.deviceId,
+                                         target.dataRef,
+                                         &serviceType)) {
+            target.targetType = logicControlTargetType(serviceType);
+        }
     } else {
         target.expr = text;
     }
@@ -2345,8 +2333,8 @@ void MainWindow::selectLogicControlTargetPoint(int row)
 
     PointSelectorDialog dialog(this);
     dialog.setProject(&m_configProjectManager.project());
-    dialog.setServiceTypeFilter(configtool::ModelServiceType::Control);
-    dialog.setWindowTitle(QStringLiteral("选择目标遥控/遥调点"));
+    dialog.setRequireKnownServiceType(true);
+    dialog.setWindowTitle(QStringLiteral("选择目标点（动作类型自动识别）"));
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -2360,6 +2348,7 @@ void MainWindow::selectLogicControlTargetPoint(int row)
     configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
     target.deviceId = point.deviceId;
     target.dataRef = point.dataRef;
+    target.targetType = logicControlTargetType(point.serviceType);
     refreshLogicCenterOverview();
     refreshLogicControlRulePage();
     m_logicControlRuleTable->selectRow(ruleIndex);
@@ -2383,16 +2372,15 @@ void MainWindow::refreshLogicControlPreview()
         m_configProjectManager.project().logicCenter.controlRules;
     if (ruleIndex < 0 || ruleIndex >= rules.size()
         || targetRow < 0 || targetRow >= rules.at(ruleIndex).targets.size()) {
-        m_logicControlPreviewLabel->setText(QStringLiteral("选择目标动作后显示表达式展开结果。"));
+        m_logicControlPreviewLabel->setText(QStringLiteral("选择目标动作后显示公式计算结果。"));
         return;
     }
 
     const configtool::LogicControlTarget &target = rules.at(ruleIndex).targets.at(targetRow);
-    QString text = QStringLiteral("%1/%2: %3 => %4")
+    QString text = QStringLiteral("%1/%2：计算结果 = %3")
                        .arg(target.deviceId,
                             target.dataRef,
-                            target.expr,
-                            expandedLogicControlExpression(target.expr, m_logicControlPreviewValueEdit->text()));
+                            logicControlExpressionResult(target.expr, m_logicControlPreviewValueEdit->text()));
     if (isLogicControlTotalTarget(target)) {
         text += QStringLiteral("；该目标会进入 AGC/AVC 分配逻辑");
     }

@@ -1265,6 +1265,14 @@ QList<ConfigIssue> validateLogicCenterConfig(const LogicCenterConfig &config,
                                                   QStringLiteral("控制转换"),
                                                   objectId,
                                                   QStringLiteral("ctrlcmd 目标点 %1 不是模型中的控制类点位").arg(targetId)));
+                } else if (targetType == QStringLiteral("data_write")
+                           && !target.dataRef.trimmed().isEmpty()
+                           && projectControlPointExists(projectControlPointKeys, target.deviceId, target.dataRef)) {
+                    issues.append(makeConfigIssue(ConfigIssueSeverity::Warning,
+                                                  QStringLiteral("控制转换"),
+                                                  objectId,
+                                                  QStringLiteral("data_write 目标点 %1 是模型中的控制类点位，应按点位类型生成 ctrlcmd")
+                                                      .arg(targetId)));
                 }
             }
         }

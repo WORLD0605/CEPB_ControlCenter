@@ -33,6 +33,7 @@ public:
 
     void setProject(const configtool::ConfigProject *project);
     void setServiceTypeFilter(configtool::ModelServiceType type);
+    void setRequireKnownServiceType(bool required);
     void setFixedDeviceFilter(const QString &deviceId);
     void setAllowedDataRefs(const QSet<QString> &dataRefs);
     SelectedPoint selectedPoint() const;
@@ -64,6 +65,7 @@ private:
     const configtool::ConfigProject *m_project = nullptr;
     QSet<QString> m_allowedDataRefs;
     bool m_filterAllowedDataRefs = false;
+    bool m_requireKnownServiceType = false;
     QComboBox *m_deviceCombo = nullptr;
     QComboBox *m_typeCombo = nullptr;
     QLineEdit *m_searchEdit = nullptr;

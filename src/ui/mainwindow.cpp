@@ -2025,7 +2025,9 @@ MainWindow::MainWindow(QWidget *parent)
     logicControlLayout->setContentsMargins(0, 0, 0, 0);
     logicControlLayout->setSpacing(8);
     auto *logicControlHint = new QLabel(
-        QStringLiteral("控制转换只面向遥控/遥调下发点位。规则仅按源设备和源控制点匹配，CtrlType 随北向 CtrlCmd 原样复用。"),
+        QStringLiteral("源点仅面向遥控/遥调下发点位；目标点可选择遥测、遥信、遥控或遥调。"
+                       "目标动作为遥测/遥信时自动生成 DataWrite，为遥控/遥调时自动生成 CtrlCmd。"
+                       "规则仅按源设备和源控制点匹配，CtrlType 随北向 CtrlCmd 原样复用。"),
         this);
     logicControlHint->setWordWrap(true);
     logicControlLayout->addWidget(logicControlHint);
@@ -2084,15 +2086,14 @@ MainWindow::MainWindow(QWidget *parent)
     logicControlTargetToolbar->addStretch();
     logicControlTargetLayout->addLayout(logicControlTargetToolbar);
 
-    auto *logicControlTargetTable = new EnterToNextRowTableWidget(0, 5, this);
+    auto *logicControlTargetTable = new EnterToNextRowTableWidget(0, 4, this);
     logicControlTargetTable->enableEnterToNextRowEdit();
     m_logicControlTargetTable = logicControlTargetTable;
     m_logicControlTargetTable->setHorizontalHeaderLabels({
-        QStringLiteral("类型"),
         QStringLiteral("目标设备"),
         QStringLiteral("目标点"),
         QStringLiteral("表达式"),
-        QStringLiteral("预览")
+        QStringLiteral("计算结果")
     });
     m_logicControlTargetTable->setEditTriggers(QAbstractItemView::DoubleClicked
                                                | QAbstractItemView::SelectedClicked
@@ -2103,10 +2104,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicControlTargetTable->verticalHeader()->setVisible(false);
     m_logicControlTargetTable->horizontalHeader()->setStretchLastSection(true);
     m_logicControlTargetTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
-    m_logicControlTargetTable->setColumnWidth(0, 110);
-    m_logicControlTargetTable->setColumnWidth(1, 120);
-    m_logicControlTargetTable->setColumnWidth(2, 300);
-    m_logicControlTargetTable->setColumnWidth(3, 220);
+    m_logicControlTargetTable->setColumnWidth(0, 120);
+    m_logicControlTargetTable->setColumnWidth(1, 300);
+    m_logicControlTargetTable->setColumnWidth(2, 220);
     logicControlTargetLayout->addWidget(m_logicControlTargetTable, 1);
 
     auto *logicControlPreviewRow = new QHBoxLayout();
@@ -2114,7 +2114,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_logicControlPreviewValueEdit = new QLineEdit(QStringLiteral("1"), this);
     m_logicControlPreviewValueEdit->setMaximumWidth(160);
     logicControlPreviewRow->addWidget(m_logicControlPreviewValueEdit);
-    m_logicControlPreviewLabel = new QLabel(QStringLiteral("选择目标动作后显示表达式展开结果。"), this);
+    m_logicControlPreviewLabel = new QLabel(QStringLiteral("选择目标动作后显示公式计算结果。"), this);
     m_logicControlPreviewLabel->setWordWrap(true);
     logicControlPreviewRow->addWidget(m_logicControlPreviewLabel, 1);
     logicControlTargetLayout->addLayout(logicControlPreviewRow);

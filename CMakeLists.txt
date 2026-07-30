@@ -34,6 +34,7 @@ set(SOURCES
     src/config/config_modbus_importer.cpp
     src/config/config_project_export.cpp
     src/config/modbus_mapping_utils.cpp
+    src/config/simple_expression_evaluator.cpp
     src/config/config_project_manager.cpp
     src/network/debug_console_client.cpp
     src/network/ssh_client.cpp
@@ -60,6 +61,7 @@ set(HEADERS
     src/config/config_project_manager_p.h
     src/config/modbus_mapping_utils.h
     src/config/config_project_manager.h
+    src/config/simple_expression_evaluator.h
     src/network/debug_console_client.h
     src/network/ssh_client.h
     src/ui/mainwindow.h
