@@ -485,9 +485,11 @@ void MainWindow::pasteClipboardIntoIec101PointsTable()
 
     QModelIndexList targets = sortedEditableTargetIndexes(m_iec101PointsTable);
     const bool useSelectedCells = targets.size() > 1;
-    const int startRow = useSelectedCells ? targets.first().row() : m_iec101PointsTable->currentRow();
-    const int startColumn = useSelectedCells ? targets.first().column() : m_iec101PointsTable->currentColumn();
-    if (startRow < 0 || startColumn < 0) {
+    const int startRow = !targets.isEmpty()
+        ? targets.first().row() : m_iec101PointsTable->currentRow();
+    const int startColumn = !targets.isEmpty()
+        ? targets.first().column() : m_iec101PointsTable->currentColumn();
+    if (startRow < 0 || startColumn < 0 || m_iec101PointsTable->isRowHidden(startRow)) {
         return;
     }
 
@@ -516,12 +518,12 @@ void MainWindow::pasteClipboardIntoIec101PointsTable()
             }
         }
     } else {
-        // 从起始格开始逐行逐列粘贴
-        for (int rowOffset = 0; rowOffset < clipboardRows.size(); ++rowOffset) {
-            const int row = startRow + rowOffset;
-            if (row >= m_iec101PointsTable->rowCount()) {
-                break;
-            }
+        // 从起始格开始沿当前可见行粘贴，不能写入被页签或搜索条件隐藏的其他点位。
+        const QList<int> visibleRows = visibleTableRowsFrom(m_iec101PointsTable, startRow);
+        for (int rowOffset = 0;
+             rowOffset < clipboardRows.size() && rowOffset < visibleRows.size();
+             ++rowOffset) {
+            const int row = visibleRows.at(rowOffset);
             for (int columnOffset = 0; columnOffset < clipboardRows.at(rowOffset).size(); ++columnOffset) {
                 const int column = startColumn + columnOffset;
                 if (column >= m_iec101PointsTable->columnCount()) {

@@ -872,6 +872,9 @@ inline QModelIndexList sortedEditableTargetIndexes(QTableWidget *table)
     QModelIndexList indexes;
     if (table && table->selectionModel()) {
         indexes = table->selectionModel()->selectedIndexes();
+        indexes.erase(std::remove_if(indexes.begin(), indexes.end(), [table](const QModelIndex &index) {
+            return table->isRowHidden(index.row()) || table->isColumnHidden(index.column());
+        }), indexes.end());
     }
 
     std::sort(indexes.begin(), indexes.end(), [](const QModelIndex &left, const QModelIndex &right) {
@@ -882,6 +885,22 @@ inline QModelIndexList sortedEditableTargetIndexes(QTableWidget *table)
     });
 
     return indexes;
+}
+
+inline QList<int> visibleTableRowsFrom(QTableWidget *table, int startRow)
+{
+    QList<int> rows;
+    if (!table || startRow < 0 || startRow >= table->rowCount()) {
+        return rows;
+    }
+
+    rows.reserve(table->rowCount() - startRow);
+    for (int row = startRow; row < table->rowCount(); ++row) {
+        if (!table->isRowHidden(row)) {
+            rows.append(row);
+        }
+    }
+    return rows;
 }
 
 inline QString configIssueSeverityText(configtool::ConfigIssueSeverity severity)
