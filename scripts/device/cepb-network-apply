@@ -86,21 +86,21 @@ check_config()
     version_seen=0
     interface_count=0
     line_no=0
-    while IFS='|' read -r kind field1 field2 field3 field4 extra || [ -n "${kind}${field1}${field2}${field3}${field4}${extra}" ]; do
+    while IFS='|' read -r kind field1 field2 field3 field4 field5 extra || [ -n "${kind}${field1}${field2}${field3}${field4}${field5}${extra}" ]; do
         line_no=$((line_no + 1))
         case "$kind" in
             ''|'#'*) continue ;;
             VERSION)
                 [ "$version_seen" -eq 0 ] || fail "line $line_no: duplicate VERSION"
                 [ "$field1" = "1" ] || fail "line $line_no: unsupported VERSION $field1"
-                [ -z "${field2}${field3}${field4}${extra}" ] || fail "line $line_no: too many fields"
+                [ -z "${field2}${field3}${field4}${field5}${extra}" ] || fail "line $line_no: too many fields"
                 version_seen=1
                 ;;
             INTERFACE)
                 valid_interface "$field1" || fail "line $line_no: invalid interface $field1"
                 valid_ipv4 "$field2" || fail "line $line_no: invalid IPv4 address $field2"
                 valid_prefix "$field3" || fail "line $line_no: invalid prefix $field3"
-                [ -z "${field4}${extra}" ] || fail "line $line_no: too many fields"
+                [ -z "${field4}${field5}${extra}" ] || fail "line $line_no: too many fields"
                 ip link show "$field1" >/dev/null 2>&1 || fail "line $line_no: interface $field1 does not exist"
                 interface_count=$((interface_count + 1))
                 ;;
@@ -109,14 +109,16 @@ check_config()
                 gateway=$field2
                 device=$field3
                 metric=$field4
+                source=$field5
                 network=${destination%/*}
                 prefix=${destination#*/}
                 [ "$network" != "$destination" ] || fail "line $line_no: route destination must use CIDR"
                 valid_ipv4 "$network" || fail "line $line_no: invalid route destination $destination"
                 valid_prefix "$prefix" || fail "line $line_no: invalid route prefix $prefix"
-                valid_ipv4 "$gateway" || fail "line $line_no: invalid gateway $gateway"
+                [ -z "$gateway" ] || valid_ipv4 "$gateway" || fail "line $line_no: invalid gateway $gateway"
                 valid_interface "$device" || fail "line $line_no: invalid route interface $device"
-                case "$metric" in ''|*[!0-9]*) fail "line $line_no: invalid metric $metric" ;; esac
+                case "$metric" in *[!0-9]*) fail "line $line_no: invalid metric $metric" ;; esac
+                [ -z "$source" ] || valid_ipv4 "$source" || fail "line $line_no: invalid route source $source"
                 [ -z "$extra" ] || fail "line $line_no: too many fields"
                 ip link show "$device" >/dev/null 2>&1 || fail "line $line_no: interface $device does not exist"
                 ;;
@@ -144,10 +146,16 @@ apply_config()
     done < "$file"
 
     ip -4 route flush proto "$MANAGED_ROUTE_PROTO" 2>/dev/null || true
-    while IFS='|' read -r kind destination gateway device metric extra || [ -n "${kind}${destination}${gateway}${device}${metric}${extra}" ]; do
+    while IFS='|' read -r kind destination gateway device metric source extra || [ -n "${kind}${destination}${gateway}${device}${metric}${source}${extra}" ]; do
         [ "$kind" = "ROUTE" ] || continue
-        ip route replace "$destination" via "$gateway" dev "$device" metric "$metric" proto "$MANAGED_ROUTE_PROTO"
-        echo "applied route $destination via $gateway dev $device metric $metric"
+        set -- "$destination"
+        [ -z "$gateway" ] || set -- "$@" via "$gateway"
+        set -- "$@" dev "$device"
+        [ -z "$source" ] || set -- "$@" src "$source"
+        [ -z "$metric" ] || set -- "$@" metric "$metric"
+        set -- "$@" proto "$MANAGED_ROUTE_PROTO"
+        ip route replace "$@"
+        echo "applied route $*"
     done < "$file"
 }
 

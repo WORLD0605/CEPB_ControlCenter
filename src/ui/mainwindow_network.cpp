@@ -31,7 +31,7 @@
 
 namespace {
 enum InterfaceColumn { IfName, IfLink, IfMac, IfCurrent, IfTarget, IfPrefix, IfColumnCount };
-enum RouteColumn { RouteDestination, RouteGateway, RouteDevice, RouteMetric, RouteColumnCount };
+enum RouteColumn { RouteDestination, RouteGateway, RouteDevice, RouteMetric, RouteSource, RouteColumnCount };
 
 QTableWidgetItem *readOnlyItem(const QString &text)
 {
@@ -124,8 +124,9 @@ void MainWindow::setupNetworkPage()
     layout->addLayout(routeToolbar);
 
     m_networkRouteTable = new QTableWidget(0, RouteColumnCount, m_networkConfigPage);
-    m_networkRouteTable->setHorizontalHeaderLabels({QStringLiteral("目标网络/CIDR"), QStringLiteral("网关"),
-                                                     QStringLiteral("出口网口"), QStringLiteral("Metric")});
+    m_networkRouteTable->setHorizontalHeaderLabels(
+        {QStringLiteral("目标网络/CIDR"), QStringLiteral("网关（直连留空）"),
+         QStringLiteral("出口网口"), QStringLiteral("Metric（可选）"), QStringLiteral("源 IPv4（可选）")});
     m_networkRouteTable->verticalHeader()->setVisible(false);
     m_networkRouteTable->setAlternatingRowColors(true);
     m_networkRouteTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -176,9 +177,10 @@ void MainWindow::onAddNetworkRouteClicked()
     const int row = m_networkRouteTable->rowCount();
     m_networkRouteTable->insertRow(row);
     m_networkRouteTable->setItem(row, RouteDestination, new QTableWidgetItem(QStringLiteral("10.0.0.0/8")));
-    m_networkRouteTable->setItem(row, RouteGateway, new QTableWidgetItem(QStringLiteral("192.168.0.1")));
+    m_networkRouteTable->setItem(row, RouteGateway, new QTableWidgetItem());
     m_networkRouteTable->setItem(row, RouteDevice, new QTableWidgetItem(QStringLiteral("eth0")));
     m_networkRouteTable->setItem(row, RouteMetric, new QTableWidgetItem(QStringLiteral("100")));
+    m_networkRouteTable->setItem(row, RouteSource, new QTableWidgetItem());
 }
 
 void MainWindow::onDeleteNetworkRouteClicked()
@@ -224,19 +226,40 @@ bool MainWindow::validateNetworkConfig(QString *errorMessage) const
             if (errorMessage) *errorMessage = QStringLiteral("第 %1 条路由目标无效：%2").arg(row + 1).arg(destination);
             return false;
         }
-        if (!isIpv4(value(RouteGateway))) {
+        const QString gateway = value(RouteGateway);
+        if (!gateway.isEmpty() && !isIpv4(gateway)) {
             if (errorMessage) *errorMessage = QStringLiteral("第 %1 条路由网关无效").arg(row + 1);
             return false;
         }
-        if (!devicePattern.match(value(RouteDevice)).hasMatch()) {
+        const QString device = value(RouteDevice);
+        if (!devicePattern.match(device).hasMatch()) {
             if (errorMessage) *errorMessage = QStringLiteral("第 %1 条路由出口必须为 eth0～eth7").arg(row + 1);
             return false;
         }
-        bool metricOk = false;
-        const int metric = value(RouteMetric).toInt(&metricOk);
+        const QString metricText = value(RouteMetric);
+        bool metricOk = true;
+        const int metric = metricText.isEmpty() ? 0 : metricText.toInt(&metricOk);
         if (!metricOk || metric < 0) {
             if (errorMessage) *errorMessage = QStringLiteral("第 %1 条路由 Metric 无效").arg(row + 1);
             return false;
+        }
+        const QString source = value(RouteSource);
+        if (!source.isEmpty() && !isIpv4(source)) {
+            if (errorMessage) *errorMessage = QStringLiteral("第 %1 条路由源 IPv4 无效").arg(row + 1);
+            return false;
+        }
+        if (!source.isEmpty()) {
+            const int interfaceRow = device.mid(3).toInt();
+            const QString interfaceAddress =
+                m_networkInterfaceTable->item(interfaceRow, IfTarget)->text().trimmed();
+            if (source != interfaceAddress) {
+                if (errorMessage) {
+                    *errorMessage = QStringLiteral("第 %1 条路由源 IPv4 必须是 %2 的目标 IPv4：%3")
+                                        .arg(row + 1)
+                                        .arg(device, interfaceAddress);
+                }
+                return false;
+            }
         }
     }
     return true;
@@ -276,8 +299,12 @@ bool MainWindow::loadNetworkConfigData(const QByteArray &data, QString *errorMes
         }
         if (fields.value(0) == QStringLiteral("INTERFACE") && fields.size() == 4)
             interfaces.insert(fields.at(1), qMakePair(fields.at(2), fields.at(3)));
-        else if (fields.value(0) == QStringLiteral("ROUTE") && fields.size() == 5)
-            routes.append(fields.mid(1));
+        else if (fields.value(0) == QStringLiteral("ROUTE")
+                 && (fields.size() == 5 || fields.size() == 6)) {
+            QStringList route = fields.mid(1);
+            while (route.size() < RouteColumnCount) route.append(QString());
+            routes.append(route);
+        }
     }
     for (int row = 0; row < 8; ++row) {
         const QString name = QStringLiteral("eth%1").arg(row);
