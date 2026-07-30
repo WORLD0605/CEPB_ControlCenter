@@ -352,36 +352,30 @@ void clearTabWidgetPages(QTabWidget *tabs)
 QFrame *createLogicMetricPanel(const QString &title,
                                const QString &value,
                                const QString &unit,
-                               const QString &accentColor,
+                               const QString &accentRole,
                                QWidget *parent)
 {
     auto *panel = new QFrame(parent);
     panel->setObjectName(QStringLiteral("logicMetricPanel"));
     panel->setFrameShape(QFrame::StyledPanel);
-    panel->setStyleSheet(QStringLiteral(
-        "QFrame#logicMetricPanel {"
-        "  border: 1px solid #c6d3df;"
-        "  border-radius: 6px;"
-        "  background: #ffffff;"
-        "}"
-    ));
 
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(14, 12, 14, 12);
     layout->setSpacing(6);
 
     auto *titleLabel = new QLabel(title, panel);
-    titleLabel->setStyleSheet(QStringLiteral("color: #5d6b78; font-size: 12px;"));
+    titleLabel->setObjectName(QStringLiteral("logicCardCaption"));
     layout->addWidget(titleLabel);
 
     auto *valueLabel = new QLabel(value.isEmpty() ? QStringLiteral("-") : value, panel);
-    valueLabel->setStyleSheet(QStringLiteral("color: %1; font-size: 26px; font-weight: 700;").arg(accentColor));
+    valueLabel->setObjectName(QStringLiteral("logicMetricValue"));
+    valueLabel->setProperty("logicAccent", accentRole);
     valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(valueLabel);
 
     if (!unit.isEmpty()) {
         auto *unitLabel = new QLabel(unit, panel);
-        unitLabel->setStyleSheet(QStringLiteral("color: #7c8792; font-size: 12px;"));
+        unitLabel->setObjectName(QStringLiteral("logicCardUnit"));
         layout->addWidget(unitLabel);
     }
 
@@ -401,17 +395,6 @@ ClickableFrame *createLogicGateButton(const QString &label,
     auto *panel = new ClickableFrame(parent);
     panel->setObjectName(QStringLiteral("logicGateLampPanel"));
     panel->setCursor(Qt::PointingHandCursor);
-    panel->setStyleSheet(QStringLiteral(
-        "QFrame#logicGateLampPanel {"
-        "  border: 1px solid #c6d3df;"
-        "  border-radius: 6px;"
-        "  background: #ffffff;"
-        "}"
-        "QFrame#logicGateLampPanel:hover {"
-        "  border-color: #4d8fd5;"
-        "  background: #f5faff;"
-        "}"
-    ));
     panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     panel->setMinimumHeight(76);
     panel->setToolTip(QStringLiteral("点击发送 datawrite 翻转 %1").arg(label));
@@ -434,7 +417,7 @@ ClickableFrame *createLogicGateButton(const QString &label,
     textLayout->setSpacing(4);
 
     auto *nameLabel = new QLabel(label, panel);
-    nameLabel->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: 700; color: #111827;"));
+    nameLabel->setObjectName(QStringLiteral("logicGateName"));
     textLayout->addWidget(nameLabel);
 
     auto *statusLabel = new QLabel(QStringLiteral("%1  value=%2").arg(text, value.isEmpty() ? QStringLiteral("-") : value), panel);
@@ -456,20 +439,13 @@ QWidget *createLogicGateSection(const QString &title,
     const QHash<QString, QString> fields = parseAgcAvcParams(params);
     auto *section = new QFrame(parent);
     section->setObjectName(QStringLiteral("logicGateSection"));
-    section->setStyleSheet(QStringLiteral(
-        "QFrame#logicGateSection {"
-        "  border: 1px solid #d6e0ea;"
-        "  border-radius: 6px;"
-        "  background: #f8fafc;"
-        "}"
-    ));
 
     auto *layout = new QVBoxLayout(section);
     layout->setContentsMargins(14, 12, 14, 14);
     layout->setSpacing(10);
 
     auto *titleLabel = new QLabel(title, section);
-    titleLabel->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+    titleLabel->setObjectName(QStringLiteral("logicGateSectionTitle"));
     layout->addWidget(titleLabel);
 
     auto *grid = new QGridLayout();
@@ -1937,13 +1913,6 @@ void MainWindow::populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &it
 
         auto *summary = new QFrame(page);
         summary->setObjectName(QStringLiteral("logicSummaryPanel"));
-        summary->setStyleSheet(QStringLiteral(
-            "QFrame#logicSummaryPanel {"
-            "  border: 1px solid #c6d3df;"
-            "  border-radius: 6px;"
-            "  background: #ffffff;"
-            "}"
-        ));
         auto *summaryLayout = new QGridLayout(summary);
         summaryLayout->setContentsMargins(14, 12, 14, 12);
         summaryLayout->setHorizontalSpacing(22);
@@ -1960,12 +1929,12 @@ void MainWindow::populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &it
         };
         for (int index = 0; index < summaryFields.size(); ++index) {
             auto *nameLabel = new QLabel(summaryFields.at(index).first, summary);
-            nameLabel->setStyleSheet(QStringLiteral("color: #607080; font-size: 12px;"));
+            nameLabel->setObjectName(QStringLiteral("logicCardCaption"));
             auto *valueLabel = new QLabel(summaryFields.at(index).second.isEmpty()
                                               ? QStringLiteral("-")
                                               : summaryFields.at(index).second,
                                           summary);
-            valueLabel->setStyleSheet(QStringLiteral("font-size: 15px; font-weight: 700;"));
+            valueLabel->setObjectName(QStringLiteral("logicSummaryValue"));
             valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
             const int row = index / 3;
             const int column = (index % 3) * 2;
@@ -1980,28 +1949,28 @@ void MainWindow::populateLogicAgcAvcTable(const QList<LogicAgcAvcStatusItem> &it
         metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("AGC Target"),
                                                      item.agcTarget,
                                                      QStringLiteral("目标有功"),
-                                                     QStringLiteral("#1b5fa7"),
+                                                     QStringLiteral("blue"),
                                                      page),
                               0,
                               0);
         metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("实时总有功"),
                                                      item.totalP,
                                                      QStringLiteral("AGC 实时值"),
-                                                     QStringLiteral("#188038"),
+                                                     QStringLiteral("green"),
                                                      page),
                               0,
                               1);
         metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("AVC Target"),
                                                      item.avcTarget,
                                                      QStringLiteral("目标无功"),
-                                                     QStringLiteral("#6d4bc2"),
+                                                     QStringLiteral("purple"),
                                                      page),
                               0,
                               2);
         metricGrid->addWidget(createLogicMetricPanel(QStringLiteral("实时总无功"),
                                                      item.totalQ,
                                                      QStringLiteral("AVC 实时值"),
-                                                     QStringLiteral("#188038"),
+                                                     QStringLiteral("green"),
                                                      page),
                               0,
                               3);
