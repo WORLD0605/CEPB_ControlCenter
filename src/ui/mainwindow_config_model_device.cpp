@@ -808,6 +808,8 @@ void MainWindow::onModelFieldEdited()
     }
     if (sender() == m_modelNorthVisibleCheck) {
         refreshModelDetail(modelIndex);
+        refreshIec101PointsFromDevices();
+        refreshIec104PointsFromDevices();
     }
     if (renamedReferenceCount > 0) {
         statusBar()->showMessage(QStringLiteral("已同步更新 %1 处模型引用").arg(renamedReferenceCount), 5000);
@@ -2244,6 +2246,10 @@ void MainWindow::onModelPointItemChanged(QTableWidgetItem *item)
     refreshModelDetail(modelIndex);
     selectModelPointById(pointId);
     m_modelPointsTable->setCurrentCell(editedRow, editedColumn);
+    if (editedColumn == ModelPointColumnNorthVisible) {
+        refreshIec101PointsFromDevices();
+        refreshIec104PointsFromDevices();
+    }
 }
 
 void MainWindow::applyModelPointCellText(int row, int column, const QString &text)

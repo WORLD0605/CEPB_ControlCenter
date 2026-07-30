@@ -778,6 +778,32 @@ inline const configtool::ModelTemplate *findModelById(const configtool::ConfigPr
     return nullptr;
 }
 
+inline bool isBindingNorthVisible(const configtool::ModelTemplate &model,
+                                  const configtool::PointBinding &binding)
+{
+    if (!model.northVisible) {
+        return false;
+    }
+
+    const QString bindingPointRef = binding.pointRef.trimmed();
+    const QString bindingDataRef = binding.dataRef.trimmed();
+    for (const configtool::ServiceTemplate &service : model.services) {
+        for (const configtool::PointTemplate &point : service.points) {
+            if ((!bindingPointRef.isEmpty()
+                 && point.pointRef(model.modelId).trimmed() == bindingPointRef)
+                || (bindingPointRef.isEmpty()
+                    && !bindingDataRef.isEmpty()
+                    && point.dataRef().trimmed() == bindingDataRef)) {
+                return point.northVisible;
+            }
+        }
+    }
+
+    // 历史工程可能存在无法回溯到模型点的绑定；保持原有候选行为，
+    // 仅过滤能够明确判定为北向不可见的模型点。
+    return true;
+}
+
 inline const configtool::ProtocolDeviceInstance *findDeviceById(const configtool::ConfigProject &project,
                                                          const QString &deviceId)
 {

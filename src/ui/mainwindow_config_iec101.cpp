@@ -130,29 +130,32 @@ void MainWindow::refreshIec101PointsFromDevices(const QHash<QString, QJsonObject
     QHash<QString, DevicePoint> devicePointsByKey;
     QStringList devicePointOrder;
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        const configtool::ModelTemplate *deviceModel = findModelById(project, device.modelId);
+        if (deviceModel && !deviceModel->northVisible) {
+            continue;
+        }
+
         // 预解析设备模型，建立 pointRef → category 映射
         QHash<QString, int> pointCategoryMap;
         QHash<QString, bool> pointRemoteAdjustMap;
         QHash<QString, QString> pointMinMap;
         QHash<QString, QString> pointMaxMap;
-        for (const configtool::ModelTemplate &model : project.models) {
-            if (model.modelId != device.modelId) {
-                continue;
-            }
-            for (const configtool::ServiceTemplate &service : model.services) {
+        if (deviceModel) {
+            for (const configtool::ServiceTemplate &service : deviceModel->services) {
                 for (const configtool::PointTemplate &pt : service.points) {
-                    pointCategoryMap[pt.pointRef(model.modelId)] = static_cast<int>(pt.category);
-                    pointRemoteAdjustMap[pt.pointRef(model.modelId)] =
+                    pointCategoryMap[pt.pointRef(deviceModel->modelId)] = static_cast<int>(pt.category);
+                    pointRemoteAdjustMap[pt.pointRef(deviceModel->modelId)] =
                         pt.category == configtool::ModelServiceType::Control
                         && pt.controlKind == configtool::ControlKind::RemoteAdjust;
-                    pointMinMap[pt.pointRef(model.modelId)] = pt.min.trimmed();
-                    pointMaxMap[pt.pointRef(model.modelId)] = pt.max.trimmed();
+                    pointMinMap[pt.pointRef(deviceModel->modelId)] = pt.min.trimmed();
+                    pointMaxMap[pt.pointRef(deviceModel->modelId)] = pt.max.trimmed();
                 }
             }
         }
 
         for (const configtool::PointBinding &binding : device.bindings) {
-            if (!binding.enabled) {
+            if (!binding.enabled
+                || (deviceModel && !isBindingNorthVisible(*deviceModel, binding))) {
                 continue;
             }
             DevicePoint dp;

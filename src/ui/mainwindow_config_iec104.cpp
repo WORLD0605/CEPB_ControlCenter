@@ -319,21 +319,24 @@ void MainWindow::refreshIec104PointsFromDevices(const QHash<QString, QJsonObject
     QHash<QString, DevicePoint> devicePointsByKey;
     QStringList devicePointOrder;
     for (const configtool::ProtocolDeviceInstance &device : project.devices) {
+        const configtool::ModelTemplate *deviceModel = findModelById(project, device.modelId);
+        if (deviceModel && !deviceModel->northVisible) {
+            continue;
+        }
+
         // 预解析设备模型，建立 pointRef → category 映射
         QHash<QString, int> pointCategoryMap;
-        for (const configtool::ModelTemplate &model : project.models) {
-            if (model.modelId != device.modelId) {
-                continue;
-            }
-            for (const configtool::ServiceTemplate &service : model.services) {
+        if (deviceModel) {
+            for (const configtool::ServiceTemplate &service : deviceModel->services) {
                 for (const configtool::PointTemplate &pt : service.points) {
-                    pointCategoryMap[pt.pointRef(model.modelId)] = static_cast<int>(pt.category);
+                    pointCategoryMap[pt.pointRef(deviceModel->modelId)] = static_cast<int>(pt.category);
                 }
             }
         }
 
         for (const configtool::PointBinding &binding : device.bindings) {
-            if (!binding.enabled) {
+            if (!binding.enabled
+                || (deviceModel && !isBindingNorthVisible(*deviceModel, binding))) {
                 continue;
             }
             DevicePoint dp;
