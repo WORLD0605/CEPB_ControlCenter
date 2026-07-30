@@ -45,6 +45,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QScopedValueRollback>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSizePolicy>

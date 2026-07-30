@@ -1956,12 +1956,13 @@ void MainWindow::refreshLogicControlRulePage()
         return;
     }
 
+    QScopedValueRollback<bool> updatingGuard(m_updatingLogicControlRulePage, true);
+    const QSignalBlocker signalBlocker(m_logicControlRuleTable);
     const int previousRow = currentLogicControlRuleIndex();
     const QList<configtool::LogicControlRule> &rules =
         m_configProjectManager.project().logicCenter.controlRules;
     const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
-    m_updatingLogicControlRulePage = true;
     m_logicControlRuleTable->setRowCount(rules.size());
     for (int row = 0; row < rules.size(); ++row) {
         const configtool::LogicControlRule &rule = rules.at(row);
@@ -1984,8 +1985,6 @@ void MainWindow::refreshLogicControlRulePage()
             m_logicControlRuleTable->setItem(row, column, item);
         }
     }
-    m_updatingLogicControlRulePage = false;
-
     if (previousRow >= 0 && previousRow < rules.size()) {
         m_logicControlRuleTable->selectRow(previousRow);
     } else if (!rules.isEmpty()) {
@@ -2002,15 +2001,15 @@ void MainWindow::refreshLogicControlTargetTable()
         return;
     }
 
+    QScopedValueRollback<bool> updatingGuard(m_updatingLogicControlRulePage, true);
+    const QSignalBlocker signalBlocker(m_logicControlTargetTable);
     const int ruleIndex = currentLogicControlRuleIndex();
     const QList<configtool::LogicControlRule> &rules =
         m_configProjectManager.project().logicCenter.controlRules;
     const LogicPointDisplayResolver displayResolver(m_configProjectManager.project());
 
-    m_updatingLogicControlRulePage = true;
     if (ruleIndex < 0 || ruleIndex >= rules.size()) {
         m_logicControlTargetTable->setRowCount(0);
-        m_updatingLogicControlRulePage = false;
         refreshLogicControlPreview();
         return;
     }
@@ -2108,7 +2107,6 @@ void MainWindow::refreshLogicControlTargetTable()
         hideComboBackedItemText(m_logicControlTargetTable->item(row, LogicControlTargetColumnType));
         m_logicControlTargetTable->setCellWidget(row, LogicControlTargetColumnType, typeCombo);
     }
-    m_updatingLogicControlRulePage = false;
     refreshLogicControlPreview();
 }
 
@@ -2231,18 +2229,18 @@ void MainWindow::onLogicControlRuleItemChanged(QTableWidgetItem *item)
     if (row < 0 || row >= logic.controlRules.size()) {
         return;
     }
+    if (column != LogicControlRuleColumnDevice
+        && column != LogicControlRuleColumnDescription) {
+        return;
+    }
 
     pushConfigUndoSnapshot();
     configtool::LogicControlRule &rule = logic.controlRules[row];
     const QString text = item->text().trimmed();
     if (column == LogicControlRuleColumnDevice) {
         rule.matchDeviceId = text;
-    } else if (column == LogicControlRuleColumnPoint) {
-        rule.matchDataRef = text;
-    } else if (column == LogicControlRuleColumnDescription) {
-        rule.description = text;
     } else {
-        return;
+        rule.description = text;
     }
 
     refreshLogicCenterOverview();
@@ -2266,18 +2264,18 @@ void MainWindow::onLogicControlTargetItemChanged(QTableWidgetItem *item)
         || row < 0 || row >= logic.controlRules.at(ruleIndex).targets.size()) {
         return;
     }
+    if (column != LogicControlTargetColumnDevice
+        && column != LogicControlTargetColumnExpr) {
+        return;
+    }
 
     pushConfigUndoSnapshot();
     configtool::LogicControlTarget &target = logic.controlRules[ruleIndex].targets[row];
     const QString text = item->text().trimmed();
     if (column == LogicControlTargetColumnDevice) {
         target.deviceId = text;
-    } else if (column == LogicControlTargetColumnPoint) {
-        target.dataRef = text;
-    } else if (column == LogicControlTargetColumnExpr) {
-        target.expr = text;
     } else {
-        return;
+        target.expr = text;
     }
 
     refreshLogicCenterOverview();
