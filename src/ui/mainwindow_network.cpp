@@ -30,8 +30,9 @@
 #include <QVBoxLayout>
 
 namespace {
-enum InterfaceColumn { IfName, IfLink, IfMac, IfCurrent, IfTarget, IfPrefix, IfColumnCount };
+enum InterfaceColumn { IfName, IfLink, IfMac, IfAddress, IfPrefix, IfColumnCount };
 enum RouteColumn { RouteDestination, RouteGateway, RouteDevice, RouteMetric, RouteSource, RouteColumnCount };
+constexpr int LastReadAddressRole = Qt::UserRole;
 
 QTableWidgetItem *readOnlyItem(const QString &text)
 {
@@ -68,7 +69,8 @@ void MainWindow::setupNetworkPage()
     layout->addLayout(toolbar);
 
     auto *hint = new QLabel(QStringLiteral(
-        "应用会持久化到 /etc/cepb/network.conf。修改当前 SSH 所在网口后连接会切换到新的设备IP。"),
+        "读取后可直接在 IP 列修改网口地址；应用会持久化到 /etc/cepb/network.conf。"
+        "修改当前 SSH 所在网口后连接会切换到新的设备IP。"),
         m_networkConfigPage);
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -92,8 +94,8 @@ void MainWindow::setupNetworkPage()
     layout->addWidget(new QLabel(QStringLiteral("网口配置"), m_networkConfigPage));
     m_networkInterfaceTable = new QTableWidget(8, IfColumnCount, m_networkConfigPage);
     m_networkInterfaceTable->setHorizontalHeaderLabels({QStringLiteral("网口"), QStringLiteral("链路"),
-                                                         QStringLiteral("MAC"), QStringLiteral("当前 IPv4"),
-                                                         QStringLiteral("目标 IPv4"), QStringLiteral("前缀")});
+                                                         QStringLiteral("MAC"), QStringLiteral("IP"),
+                                                         QStringLiteral("前缀")});
     m_networkInterfaceTable->verticalHeader()->setVisible(false);
     m_networkInterfaceTable->setAlternatingRowColors(true);
     m_networkInterfaceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -102,13 +104,11 @@ void MainWindow::setupNetworkPage()
     m_networkInterfaceTable->setColumnWidth(1, 80);
     m_networkInterfaceTable->setColumnWidth(2, 160);
     m_networkInterfaceTable->setColumnWidth(3, 150);
-    m_networkInterfaceTable->setColumnWidth(4, 150);
     for (int row = 0; row < 8; ++row) {
         m_networkInterfaceTable->setItem(row, IfName, readOnlyItem(QStringLiteral("eth%1").arg(row)));
         m_networkInterfaceTable->setItem(row, IfLink, readOnlyItem(QStringLiteral("-")));
         m_networkInterfaceTable->setItem(row, IfMac, readOnlyItem(QStringLiteral("-")));
-        m_networkInterfaceTable->setItem(row, IfCurrent, readOnlyItem(QStringLiteral("-")));
-        m_networkInterfaceTable->setItem(row, IfTarget,
+        m_networkInterfaceTable->setItem(row, IfAddress,
                                          new QTableWidgetItem(QStringLiteral("192.168.%1.10").arg(row)));
         m_networkInterfaceTable->setItem(row, IfPrefix, new QTableWidgetItem(QStringLiteral("24")));
     }
@@ -194,11 +194,11 @@ bool MainWindow::validateNetworkConfig(QString *errorMessage) const
     QSet<QString> addresses;
     for (int row = 0; row < 8; ++row) {
         const QString name = m_networkInterfaceTable->item(row, IfName)->text();
-        const QString address = m_networkInterfaceTable->item(row, IfTarget)->text().trimmed();
+        const QString address = m_networkInterfaceTable->item(row, IfAddress)->text().trimmed();
         bool prefixOk = false;
         const int prefix = m_networkInterfaceTable->item(row, IfPrefix)->text().trimmed().toInt(&prefixOk);
         if (!isIpv4(address)) {
-            if (errorMessage) *errorMessage = QStringLiteral("%1 的目标 IPv4 无效：%2").arg(name, address);
+            if (errorMessage) *errorMessage = QStringLiteral("%1 的 IP 无效：%2").arg(name, address);
             return false;
         }
         if (!prefixOk || prefix < 1 || prefix > 32) {
@@ -251,10 +251,10 @@ bool MainWindow::validateNetworkConfig(QString *errorMessage) const
         if (!source.isEmpty()) {
             const int interfaceRow = device.mid(3).toInt();
             const QString interfaceAddress =
-                m_networkInterfaceTable->item(interfaceRow, IfTarget)->text().trimmed();
+                m_networkInterfaceTable->item(interfaceRow, IfAddress)->text().trimmed();
             if (source != interfaceAddress) {
                 if (errorMessage) {
-                    *errorMessage = QStringLiteral("第 %1 条路由源 IPv4 必须是 %2 的目标 IPv4：%3")
+                    *errorMessage = QStringLiteral("第 %1 条路由源 IPv4 必须是 %2 的 IP：%3")
                                         .arg(row + 1)
                                         .arg(device, interfaceAddress);
                 }
@@ -271,7 +271,7 @@ QByteArray MainWindow::serializeNetworkConfig() const
     for (int row = 0; row < 8; ++row) {
         data += QStringLiteral("INTERFACE|%1|%2|%3\n")
                     .arg(m_networkInterfaceTable->item(row, IfName)->text(),
-                         m_networkInterfaceTable->item(row, IfTarget)->text().trimmed(),
+                         m_networkInterfaceTable->item(row, IfAddress)->text().trimmed(),
                          m_networkInterfaceTable->item(row, IfPrefix)->text().trimmed()).toUtf8();
     }
     for (int row = 0; row < m_networkRouteTable->rowCount(); ++row) {
@@ -312,7 +312,7 @@ bool MainWindow::loadNetworkConfigData(const QByteArray &data, QString *errorMes
             if (errorMessage) *errorMessage = QStringLiteral("配置缺少 %1").arg(name);
             return false;
         }
-        m_networkInterfaceTable->item(row, IfTarget)->setText(interfaces.value(name).first);
+        m_networkInterfaceTable->item(row, IfAddress)->setText(interfaces.value(name).first);
         m_networkInterfaceTable->item(row, IfPrefix)->setText(interfaces.value(name).second);
     }
     m_networkRouteTable->setRowCount(0);
@@ -350,6 +350,7 @@ void MainWindow::onReadNetworkConfigClicked()
         return;
     }
     QByteArray persistentConfig;
+    QHash<int, QStringList> liveInterfaces;
     for (const QString &line : result.output.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
         if (line.startsWith(QStringLiteral("CF|"))) {
             persistentConfig += line.mid(3).toUtf8();
@@ -361,19 +362,34 @@ void MainWindow::onReadNetworkConfigClicked()
         bool rowOk = false;
         const int row = fields.at(1).mid(3).toInt(&rowOk);
         if (!rowOk || row < 0 || row >= 8) continue;
-        const QString cidr = fields.at(4);
-        const int slash = cidr.indexOf(QLatin1Char('/'));
-        m_networkInterfaceTable->item(row, IfLink)->setText(fields.at(2));
-        m_networkInterfaceTable->item(row, IfMac)->setText(fields.at(3));
-        m_networkInterfaceTable->item(row, IfCurrent)->setText(slash > 0 ? cidr.left(slash) : cidr);
-        if (slash > 0) {
-            m_networkInterfaceTable->item(row, IfTarget)->setText(cidr.left(slash));
-            m_networkInterfaceTable->item(row, IfPrefix)->setText(cidr.mid(slash + 1));
-        }
+        liveInterfaces.insert(row, fields);
     }
+    const auto showLiveInterfaces = [this, &liveInterfaces]() {
+        for (int row = 0; row < 8; ++row) {
+            auto *addressItem = m_networkInterfaceTable->item(row, IfAddress);
+            addressItem->setData(LastReadAddressRole, QString());
+            if (!liveInterfaces.contains(row)) {
+                m_networkInterfaceTable->item(row, IfLink)->setText(QStringLiteral("-"));
+                m_networkInterfaceTable->item(row, IfMac)->setText(QStringLiteral("-"));
+                continue;
+            }
+            const QStringList fields = liveInterfaces.value(row);
+            const QString cidr = fields.value(4);
+            const int slash = cidr.indexOf(QLatin1Char('/'));
+            m_networkInterfaceTable->item(row, IfLink)->setText(fields.value(2));
+            m_networkInterfaceTable->item(row, IfMac)->setText(fields.value(3));
+            if (slash > 0) {
+                const QString currentAddress = cidr.left(slash);
+                addressItem->setText(currentAddress);
+                addressItem->setData(LastReadAddressRole, currentAddress);
+                m_networkInterfaceTable->item(row, IfPrefix)->setText(cidr.mid(slash + 1));
+            }
+        }
+    };
     if (!persistentConfig.isEmpty()) {
         QString configError;
         if (!loadNetworkConfigData(persistentConfig, &configError) || !validateNetworkConfig(&configError)) {
+            showLiveInterfaces();
             QMessageBox::warning(m_networkConfigPage,
                                  QStringLiteral("读取网络配置"),
                                  QStringLiteral("实时网络状态已读取，但设备持久化配置无效：\n%1").arg(configError));
@@ -382,7 +398,8 @@ void MainWindow::onReadNetworkConfigClicked()
     } else {
         m_networkRouteTable->setRowCount(0);
     }
-    statusBar()->showMessage(QStringLiteral("设备实时状态和持久化网络配置读取完成"), 5000);
+    showLiveInterfaces();
+    statusBar()->showMessage(QStringLiteral("网络配置读取完成，IP 列显示设备当前地址，可直接修改后应用"), 6000);
 }
 
 bool MainWindow::saveNetworkConfigToProject(QString *errorMessage) const
@@ -468,9 +485,13 @@ void MainWindow::onApplyNetworkConfigClicked()
     }
     const QString oldHost = deviceHost();
     QString newHost = oldHost;
-    for (int row = 0; row < 8; ++row)
-        if (m_networkInterfaceTable->item(row, IfCurrent)->text().trimmed() == oldHost)
-            newHost = m_networkInterfaceTable->item(row, IfTarget)->text().trimmed();
+    for (int row = 0; row < 8; ++row) {
+        const auto *addressItem = m_networkInterfaceTable->item(row, IfAddress);
+        if (addressItem->data(LastReadAddressRole).toString().trimmed() == oldHost) {
+            newHost = addressItem->text().trimmed();
+            break;
+        }
+    }
 
     QString prompt = QStringLiteral("将上传并持久化当前网络配置，然后由设备异步应用。是否继续？");
     if (newHost != oldHost)
@@ -654,6 +675,10 @@ void MainWindow::onApplyNetworkConfigClicked()
         m_loadedNetworkProjectRoot = projectRoot;
     }
     if (newHost != oldHost && m_ipEdit) m_ipEdit->setText(newHost);
+    for (int row = 0; row < 8; ++row) {
+        auto *addressItem = m_networkInterfaceTable->item(row, IfAddress);
+        addressItem->setData(LastReadAddressRole, addressItem->text().trimmed());
+    }
     statusBar()->showMessage(projectSaved
                                  ? QStringLiteral("网络配置已在设备应用成功，并保存到当前项目")
                                  : QStringLiteral("网络配置已在设备应用成功，但项目保存失败"),
